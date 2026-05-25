@@ -189,7 +189,9 @@ jobs:
           echo "VERSION=$VERSION" >> $GITHUB_ENV
 
       - name: Build updater JSON manifest
-        run: .github/scripts/build-updater-json.sh "${{ env.VERSION }}" release-artifacts
+        run: |
+          chmod +x .github/scripts/build-updater-json.sh
+          .github/scripts/build-updater-json.sh "${{ env.VERSION }}" release-artifacts
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
