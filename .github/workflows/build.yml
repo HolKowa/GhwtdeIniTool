@@ -11,6 +11,9 @@ on:
         default: false
         required: false
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -28,18 +31,30 @@ jobs:
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
+        with:
+          version: latest
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
           cache-dependency-path: GhwtdeIniTool/pnpm-lock.yaml
 
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          cache: false # Tauri handles its own caching
+          cache: true
+
+      - name: Cache Rust target directory
+        uses: actions/cache@v4
+        with:
+          path: |
+            GhwtdeIniTool/src-tauri/target/release
+            GhwtdeIniTool/src-tauri/target/release-bundle
+          key: ${{ runner.os }}-tauri-target-${{ hashFiles('GhwtdeIniTool/src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-tauri-target-
 
       - name: Install system dependencies (WebView2)
         run: |
@@ -82,16 +97,30 @@ jobs:
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
+        with:
+          version: latest
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
           cache-dependency-path: GhwtdeIniTool/pnpm-lock.yaml
 
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: true
+
+      - name: Cache Rust target directory
+        uses: actions/cache@v4
+        with:
+          path: |
+            GhwtdeIniTool/src-tauri/target/release
+            GhwtdeIniTool/src-tauri/target/release-bundle
+          key: ${{ runner.os }}-tauri-target-${{ hashFiles('GhwtdeIniTool/src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-tauri-target-
 
       - name: Install system dependencies (Tauri)
         run: |
@@ -112,6 +141,9 @@ jobs:
 
       - name: Build Tauri app
         run: pnpm tauri build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       - name: Upload Linux package (.deb)
         uses: actions/upload-artifact@v4
