@@ -46,6 +46,16 @@ jobs:
         with:
           cache: true
 
+      - name: Cache Rust target directory
+        uses: actions/cache@v4
+        with:
+          path: |
+            GhwtdeIniTool/src-tauri/target/release
+            GhwtdeIniTool/src-tauri/target/release-bundle
+          key: ${{ runner.os }}-tauri-target-${{ hashFiles('GhwtdeIniTool/src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-tauri-target-
+
       - name: Install system dependencies (WebView2)
         run: |
           # WebView2 is pre-installed on Windows GitHub runners
@@ -99,6 +109,18 @@ jobs:
 
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: true
+
+      - name: Cache Rust target directory
+        uses: actions/cache@v4
+        with:
+          path: |
+            GhwtdeIniTool/src-tauri/target/release
+            GhwtdeIniTool/src-tauri/target/release-bundle
+          key: ${{ runner.os }}-tauri-target-${{ hashFiles('GhwtdeIniTool/src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-tauri-target-
 
       - name: Install system dependencies (Tauri)
         run: |
