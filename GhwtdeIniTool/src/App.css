@@ -44,6 +44,146 @@ button {
   margin-right: 5px;
 }
 
+.update-section {
+  margin-top: 2rem;
+  display: flex;
+  justify-content: center;
+}
+
+.update-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  min-width: 280px;
+}
+
+.update-card.checking {
+  color: #888;
+}
+
+.update-card.up-to-date {
+  background: #e6f7e6;
+  color: #2e7d32;
+  border: 1px solid #a5d6a7;
+}
+
+.update-card.available {
+  background: #fff3e0;
+  color: #e65100;
+  border: 1px solid #ffcc80;
+}
+
+.update-card.downloading {
+  background: #e3f2fd;
+  color: #1565c0;
+  border: 1px solid #90caf9;
+}
+
+.update-card.ready {
+  background: #e8f5e9;
+  color: #1b5e20;
+  border: 1px solid #81c784;
+}
+
+.update-card.error {
+  background: #fbe9e7;
+  color: #bf360c;
+  border: 1px solid #ef9a9a;
+}
+
+.update-card.skipped {
+  background: #f5f5f5;
+  color: #666;
+  border: 1px solid #ddd;
+}
+
+.update-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid #ccc;
+  border-top-color: #666;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.progress-bar {
+  width: 100%;
+  height: 8px;
+  background: #e0e0e0;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: #1565c0;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.install-btn {
+  margin-top: 0.25rem;
+  padding: 0.5rem 1.25rem;
+  border: none;
+  border-radius: 6px;
+  background: #2e7d32;
+  color: #fff;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.install-btn:hover {
+  background: #1b5e20;
+}
+
+.update-buttons {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.update-now-btn {
+  padding: 0.5rem 1.25rem;
+  border: none;
+  border-radius: 6px;
+  background: #e65100;
+  color: #fff;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.update-now-btn:hover {
+  background: #bf360c;
+}
+
+.skip-btn {
+  padding: 0.5rem 1.25rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: transparent;
+  color: #666;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.skip-btn:hover {
+  background: #e0e0e0;
+  color: #333;
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     color: #f6f6f6;
@@ -61,5 +201,21 @@ button {
   }
   button:active {
     background-color: #0f0f0f69;
+  }
+
+  .update-card.skipped {
+    background: #3a3a3a;
+    color: #aaa;
+    border: 1px solid #555;
+  }
+
+  .skip-btn {
+    border-color: #555;
+    color: #aaa;
+  }
+
+  .skip-btn:hover {
+    background: #444;
+    color: #ddd;
   }
 }
