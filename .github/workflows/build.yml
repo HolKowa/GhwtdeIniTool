@@ -65,7 +65,7 @@ jobs:
         run: pnpm install
 
       - name: Clean old bundle artifacts (avoid stale version mixing)
-        run: rm -rf src-tauri/target/release/bundle src-tauri/target/release/ghwtdeinitool.exe
+        run: Remove-Item -Recurse -Force src-tauri/target/release/bundle, src-tauri/target/release/ghwtdeinitool.exe -ErrorAction Ignore
 
       - name: Build Tauri app
         run: pnpm tauri build
