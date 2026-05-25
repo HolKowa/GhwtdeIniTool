@@ -1,0 +1,128 @@
+name: Build & Release
+
+on:
+  push:
+    branches: [main, integration]
+  workflow_dispatch:
+    inputs:
+      build-linux:
+        description: Also build for Linux
+        type: boolean
+        default: false
+        required: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: GhwtdeIniTool
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: GhwtdeIniTool/pnpm-lock.yaml
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false # Tauri handles its own caching
+
+      - name: Install system dependencies (WebView2)
+        run: |
+          # WebView2 is pre-installed on Windows GitHub runners
+          echo "WebView2 ready"
+
+      - name: Install frontend dependencies
+        run: pnpm install
+
+      - name: Build Tauri app
+        run: pnpm tauri build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      - name: Upload Windows installer (MSI)
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: GhwtdeIniTool/src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: warn
+
+      - name: Upload Windows portable (EXE)
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-portable
+          path: GhwtdeIniTool/src-tauri/target/release/ghwtdeinitool.exe
+          if-no-files-found: warn
+
+  build-linux:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.build-linux == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: GhwtdeIniTool
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: GhwtdeIniTool/pnpm-lock.yaml
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Install system dependencies (Tauri)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - name: Install frontend dependencies
+        run: pnpm install
+
+      - name: Build Tauri app
+        run: pnpm tauri build
+
+      - name: Upload Linux package (.deb)
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-deb
+          path: GhwtdeIniTool/src-tauri/target/release/bundle/deb/*.deb
+          if-no-files-found: warn
+
+      - name: Upload Linux AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-appimage
+          path: GhwtdeIniTool/src-tauri/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: warn
