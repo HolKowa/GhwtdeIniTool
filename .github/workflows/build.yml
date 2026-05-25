@@ -99,6 +99,7 @@ jobs:
           path: |
             GhwtdeIniTool/src-tauri/target/release/bundle/msi/*.msi
             GhwtdeIniTool/src-tauri/target/release/bundle/msi/*.sig
+            GhwtdeIniTool/src-tauri/target/release/bundle/msi/*.json
           if-no-files-found: warn
 
       - name: Upload Windows portable (EXE)
@@ -206,11 +207,6 @@ jobs:
         run: |
           VERSION=$(grep '"version"' GhwtdeIniTool/src-tauri/tauri.conf.json | sed 's/.*"version": "\(.*\)",/\1/')
           echo "VERSION=$VERSION" >> $GITHUB_ENV
-
-      - name: Build updater JSON manifest
-        run: |
-          chmod +x .github/scripts/build-updater-json.sh
-          .github/scripts/build-updater-json.sh "${{ env.VERSION }}" release-artifacts
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
