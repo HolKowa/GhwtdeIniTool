@@ -41,7 +41,7 @@ jobs:
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          cache: false # Tauri handles its own caching
+          cache: true
 
       - name: Install system dependencies (WebView2)
         run: |
