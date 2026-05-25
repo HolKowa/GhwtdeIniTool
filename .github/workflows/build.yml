@@ -158,3 +158,36 @@ jobs:
           name: linux-appimage
           path: GhwtdeIniTool/src-tauri/target/release/bundle/appimage/*.AppImage
           if-no-files-found: warn
+
+  release:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+
+      - name: Get version from tauri.conf.json
+        run: |
+          VERSION=$(grep '"version"' GhwtdeIniTool/src-tauri/tauri.conf.json | sed 's/.*"version": "\(.*\)",/\1/')
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          name: v${{ env.VERSION }}
+          body: |
+            ## v${{ env.VERSION }}
+          draft: false
+          prerelease: false
+          files: |
+            release-artifacts/**/*
