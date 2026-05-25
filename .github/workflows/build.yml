@@ -64,6 +64,9 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install
 
+      - name: Clean old bundle artifacts (avoid stale version mixing)
+        run: rm -rf src-tauri/target/release/bundle src-tauri/target/release/ghwtdeinitool.exe
+
       - name: Build Tauri app
         run: pnpm tauri build
         env:
@@ -74,7 +77,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer
-          path: GhwtdeIniTool/src-tauri/target/release/bundle/msi/*.msi
+          path: |
+            GhwtdeIniTool/src-tauri/target/release/bundle/msi/*.msi
+            GhwtdeIniTool/src-tauri/target/release/bundle/msi/*.sig
           if-no-files-found: warn
 
       - name: Upload Windows portable (EXE)
@@ -139,6 +144,9 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install
 
+      - name: Clean old bundle artifacts (avoid stale version mixing)
+        run: rm -rf src-tauri/target/release/bundle src-tauri/target/release/ghwtdeinitool
+
       - name: Build Tauri app
         run: pnpm tauri build
         env:
@@ -179,6 +187,9 @@ jobs:
         run: |
           VERSION=$(grep '"version"' GhwtdeIniTool/src-tauri/tauri.conf.json | sed 's/.*"version": "\(.*\)",/\1/')
           echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Build updater JSON manifest
+        run: .github/scripts/build-updater-json.sh "${{ env.VERSION }}" release-artifacts
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
