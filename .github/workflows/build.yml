@@ -29,6 +29,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check signing secrets
+        shell: pwsh
+        run: |
+          $missing = @()
+          if ("${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" -eq "") {
+            $missing += "TAURI_SIGNING_PRIVATE_KEY"
+          } else {
+            Write-Host "TAURI_SIGNING_PRIVATE_KEY is set ✓"
+          }
+          if ("${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}" -eq "") {
+            $missing += "TAURI_SIGNING_PRIVATE_KEY_PASSWORD"
+          } else {
+            Write-Host "TAURI_SIGNING_PRIVATE_KEY_PASSWORD is set ✓"
+          }
+          if ($missing.Count -gt 0) {
+            Write-Host "::error::Missing required secrets: $($missing -join ', ')"
+            exit 1
+          }
+
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -80,6 +99,7 @@ jobs:
           path: |
             GhwtdeIniTool/src-tauri/target/release/bundle/msi/*.msi
             GhwtdeIniTool/src-tauri/target/release/bundle/msi/*.sig
+            GhwtdeIniTool/src-tauri/target/release/bundle/msi/*.json
           if-no-files-found: warn
 
       - name: Upload Windows portable (EXE)
@@ -187,11 +207,6 @@ jobs:
         run: |
           VERSION=$(grep '"version"' GhwtdeIniTool/src-tauri/tauri.conf.json | sed 's/.*"version": "\(.*\)",/\1/')
           echo "VERSION=$VERSION" >> $GITHUB_ENV
-
-      - name: Build updater JSON manifest
-        run: |
-          chmod +x .github/scripts/build-updater-json.sh
-          .github/scripts/build-updater-json.sh "${{ env.VERSION }}" release-artifacts
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
