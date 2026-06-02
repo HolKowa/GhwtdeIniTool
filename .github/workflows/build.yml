@@ -98,7 +98,7 @@ jobs:
         if: github.ref != 'refs/heads/main' || github.event_name != 'push'
         uses: actions/upload-artifact@v4
         with:
-          name: ghwtdeinitool-windows-${{ github.ref_name }}-${{ github.run_number }}
+          name: ghwtdeinitool-windows-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             GhwtdeIniTool/src-tauri/target/release/bundle/**
             GhwtdeIniTool/src-tauri/target/release/ghwtdeinitool.exe
@@ -195,7 +195,7 @@ jobs:
       - name: Upload Linux build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ghwtdeinitool-linux-${{ github.ref_name }}-${{ github.run_number }}
+          name: ghwtdeinitool-linux-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             GhwtdeIniTool/src-tauri/target/release/bundle/**
             GhwtdeIniTool/src-tauri/target/release/ghwtdeinitool
