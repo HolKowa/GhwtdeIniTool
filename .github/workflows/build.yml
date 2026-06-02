@@ -21,6 +21,8 @@ concurrency:
 jobs:
   build-windows:
     runs-on: windows-latest
+    permissions:
+      contents: write
     defaults:
       run:
         working-directory: GhwtdeIniTool
@@ -51,7 +53,7 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: latest
+          version: 11.3.0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -75,39 +77,43 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-tauri-target-
 
-      - name: Install system dependencies (WebView2)
-        run: |
-          # WebView2 is pre-installed on Windows GitHub runners
-          echo "WebView2 ready"
-
       - name: Install frontend dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Clean old bundle artifacts (avoid stale version mixing)
         run: Remove-Item -Recurse -Force src-tauri/target/release/bundle, src-tauri/target/release/ghwtdeinitool.exe -ErrorAction Ignore
 
       - name: Build Tauri app
-        run: pnpm tauri build
+        if: github.ref != 'refs/heads/main' || github.event_name != 'push'
+        uses: tauri-apps/tauri-action@v1
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-
-      - name: Upload Windows installer (MSI)
-        uses: actions/upload-artifact@v4
         with:
-          name: windows-installer
-          path: |
-            GhwtdeIniTool/src-tauri/target/release/bundle/msi/*.msi
-            GhwtdeIniTool/src-tauri/target/release/bundle/msi/*.sig
-            GhwtdeIniTool/src-tauri/target/release/bundle/msi/*.json
-          if-no-files-found: warn
+          projectPath: GhwtdeIniTool
+          tauriScript: pnpm tauri
+          uploadWorkflowArtifacts: true
 
-      - name: Upload Windows portable (EXE)
-        uses: actions/upload-artifact@v4
+      - name: Build and release Tauri app
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          name: windows-portable
-          path: GhwtdeIniTool/src-tauri/target/release/ghwtdeinitool.exe
-          if-no-files-found: warn
+          projectPath: GhwtdeIniTool
+          tauriScript: pnpm tauri
+          tagName: v__VERSION__
+          releaseName: v__VERSION__
+          releaseBody: |
+            ## v__VERSION__
+          releaseDraft: false
+          prerelease: false
+          uploadUpdaterJson: true
+          updaterJsonPreferNsis: false
+          uploadWorkflowArtifacts: true
 
   build-linux:
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.build-linux == 'true'
@@ -123,7 +129,7 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: latest
+          version: 11.3.0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -162,60 +168,18 @@ jobs:
             librsvg2-dev
 
       - name: Install frontend dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Clean old bundle artifacts (avoid stale version mixing)
         run: rm -rf src-tauri/target/release/bundle src-tauri/target/release/ghwtdeinitool
 
       - name: Build Tauri app
-        run: pnpm tauri build
+        uses: tauri-apps/tauri-action@v1
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-
-      - name: Upload Linux package (.deb)
-        uses: actions/upload-artifact@v4
         with:
-          name: linux-deb
-          path: GhwtdeIniTool/src-tauri/target/release/bundle/deb/*.deb
-          if-no-files-found: warn
-
-      - name: Upload Linux AppImage
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-appimage
-          path: GhwtdeIniTool/src-tauri/target/release/bundle/appimage/*.AppImage
-          if-no-files-found: warn
-
-  release:
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    needs: [build-windows]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download all build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: release-artifacts
-
-      - name: Get version from tauri.conf.json
-        run: |
-          VERSION=$(grep '"version"' GhwtdeIniTool/src-tauri/tauri.conf.json | sed 's/.*"version": "\(.*\)",/\1/')
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ env.VERSION }}
-          name: v${{ env.VERSION }}
-          body: |
-            ## v${{ env.VERSION }}
-          draft: false
-          prerelease: false
-          files: |
-            release-artifacts/**/*
+          projectPath: GhwtdeIniTool
+          tauriScript: pnpm tauri
+          uploadWorkflowArtifacts: true
