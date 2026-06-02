@@ -10,7 +10,6 @@ function App() {
     | "available"
     | "downloading"
     | "ready"
-    | "skipped"
     | "none"
     | "error"
   >("checking");
@@ -32,14 +31,15 @@ function App() {
 
       updateRef.current = update;
       setUpdateStatus("available");
-    } catch (err) {
-      setUpdateStatus("error");
-      setErrorMessage(String(err));
+    } catch {
+      updateRef.current = null;
+      setUpdateStatus("none");
     }
   }
 
   async function startDownload(update: Update) {
     setUpdateStatus("downloading");
+    setDownloadProgress(0);
     let downloaded = 0;
     let contentLength = 0;
 
@@ -80,83 +80,93 @@ function App() {
         await relaunch();
       }
     } catch (err) {
+      setUpdateStatus("error");
       setErrorMessage(String(err));
     }
   }
 
   function handleSkip() {
-    setUpdateStatus("skipped");
+    updateRef.current = null;
+    setUpdateStatus("none");
   }
+
+  const shouldShowUpdatePopup =
+    updateStatus === "available" ||
+    updateStatus === "downloading" ||
+    updateStatus === "ready" ||
+    updateStatus === "error";
 
   return (
     <main className="container">
       <h1>GhwtdeIniTool</h1>
       <p>Welcome to GhwtdeIniTool.</p>
 
-      <div className="update-section">
-        {updateStatus === "checking" && (
-          <div className="update-card checking">
-            <span className="update-spinner" />
-            <span>Checking for updates…</span>
-          </div>
-        )}
+      {shouldShowUpdatePopup && (
+        <div className="update-popup-backdrop" role="presentation">
+          <div
+            className={`update-popup ${updateStatus}`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="update-popup-title"
+          >
+            {updateStatus === "available" && (
+              <>
+                <h2 id="update-popup-title">An update is available</h2>
+                <p>A newer version of GhwtdeIniTool is ready to download.</p>
+                <div className="update-buttons">
+                  <button
+                    className="update-now-btn"
+                    onClick={() => {
+                      const update = updateRef.current;
+                      if (update) {
+                        startDownload(update);
+                      }
+                    }}
+                  >
+                    Update
+                  </button>
+                  <button className="skip-btn" onClick={handleSkip}>
+                    Skip
+                  </button>
+                </div>
+              </>
+            )}
 
-        {updateStatus === "none" && (
-          <div className="update-card up-to-date">
-            <span>✓ You're on the latest version</span>
-          </div>
-        )}
+            {updateStatus === "downloading" && (
+              <>
+                <h2 id="update-popup-title">Downloading update</h2>
+                <p>{downloadProgress}% complete</p>
+                <div className="progress-bar">
+                  <div
+                    className="progress-fill"
+                    style={{ width: `${downloadProgress}%` }}
+                  />
+                </div>
+              </>
+            )}
 
-        {updateStatus === "available" && (
-          <div className="update-card available">
-            <span>⬇ An update is available</span>
-            <div className="update-buttons">
-              <button
-                className="update-now-btn"
-                onClick={() => startDownload(updateRef.current!)}
-              >
-                Update Now
-              </button>
-              <button className="skip-btn" onClick={handleSkip}>
-                Skip
-              </button>
-            </div>
-          </div>
-        )}
+            {updateStatus === "ready" && (
+              <>
+                <h2 id="update-popup-title">Update downloaded</h2>
+                <p>Restart GhwtdeIniTool to install the update.</p>
+                <button className="install-btn" onClick={handleInstall}>
+                  Restart & Install
+                </button>
+              </>
+            )}
 
-        {updateStatus === "skipped" && (
-          <div className="update-card skipped">
-            <span>Update skipped — check again on next launch</span>
+            {updateStatus === "error" && (
+              <>
+                <h2 id="update-popup-title">Update failed</h2>
+                <p>{errorMessage}</p>
+                <button className="skip-btn" onClick={handleSkip}>
+                  Close
+                </button>
+              </>
+            )}
           </div>
-        )}
-
-        {updateStatus === "downloading" && (
-          <div className="update-card downloading">
-            <span>Downloading update… {downloadProgress}%</span>
-            <div className="progress-bar">
-              <div
-                className="progress-fill"
-                style={{ width: `${downloadProgress}%` }}
-              />
-            </div>
-          </div>
-        )}
-
-        {updateStatus === "ready" && (
-          <div className="update-card ready">
-            <span>✓ Update downloaded!</span>
-            <button className="install-btn" onClick={handleInstall}>
-              Restart & Install
-            </button>
-          </div>
-        )}
-
-        {updateStatus === "error" && (
-          <div className="update-card error">
-            <span>✗ Update check failed: {errorMessage}</span>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
     </main>
   );
 }
