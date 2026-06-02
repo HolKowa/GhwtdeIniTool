@@ -7,6 +7,12 @@ if [ "$#" -ne 1 ]; then
   exit 1
 fi
 
+if ! command -v jq >/dev/null 2>&1; then
+  echo "jq is required to generate latest.json."
+  echo "Install jq, then rerun this script."
+  exit 1
+fi
+
 VERSION="$1"
 
 if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.+][0-9A-Za-z.-]+)?$ ]]; then
@@ -41,26 +47,31 @@ fi
 mkdir -p "$LOCAL_UPDATER_DIR"
 cp "$DEB_PATH" "$LOCAL_UPDATER_DIR/$DEB_NAME"
 
-node -e "
-const fs = require('node:fs');
-const version = process.argv[1];
-const baseUrl = process.argv[2].replace(/\/$/, '');
-const debName = process.argv[3];
-const sigPath = process.argv[4];
-const outPath = process.argv[5];
-const signature = fs.readFileSync(sigPath, 'utf8').trim();
-const url = baseUrl + '/' + encodeURIComponent(debName);
-const feed = {
-  version,
-  notes: '## v' + version + ' local Linux updater test',
-  pub_date: new Date().toISOString(),
-  platforms: {
-    'linux-x86_64': { signature, url },
-    'linux-x86_64-deb': { signature, url }
-  }
-};
-fs.writeFileSync(outPath, JSON.stringify(feed, null, 2) + '\n');
-" "$VERSION" "$BASE_URL" "$DEB_NAME" "$SIG_PATH" "$LOCAL_UPDATER_DIR/latest.json"
+SIGNATURE="$(tr -d '\r\n' < "$SIG_PATH")"
+UPDATE_URL="$BASE_URL/$DEB_NAME"
+PUB_DATE="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+jq -n \
+  --arg version "$VERSION" \
+  --arg notes "## v$VERSION local Linux updater test" \
+  --arg pub_date "$PUB_DATE" \
+  --arg signature "$SIGNATURE" \
+  --arg url "$UPDATE_URL" \
+  '{
+    version: $version,
+    notes: $notes,
+    pub_date: $pub_date,
+    platforms: {
+      "linux-x86_64": {
+        signature: $signature,
+        url: $url
+      },
+      "linux-x86_64-deb": {
+        signature: $signature,
+        url: $url
+      }
+    }
+  }' > "$LOCAL_UPDATER_DIR/latest.json"
 
 echo "Created local Linux updater fixture:"
 echo "  $LOCAL_UPDATER_DIR/$DEB_NAME"
