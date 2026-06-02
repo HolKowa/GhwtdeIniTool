@@ -85,7 +85,7 @@ jobs:
 
       - name: Build Tauri app
         if: github.ref != 'refs/heads/main' || github.event_name != 'push'
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -97,7 +97,7 @@ jobs:
 
       - name: Build and release Tauri app
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -174,7 +174,7 @@ jobs:
         run: rm -rf src-tauri/target/release/bundle src-tauri/target/release/ghwtdeinitool
 
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
