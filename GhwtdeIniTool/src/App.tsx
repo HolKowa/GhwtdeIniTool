@@ -4,6 +4,18 @@ import type { Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import "./App.css";
 
+function getUpdaterHeaders(): HeadersInit | undefined {
+  const token = import.meta.env.VITE_GITHUB_UPDATER_TOKEN?.trim();
+
+  if (!token) {
+    return undefined;
+  }
+
+  return {
+    Authorization: `Bearer ${token}`,
+  };
+}
+
 function App() {
   const [updateStatus, setUpdateStatus] = useState<
     | "checking"
@@ -24,7 +36,7 @@ function App() {
 
   async function checkForUpdates() {
     try {
-      const update = await check();
+      const update = await check({ headers: getUpdaterHeaders() });
       if (!update) {
         setUpdateStatus("none");
         return;
@@ -44,24 +56,27 @@ function App() {
     let contentLength = 0;
 
     try {
-      await update.download((event) => {
-        switch (event.event) {
-          case "Started":
-            contentLength = event.data.contentLength ?? 0;
-            break;
-          case "Progress":
-            downloaded += event.data.chunkLength;
-            if (contentLength > 0) {
-              setDownloadProgress(
-                Math.round((downloaded / contentLength) * 100)
-              );
-            }
-            break;
-          case "Finished":
-            setDownloadProgress(100);
-            break;
-        }
-      });
+      await update.download(
+        (event) => {
+          switch (event.event) {
+            case "Started":
+              contentLength = event.data.contentLength ?? 0;
+              break;
+            case "Progress":
+              downloaded += event.data.chunkLength;
+              if (contentLength > 0) {
+                setDownloadProgress(
+                  Math.round((downloaded / contentLength) * 100)
+                );
+              }
+              break;
+            case "Finished":
+              setDownloadProgress(100);
+              break;
+          }
+        },
+        { headers: getUpdaterHeaders() }
+      );
 
       setUpdateStatus("ready");
     } catch (err) {
