@@ -85,7 +85,7 @@ jobs:
 
       - name: Build Tauri app
         if: github.ref != 'refs/heads/main' || github.event_name != 'push'
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -93,11 +93,21 @@ jobs:
         with:
           projectPath: GhwtdeIniTool
           tauriScript: pnpm tauri
-          uploadWorkflowArtifacts: true
+
+      - name: Upload Windows build artifacts
+        if: github.ref != 'refs/heads/main' || github.event_name != 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ghwtdeinitool-windows-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            GhwtdeIniTool/src-tauri/target/release/bundle/**
+            GhwtdeIniTool/src-tauri/target/release/ghwtdeinitool.exe
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Build and release Tauri app
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -111,9 +121,8 @@ jobs:
             ## v__VERSION__
           releaseDraft: false
           prerelease: false
-          uploadUpdaterJson: true
+          includeUpdaterJson: true
           updaterJsonPreferNsis: false
-          uploadWorkflowArtifacts: true
 
   build-linux:
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.build-linux == 'true'
@@ -174,7 +183,7 @@ jobs:
         run: rm -rf src-tauri/target/release/bundle src-tauri/target/release/ghwtdeinitool
 
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -182,4 +191,13 @@ jobs:
         with:
           projectPath: GhwtdeIniTool
           tauriScript: pnpm tauri
-          uploadWorkflowArtifacts: true
+
+      - name: Upload Linux build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ghwtdeinitool-linux-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            GhwtdeIniTool/src-tauri/target/release/bundle/**
+            GhwtdeIniTool/src-tauri/target/release/ghwtdeinitool
+          if-no-files-found: error
+          retention-days: 30
