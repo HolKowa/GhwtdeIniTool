@@ -48,16 +48,20 @@ function writeUpdaterConfig() {
   const repository =
     process.env.GHWTDE_UPDATER_REPOSITORY?.trim() ||
     process.env.GITHUB_REPOSITORY?.trim();
+  const endpoint = process.env.GHWTDE_UPDATER_ENDPOINT?.trim();
+  const appVersion = process.env.GHWTDE_APP_VERSION?.trim();
 
-  if (!repository) {
+  if (!endpoint && !repository) {
     return false;
   }
 
   const config = {
+    ...(appVersion ? { version: appVersion } : {}),
     plugins: {
       updater: {
         endpoints: [
-          `https://github.com/${repository}/releases/latest/download/latest.json`,
+          endpoint ||
+            `https://github.com/${repository}/releases/latest/download/latest.json`,
         ],
       },
     },

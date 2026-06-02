@@ -6,6 +6,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "updater:build-linux": "bash scripts/build-local-linux-update.sh",
     "tauri": "node scripts/tauri.ts"
   },
   "dependencies": {
