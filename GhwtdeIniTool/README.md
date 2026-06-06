@@ -61,6 +61,22 @@ pnpm tauri dev
 
 This starts Vite on port `1420` and opens the Tauri window.
 
+## Project Settings INI
+
+The app stores the last selected MODS folder in `ghwtdeinitool.ini` next to the
+running executable.
+
+In development, that file is usually here:
+
+```text
+src-tauri/target/debug/ghwtdeinitool.ini
+```
+
+In production, the file is next to the installed app executable. On Windows,
+that is typically the same directory as `ghwtdeinitool.exe`. If the app is
+installed in a protected location, writing this file may require a writable app
+directory or elevated permissions.
+
 Run only the frontend dev server:
 
 ```sh

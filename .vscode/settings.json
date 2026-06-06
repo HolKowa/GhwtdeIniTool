@@ -1,0 +1,5 @@
+{
+  "rust-analyzer.linkedProjects": [
+    "GhwtdeIniTool/src-tauri/Cargo.toml"
+  ]
+}

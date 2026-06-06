@@ -32,7 +32,22 @@ trivial tasks.
   changes, but leave pre-existing unrelated cleanup for a separate request.
 - Mention unrelated issues you notice instead of quietly changing them.
 
-## 4. Work Toward Verifiable Results
+## 4. Prefer SOLID Design
+
+- Use SOLID as practical guidance, not as a reason to over-abstract small code.
+- Keep modules, components, hooks, commands, and services focused on one clear
+  responsibility.
+- Prefer extending behavior by adding focused collaborators over editing large
+  multi-purpose functions or components.
+- Keep UI, state orchestration, external API calls, parsing, persistence, and
+  platform-specific behavior separated when that separation makes the code
+  easier to read, test, or change.
+- Depend on narrow interfaces or small wrapper functions around external APIs
+  when direct coupling would make behavior hard to validate.
+- Avoid abstractions that only rename existing code or add indirection without
+  reducing meaningful duplication, risk, or complexity.
+
+## 5. Work Toward Verifiable Results
 
 - For fixes, prefer reproducing or identifying the failing behavior first.
 - For new behavior, define what success looks like before implementing.
@@ -47,7 +62,7 @@ cargo check
 
 - If a validation command cannot be run, explain why and name the residual risk.
 
-## 5. Project Context
+## 6. Project Context
 
 - The main app lives in `GhwtdeIniTool/`.
 - The frontend is React, TypeScript, and Vite.
