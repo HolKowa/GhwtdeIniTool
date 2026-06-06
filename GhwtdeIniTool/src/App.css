@@ -138,6 +138,29 @@ button {
   background: #0d47a1;
 }
 
+.primary-btn:disabled,
+.secondary-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.secondary-btn {
+  flex: 0 0 auto;
+  padding: 0.5rem 1rem;
+  border: 1px solid #c7c7c7;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #1f1f1f;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.secondary-btn:hover:not(:disabled) {
+  border-color: #396cd8;
+  background: #f7f9ff;
+}
+
 .settings-row {
   display: flex;
   align-items: flex-start;
@@ -164,6 +187,44 @@ button {
 
 .folder-path.muted {
   color: #777;
+}
+
+.settings-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.5rem;
+}
+
+.settings-field {
+  margin-top: 1.25rem;
+}
+
+.settings-check-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.settings-check-row input {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+}
+
+.settings-input {
+  width: 100%;
+  margin-top: 0.5rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid #c7c7c7;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #1f1f1f;
+  font-size: 0.9rem;
+  box-sizing: border-box;
 }
 
 .settings-error {
@@ -340,6 +401,17 @@ button {
     background: #303030;
   }
 
+  .secondary-btn,
+  .settings-input {
+    background: #242424;
+    color: #f6f6f6;
+    border-color: #555;
+  }
+
+  .secondary-btn:hover:not(:disabled) {
+    background: #303030;
+  }
+
   .close-btn {
     color: #c8c8c8;
   }
@@ -379,7 +451,13 @@ button {
     flex-direction: column;
   }
 
-  .primary-btn {
+  .settings-actions,
+  .primary-btn,
+  .secondary-btn {
     width: 100%;
+  }
+
+  .settings-actions {
+    flex-direction: column;
   }
 }

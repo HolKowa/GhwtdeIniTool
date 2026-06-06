@@ -17,10 +17,14 @@ function App() {
     updateStatus,
   } = useAppUpdater();
   const {
+    chooseCategoriesExtraFolder,
     chooseModsFolder,
+    clearCategoriesExtraFolder,
     isSettingsOpen,
     loadSettings,
     setIsSettingsOpen,
+    setKeepOnlyFilesPattern,
+    setKeepOnlyFilesWithPattern,
     settings,
     settingsError,
     settingsStatus,
@@ -52,12 +56,16 @@ function App() {
       {isSettingsOpen && (
         <SettingsDialog
           canClose={canCloseSettings}
+          onChangeCategoriesExtraFolder={chooseCategoriesExtraFolder}
           onChangeFolder={chooseModsFolder}
+          onClearCategoriesExtraFolder={clearCategoriesExtraFolder}
           onClose={() => {
             if (canCloseSettings) {
               setIsSettingsOpen(false);
             }
           }}
+          onKeepOnlyFilesPatternChange={setKeepOnlyFilesPattern}
+          onKeepOnlyFilesWithPatternChange={setKeepOnlyFilesWithPattern}
           settings={settings}
           settingsError={settingsError}
           settingsStatus={settingsStatus}
