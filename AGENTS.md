@@ -61,6 +61,9 @@ cargo check
 ```
 
 - If a validation command cannot be run, explain why and name the residual risk.
+- After a change is implemented and the relevant validation passes, update
+  `REPOSITORY_STRUCTURE.md` when the change affects app structure, important
+  files, behavior, validation commands, or project workflow.
 
 ## 6. Project Context
 

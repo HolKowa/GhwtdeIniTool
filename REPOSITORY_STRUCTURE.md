@@ -36,18 +36,44 @@ The frontend is a React 19 and TypeScript app built with Vite.
 Important files:
 
 - `GhwtdeIniTool/src/main.tsx` mounts the React application.
-- `GhwtdeIniTool/src/App.tsx` contains the current UI.
+- `GhwtdeIniTool/src/App.tsx` coordinates startup, settings, and update UI.
 - `GhwtdeIniTool/src/App.css` contains the current app styling.
+- `GhwtdeIniTool/src/components/SettingsDialog.tsx` renders project settings.
+- `GhwtdeIniTool/src/components/UpdateDialog.tsx` renders updater states.
+- `GhwtdeIniTool/src/hooks/useProjectSettings.ts` owns settings state and
+  persistence calls.
+- `GhwtdeIniTool/src/hooks/useAppUpdater.ts` owns updater state and actions.
+- `GhwtdeIniTool/src/services/projectSettingsApi.ts` wraps the Tauri settings
+  commands.
+- `GhwtdeIniTool/src/services/modsFolderDialog.ts` wraps Tauri folder pickers.
+- `GhwtdeIniTool/src/types/projectSettings.ts` defines the frontend settings
+  shape returned by Rust.
 - `GhwtdeIniTool/vite.config.ts` configures Vite for Tauri development on port
   `1420`.
 
 Current frontend behavior:
 
-- Shows the `GhwtdeIniTool` welcome screen.
-- Checks for app updates through `@tauri-apps/plugin-updater`.
-- Can download, install, skip, or report errors for updates.
-- Relaunches the app through `@tauri-apps/plugin-process` after installing an
-  update.
+- On React startup, `App.tsx` calls `checkForUpdates()` and `loadSettings()`.
+- Update checks use `@tauri-apps/plugin-updater`. If an update is available,
+  the update dialog can start the download, show percentage progress, install
+  the downloaded update, relaunch through `@tauri-apps/plugin-process`, skip the
+  update, or show an error.
+- If the updater check fails, the frontend currently treats it as no update and
+  does not show an error dialog.
+- Settings are loaded from the Rust `load_project_settings` command.
+- If no MODS folder is configured, or the configured MODS folder is unavailable,
+  settings status becomes `needs-folder` and the settings dialog opens
+  automatically. The dialog cannot be closed until `mods_dir_available` is true.
+- The settings button can reopen the dialog after startup.
+- The settings dialog lets the user choose a MODS folder, choose or clear the
+  extra folder used for moved categories, toggle `Keep only files with pattern`,
+  and edit the comma-separated pattern string.
+- Settings changes are saved immediately through `save_project_settings`; there
+  is no separate Apply or Save button.
+- The frontend default pattern is
+  `song.ini,*_song.pak.xen,*.fsb.xen`, matching the Rust default.
+- The frontend displays unavailable configured folders as muted paths but keeps
+  the stored path visible.
 
 Frontend scripts from `GhwtdeIniTool/package.json`:
 
@@ -75,8 +101,19 @@ Important files:
 
 Current backend behavior:
 
-- Registers the Tauri opener, updater, and process plugins.
-- Exposes a starter `greet` command from Rust.
+- Registers the Tauri opener, updater, process, and dialog plugins.
+- Exposes `load_project_settings` and `save_project_settings` Tauri commands.
+- Stores project settings in `ghwtdeinitool.ini` next to the executable under a
+  `[project]` section.
+- Reads and writes `mods_dir`, `categories_extra_dir`,
+  `keep_only_files_with_pattern`, and `keep_only_files_pattern`.
+- Reports `mods_dir_available` and `categories_extra_dir_available` by checking
+  whether the stored paths still exist as directories.
+- Requires `mods_dir` to be an existing directory before saving settings.
+- Allows `categories_extra_dir` to be empty, but when set it must be an existing
+  directory.
+- Rejects a `categories_extra_dir` that is the MODS folder or inside the MODS
+  folder.
 - Uses `tauri.conf.json` to configure bundling and updater artifacts.
 
 ## Build And Release
