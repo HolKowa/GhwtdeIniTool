@@ -42,12 +42,16 @@ Important files:
 - `GhwtdeIniTool/src/components/UpdateDialog.tsx` renders updater states.
 - `GhwtdeIniTool/src/hooks/useProjectSettings.ts` owns settings state and
   persistence calls.
+- `GhwtdeIniTool/src/hooks/useModsScanner.ts` owns MODS scan action state.
 - `GhwtdeIniTool/src/hooks/useAppUpdater.ts` owns updater state and actions.
 - `GhwtdeIniTool/src/services/projectSettingsApi.ts` wraps the Tauri settings
   commands.
+- `GhwtdeIniTool/src/services/scanModsApi.ts` wraps the Tauri MODS scan
+  command.
 - `GhwtdeIniTool/src/services/modsFolderDialog.ts` wraps Tauri folder pickers.
 - `GhwtdeIniTool/src/types/projectSettings.ts` defines the frontend settings
   shape returned by Rust.
+- `GhwtdeIniTool/src/types/scanMods.ts` defines the frontend MODS scan result.
 - `GhwtdeIniTool/vite.config.ts` configures Vite for Tauri development on port
   `1420`.
 
@@ -65,9 +69,18 @@ Current frontend behavior:
   settings status becomes `needs-folder` and the settings dialog opens
   automatically. The dialog cannot be closed until `mods_dir_available` is true.
 - The settings button can reopen the dialog after startup.
+- The Scan MODS folder button runs a recursive MODS scan from the top-left of
+  the app shell and shows a compact summary of categories found, moved folders,
+  moved files, renamed destinations, and errors.
 - The settings dialog lets the user choose a MODS folder, choose or clear the
   extra folder used for moved categories, toggle `Keep only files with pattern`,
   and edit the comma-separated pattern string.
+- When a configured extra categories folder is available, the MODS scan moves
+  each discovered `category.ini` and sibling `*.img.xen` files into a new folder
+  under the extra folder named after the source category folder. Destination
+  folder conflicts are auto-renamed with a numeric suffix.
+- When no extra categories folder is available, the MODS scan reports discovered
+  categories but does not move files.
 - Settings changes are saved immediately through `save_project_settings`; there
   is no separate Apply or Save button.
 - The frontend default pattern is
@@ -102,7 +115,8 @@ Important files:
 Current backend behavior:
 
 - Registers the Tauri opener, updater, process, and dialog plugins.
-- Exposes `load_project_settings` and `save_project_settings` Tauri commands.
+- Exposes `load_project_settings`, `save_project_settings`, and
+  `scan_mods_folder` Tauri commands.
 - Stores project settings in `ghwtdeinitool.ini` next to the executable under a
   `[project]` section.
 - Reads and writes `mods_dir`, `categories_extra_dir`,
@@ -114,6 +128,9 @@ Current backend behavior:
   directory.
 - Rejects a `categories_extra_dir` that is the MODS folder or inside the MODS
   folder.
+- Recursively scans the MODS folder for `category.ini`; category moves include
+  the INI file and case-insensitive sibling `*.img.xen` files only, leaving
+  source folders in place.
 - Uses `tauri.conf.json` to configure bundling and updater artifacts.
 
 ## Build And Release
@@ -141,7 +158,8 @@ What was checked:
 - No frontend test framework dependency such as Vitest, Jest, Playwright, or
   Testing Library is listed.
 - No `*.test.*` or `*.spec.*` files were found.
-- No Rust `#[test]` functions were found.
+- Rust scan helper tests cover recursive discovery, category-data moves,
+  destination auto-renaming, source-folder preservation, and scan-only behavior.
 
 Useful current validation commands:
 
@@ -149,6 +167,7 @@ Useful current validation commands:
 cd GhwtdeIniTool
 pnpm build
 cd src-tauri
+cargo test
 cargo check
 ```
 

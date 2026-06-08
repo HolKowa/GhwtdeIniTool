@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { UpdateDialog } from "./components/UpdateDialog";
 import { useAppUpdater } from "./hooks/useAppUpdater";
+import { useModsScanner } from "./hooks/useModsScanner";
 import { useProjectSettings } from "./hooks/useProjectSettings";
 import "./App.css";
 
@@ -29,6 +30,7 @@ function App() {
     settingsError,
     settingsStatus,
   } = useProjectSettings();
+  const { scanError, scanMods, scanResult, scanStatus } = useModsScanner();
 
   useEffect(() => {
     checkForUpdates();
@@ -41,9 +43,54 @@ function App() {
     updateStatus === "ready" ||
     updateStatus === "error";
   const canCloseSettings = Boolean(settings?.mods_dir_available);
+  const scanSummary = scanResult
+    ? [
+        `${scanResult.categories_found} categories found`,
+        `${scanResult.category_folders_moved} folders moved`,
+        `${scanResult.files_moved} files moved`,
+        `${scanResult.renamed_destinations} renamed`,
+        `${scanResult.errors.length} errors`,
+      ].join(" | ")
+    : "";
 
   return (
     <main className="container">
+      <div className="scan-panel">
+        <button
+          className="scan-button"
+          type="button"
+          onClick={scanMods}
+          disabled={scanStatus === "scanning"}
+        >
+          {scanStatus === "scanning" ? "Scanning..." : "Scan MODS folder"}
+        </button>
+
+        {(scanStatus === "complete" || scanStatus === "error") && (
+          <div
+            className={`scan-summary ${
+              scanStatus === "error" || scanResult?.errors.length
+                ? "scan-summary-error"
+                : ""
+            }`}
+            role="status"
+          >
+            {scanStatus === "error" ? (
+              <p>{scanError}</p>
+            ) : (
+              <>
+                <p>{scanSummary}</p>
+                {scanResult && !scanResult.moved_categories_enabled && (
+                  <p>Category moving is disabled because no extra folder is available.</p>
+                )}
+                {scanResult?.errors.map((error, index) => (
+                  <p key={`${index}-${error}`}>{error}</p>
+                ))}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
       <button
         className="settings-button"
         type="button"
