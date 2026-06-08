@@ -284,8 +284,8 @@ button {
 
 .scan-wizard-panel {
   display: flex;
-  width: min(100%, 640px);
-  max-height: min(680px, calc(100vh - 3rem));
+  width: min(80vw, calc(100vw - 3rem));
+  height: min(80vh, calc(100vh - 3rem));
   flex-direction: column;
   padding: 1.25rem;
   border: 1px solid #d9d9d9;
@@ -326,7 +326,9 @@ button {
 }
 
 .scan-wizard-body {
+  flex: 1;
   margin-top: 1rem;
+  min-height: 0;
   overflow-y: auto;
 }
 
@@ -349,7 +351,6 @@ button {
 }
 
 .scan-file-list {
-  max-height: 320px;
   margin: 0.75rem 0 0;
   padding: 0;
   border: 1px solid #d9d9d9;
@@ -695,7 +696,8 @@ button {
   }
 
   .scan-wizard-panel {
-    max-height: calc(100vh - 2rem);
+    width: calc(100vw - 2rem);
+    height: calc(100vh - 2rem);
   }
 
   .scan-wizard-actions {

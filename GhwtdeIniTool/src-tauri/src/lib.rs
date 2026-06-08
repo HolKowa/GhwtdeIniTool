@@ -58,7 +58,10 @@ fn load_project_settings() -> Result<ProjectSettings, String> {
         Err(err) => return Err(settings_error(err)),
     };
 
-    Ok(project_settings(settings_path, settings))
+    Ok(project_settings(
+        settings_path,
+        create_missing_extra_dir(settings),
+    ))
 }
 
 #[tauri::command]
@@ -103,7 +106,9 @@ fn scan_settings_paths() -> Result<(PathBuf, Option<PathBuf>), String> {
     let categories_extra_dir = settings
         .categories_extra_dir
         .filter(|path| !path.trim().is_empty())
-        .and_then(|path| existing_dir(path, "Selected extra folder").ok());
+        .and_then(|path| {
+            existing_or_created_extra_dir(path, &mods_dir, "Selected extra folder").ok()
+        });
 
     Ok((mods_dir, categories_extra_dir))
 }
@@ -126,6 +131,33 @@ fn project_settings(settings_path: PathBuf, settings: StoredProjectSettings) -> 
         keep_only_files_pattern: settings.keep_only_files_pattern,
         settings_file: settings_path.to_string_lossy().into_owned(),
     }
+}
+
+fn create_missing_extra_dir(mut settings: StoredProjectSettings) -> StoredProjectSettings {
+    let Some(mods_dir) = settings
+        .mods_dir
+        .as_ref()
+        .and_then(|path| existing_dir(path.to_string(), "Selected MODS folder").ok())
+    else {
+        return settings;
+    };
+    let Some(categories_extra_dir) = settings
+        .categories_extra_dir
+        .as_ref()
+        .filter(|path| !path.trim().is_empty())
+    else {
+        return settings;
+    };
+
+    if let Ok(path) = existing_or_created_extra_dir(
+        categories_extra_dir.to_string(),
+        &mods_dir,
+        "Selected extra folder",
+    ) {
+        settings.categories_extra_dir = Some(path.to_string_lossy().into_owned());
+    }
+
+    settings
 }
 
 fn preview_scan_mods_folder_paths(
@@ -450,13 +482,8 @@ fn validate_project_settings(
     let mods_dir = required_existing_dir(settings.mods_dir, "Selected MODS folder")?;
     let categories_extra_dir = match settings.categories_extra_dir {
         Some(path) if !path.trim().is_empty() => {
-            let categories_extra_dir = existing_dir(path, "Selected extra folder")?;
-
-            if categories_extra_dir == mods_dir || categories_extra_dir.starts_with(&mods_dir) {
-                return Err(
-                    "Selected extra folder cannot be the MODS folder or inside it.".to_string(),
-                );
-            }
+            let categories_extra_dir =
+                existing_or_created_extra_dir(path, &mods_dir, "Selected extra folder")?;
 
             Some(categories_extra_dir.to_string_lossy().into_owned())
         }
@@ -486,6 +513,50 @@ fn existing_dir(path: String, label: &str) -> Result<PathBuf, String> {
 
     path.canonicalize()
         .map_err(|err| format!("Failed to resolve {label}: {err}"))
+}
+
+fn existing_or_created_extra_dir(
+    path: String,
+    mods_dir: &Path,
+    label: &str,
+) -> Result<PathBuf, String> {
+    let path = PathBuf::from(path);
+
+    if path.exists() && !path.is_dir() {
+        return Err(format!("{label} exists but is not a directory."));
+    }
+
+    if !path.exists() {
+        reject_extra_dir_inside_mods(&path, mods_dir)?;
+        fs::create_dir_all(&path)
+            .map_err(|err| format!("Failed to create {label} at {}: {err}", path.display()))?;
+    }
+
+    let path = path
+        .canonicalize()
+        .map_err(|err| format!("Failed to resolve {label}: {err}"))?;
+
+    if path == mods_dir || path.starts_with(mods_dir) {
+        return Err("Selected extra folder cannot be the MODS folder or inside it.".to_string());
+    }
+
+    Ok(path)
+}
+
+fn reject_extra_dir_inside_mods(path: &Path, mods_dir: &Path) -> Result<(), String> {
+    let Some(parent) = path.parent() else {
+        return Ok(());
+    };
+
+    if let Ok(parent) = parent.canonicalize() {
+        if parent == mods_dir || parent.starts_with(mods_dir) {
+            return Err(
+                "Selected extra folder cannot be the MODS folder or inside it.".to_string(),
+            );
+        }
+    }
+
+    Ok(())
 }
 
 fn escape_ini_value(value: &str) -> String {
@@ -703,6 +774,53 @@ mod tests {
         assert_eq!(result.categories_found, 1);
         assert_eq!(result.category_folders_moved, 1);
         assert!(project.extra_dir.join("MODS").join("category.ini").exists());
+    }
+
+    #[test]
+    fn save_settings_creates_missing_extra_folder() {
+        let project = TestProject::new("create-missing-extra");
+        let missing_extra_dir = project.root.join("CreatedExtra");
+
+        let settings = validate_project_settings(ProjectSettingsInput {
+            mods_dir: Some(project.mods_dir.to_string_lossy().into_owned()),
+            categories_extra_dir: Some(missing_extra_dir.to_string_lossy().into_owned()),
+            keep_only_files_pattern: DEFAULT_KEEP_ONLY_FILES_PATTERN.to_string(),
+        })
+        .expect("settings should validate");
+
+        assert!(missing_extra_dir.is_dir());
+        assert_eq!(
+            settings.categories_extra_dir,
+            Some(
+                missing_extra_dir
+                    .canonicalize()
+                    .expect("created extra dir should resolve")
+                    .to_string_lossy()
+                    .into_owned()
+            )
+        );
+    }
+
+    #[test]
+    fn save_settings_rejects_missing_extra_folder_inside_mods_without_creating() {
+        let project = TestProject::new("reject-missing-extra-inside-mods");
+        let invalid_extra_dir = project.mods_dir.join("Extra");
+
+        let result = validate_project_settings(ProjectSettingsInput {
+            mods_dir: Some(project.mods_dir.to_string_lossy().into_owned()),
+            categories_extra_dir: Some(invalid_extra_dir.to_string_lossy().into_owned()),
+            keep_only_files_pattern: DEFAULT_KEEP_ONLY_FILES_PATTERN.to_string(),
+        });
+        let err = match result {
+            Ok(_) => panic!("settings should reject extra dir inside MODS"),
+            Err(err) => err,
+        };
+
+        assert_eq!(
+            err,
+            "Selected extra folder cannot be the MODS folder or inside it."
+        );
+        assert!(!invalid_extra_dir.exists());
     }
 
     fn write_test_file(path: &Path) {

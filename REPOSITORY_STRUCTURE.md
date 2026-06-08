@@ -76,7 +76,8 @@ Current frontend behavior:
 - The settings button can reopen the dialog after startup.
 - The Scan MODS folder button opens a wizard that first previews category move
   files relative to the configured MODS folder, then moves files only after the
-  user confirms. Completion and errors are shown as compact toasts.
+  user confirms. The wizard scales with the app window while keeping preview
+  content scrollable. Completion and errors are shown as compact toasts.
 - The settings dialog lets the user choose a MODS folder, choose or clear the
   extra folder used for moved categories, and edit the keep-pattern string. The
   `Keep all` button saves `*`, and `Keep default` restores the default pattern.
@@ -133,8 +134,8 @@ Current backend behavior:
 - Reports `mods_dir_available` and `categories_extra_dir_available` by checking
   whether the stored paths still exist as directories.
 - Requires `mods_dir` to be an existing directory before saving settings.
-- Allows `categories_extra_dir` to be empty, but when set it must be an existing
-  directory.
+- Allows `categories_extra_dir` to be empty, and creates it when set to a path
+  that does not exist.
 - Rejects a `categories_extra_dir` that is the MODS folder or inside the MODS
   folder.
 - Recursively scans the MODS folder for `category.ini`; preview returns
