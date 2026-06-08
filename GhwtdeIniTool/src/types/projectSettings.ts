@@ -3,7 +3,6 @@ export type ProjectSettings = {
   mods_dir_available: boolean;
   categories_extra_dir: string | null;
   categories_extra_dir_available: boolean;
-  keep_only_files_with_pattern: boolean;
   keep_only_files_pattern: string;
   settings_file: string;
 };

@@ -11,7 +11,6 @@ export function saveProjectSettings(settings: ProjectSettings) {
     settings: {
       mods_dir: settings.mods_dir,
       categories_extra_dir: settings.categories_extra_dir,
-      keep_only_files_with_pattern: settings.keep_only_files_with_pattern,
       keep_only_files_pattern: settings.keep_only_files_pattern,
     },
   });

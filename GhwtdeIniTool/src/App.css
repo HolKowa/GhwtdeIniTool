@@ -256,7 +256,7 @@ button {
   margin-top: 1.25rem;
 }
 
-.settings-check-row {
+.settings-field-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -264,12 +264,6 @@ button {
   font-size: 1rem;
   font-weight: 600;
   line-height: 1.4;
-}
-
-.settings-check-row input {
-  width: 1rem;
-  height: 1rem;
-  margin: 0;
 }
 
 .settings-input {
@@ -282,6 +276,13 @@ button {
   color: #1f1f1f;
   font-size: 0.9rem;
   box-sizing: border-box;
+}
+
+.settings-input:disabled {
+  border-color: #d6d6d6;
+  background: #eeeeee;
+  color: #777;
+  cursor: not-allowed;
 }
 
 .settings-error {
@@ -477,6 +478,12 @@ button {
     border-color: #555;
   }
 
+  .settings-input:disabled {
+    background: #333;
+    color: #8f8f8f;
+    border-color: #4a4a4a;
+  }
+
   .secondary-btn:hover:not(:disabled) {
     background: #303030;
   }
@@ -530,6 +537,11 @@ button {
   }
 
   .settings-row {
+    flex-direction: column;
+  }
+
+  .settings-field-header {
+    align-items: stretch;
     flex-direction: column;
   }
 

@@ -73,8 +73,10 @@ Current frontend behavior:
   the app shell and shows a compact summary of categories found, moved folders,
   moved files, renamed destinations, and errors.
 - The settings dialog lets the user choose a MODS folder, choose or clear the
-  extra folder used for moved categories, toggle `Keep only files with pattern`,
-  and edit the comma-separated pattern string.
+  extra folder used for moved categories, and edit the keep-pattern string. The
+  `Keep all` button saves `*`, and `Keep default` restores the default pattern.
+- When no available MODS folder is selected, the extra-folder and keep-pattern
+  settings are disabled until the user chooses a valid MODS folder.
 - When a configured extra categories folder is available, the MODS scan moves
   each discovered `category.ini` and sibling `*.img.xen` files into a new folder
   under the extra folder named after the source category folder. Destination
@@ -84,7 +86,8 @@ Current frontend behavior:
 - Settings changes are saved immediately through `save_project_settings`; there
   is no separate Apply or Save button.
 - The frontend default pattern is
-  `song.ini,*_song.pak.xen,*.fsb.xen`, matching the Rust default.
+  `song.ini,*_song.pak.xen,*.fsb.xen,category.ini,*.img.xen`, matching the Rust
+  default.
 - The frontend displays unavailable configured folders as muted paths but keeps
   the stored path visible.
 
@@ -119,8 +122,8 @@ Current backend behavior:
   `scan_mods_folder` Tauri commands.
 - Stores project settings in `ghwtdeinitool.ini` next to the executable under a
   `[project]` section.
-- Reads and writes `mods_dir`, `categories_extra_dir`,
-  `keep_only_files_with_pattern`, and `keep_only_files_pattern`.
+- Reads and writes `mods_dir`, `categories_extra_dir`, and
+  `keep_only_files_pattern`.
 - Reports `mods_dir_available` and `categories_extra_dir_available` by checking
   whether the stored paths still exist as directories.
 - Requires `mods_dir` to be an existing directory before saving settings.

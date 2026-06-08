@@ -1,4 +1,7 @@
-import type { SettingsStatus } from "../hooks/useProjectSettings";
+import {
+  DEFAULT_KEEP_ONLY_FILES_PATTERN,
+  type SettingsStatus,
+} from "../hooks/useProjectSettings";
 import type { ProjectSettings } from "../types/projectSettings";
 
 type SettingsDialogProps = {
@@ -8,7 +11,6 @@ type SettingsDialogProps = {
   onClearCategoriesExtraFolder: () => void;
   onClose: () => void;
   onKeepOnlyFilesPatternChange: (pattern: string) => void;
-  onKeepOnlyFilesWithPatternChange: (enabled: boolean) => void;
   settings: ProjectSettings | null;
   settingsError: string;
   settingsStatus: SettingsStatus;
@@ -21,7 +23,6 @@ export function SettingsDialog({
   onClearCategoriesExtraFolder,
   onClose,
   onKeepOnlyFilesPatternChange,
-  onKeepOnlyFilesWithPatternChange,
   settings,
   settingsError,
   settingsStatus,
@@ -30,6 +31,7 @@ export function SettingsDialog({
     settings?.mods_dir && settings.mods_dir_available;
   const hasAvailableCategoriesExtraFolder =
     settings?.categories_extra_dir && settings.categories_extra_dir_available;
+  const canEditProjectSettings = Boolean(hasAvailableModsFolder);
 
   return (
     <div className="settings-backdrop" role="presentation">
@@ -98,7 +100,9 @@ export function SettingsDialog({
               className="secondary-btn"
               type="button"
               onClick={onClearCategoriesExtraFolder}
-              disabled={!settings?.categories_extra_dir}
+              disabled={
+                !canEditProjectSettings || !settings?.categories_extra_dir
+              }
             >
               Clear folder
             </button>
@@ -106,6 +110,7 @@ export function SettingsDialog({
               className="primary-btn"
               type="button"
               onClick={onChangeCategoriesExtraFolder}
+              disabled={!canEditProjectSettings}
             >
               Change folder
             </button>
@@ -113,20 +118,37 @@ export function SettingsDialog({
         </div>
 
         <div className="settings-field">
-          <label className="settings-check-row">
-            <span>Keep only files with pattern</span>
-            <input
-              type="checkbox"
-              checked={settings?.keep_only_files_with_pattern ?? false}
-              onChange={(event) =>
-                onKeepOnlyFilesWithPatternChange(event.currentTarget.checked)
-              }
-            />
-          </label>
+          <div className="settings-field-header">
+            <label htmlFor="keep-files-pattern">
+              Keep only files with pattern
+            </label>
+            <div className="settings-actions">
+              <button
+                className="secondary-btn"
+                type="button"
+                onClick={() => onKeepOnlyFilesPatternChange("*")}
+                disabled={!canEditProjectSettings}
+              >
+                Keep all
+              </button>
+              <button
+                className="primary-btn"
+                type="button"
+                onClick={() =>
+                  onKeepOnlyFilesPatternChange(DEFAULT_KEEP_ONLY_FILES_PATTERN)
+                }
+                disabled={!canEditProjectSettings}
+              >
+                Keep default
+              </button>
+            </div>
+          </div>
           <input
+            id="keep-files-pattern"
             className="settings-input"
             type="text"
             value={settings?.keep_only_files_pattern ?? ""}
+            disabled={!canEditProjectSettings}
             onChange={(event) =>
               onKeepOnlyFilesPatternChange(event.currentTarget.value)
             }

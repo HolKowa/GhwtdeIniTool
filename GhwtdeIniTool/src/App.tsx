@@ -25,7 +25,6 @@ function App() {
     loadSettings,
     setIsSettingsOpen,
     setKeepOnlyFilesPattern,
-    setKeepOnlyFilesWithPattern,
     settings,
     settingsError,
     settingsStatus,
@@ -112,7 +111,6 @@ function App() {
             }
           }}
           onKeepOnlyFilesPatternChange={setKeepOnlyFilesPattern}
-          onKeepOnlyFilesWithPatternChange={setKeepOnlyFilesWithPattern}
           settings={settings}
           settingsError={settingsError}
           settingsStatus={settingsStatus}

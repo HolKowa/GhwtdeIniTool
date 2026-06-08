@@ -5,7 +5,8 @@ use std::{
 };
 
 const SETTINGS_FILE_NAME: &str = "ghwtdeinitool.ini";
-const DEFAULT_KEEP_ONLY_FILES_PATTERN: &str = "song.ini,*_song.pak.xen,*.fsb.xen";
+const DEFAULT_KEEP_ONLY_FILES_PATTERN: &str =
+    "song.ini,*_song.pak.xen,*.fsb.xen,category.ini,*.img.xen";
 
 #[derive(Serialize)]
 struct ProjectSettings {
@@ -13,7 +14,6 @@ struct ProjectSettings {
     mods_dir_available: bool,
     categories_extra_dir: Option<String>,
     categories_extra_dir_available: bool,
-    keep_only_files_with_pattern: bool,
     keep_only_files_pattern: String,
     settings_file: String,
 }
@@ -22,7 +22,6 @@ struct ProjectSettings {
 struct ProjectSettingsInput {
     mods_dir: Option<String>,
     categories_extra_dir: Option<String>,
-    keep_only_files_with_pattern: bool,
     keep_only_files_pattern: String,
 }
 
@@ -39,7 +38,6 @@ struct ScanModsResult {
 struct StoredProjectSettings {
     mods_dir: Option<String>,
     categories_extra_dir: Option<String>,
-    keep_only_files_with_pattern: bool,
     keep_only_files_pattern: String,
 }
 
@@ -104,7 +102,6 @@ fn project_settings(settings_path: PathBuf, settings: StoredProjectSettings) -> 
         mods_dir_available,
         categories_extra_dir: settings.categories_extra_dir,
         categories_extra_dir_available,
-        keep_only_files_with_pattern: settings.keep_only_files_with_pattern,
         keep_only_files_pattern: settings.keep_only_files_pattern,
         settings_file: settings_path.to_string_lossy().into_owned(),
     }
@@ -351,9 +348,6 @@ fn read_project_settings_from_ini(contents: &str) -> StoredProjectSettings {
             "categories_extra_dir" => {
                 settings.categories_extra_dir = (!value.is_empty()).then_some(value);
             }
-            "keep_only_files_with_pattern" => {
-                settings.keep_only_files_with_pattern = value.eq_ignore_ascii_case("true");
-            }
             "keep_only_files_pattern" => settings.keep_only_files_pattern = value,
             _ => {}
         }
@@ -364,10 +358,9 @@ fn read_project_settings_from_ini(contents: &str) -> StoredProjectSettings {
 
 fn write_project_settings_to_ini(settings: &StoredProjectSettings) -> String {
     format!(
-        "[project]\nmods_dir={}\ncategories_extra_dir={}\nkeep_only_files_with_pattern={}\nkeep_only_files_pattern={}\n",
+        "[project]\nmods_dir={}\ncategories_extra_dir={}\nkeep_only_files_pattern={}\n",
         escape_ini_value(settings.mods_dir.as_deref().unwrap_or("")),
         escape_ini_value(settings.categories_extra_dir.as_deref().unwrap_or("")),
-        settings.keep_only_files_with_pattern,
         escape_ini_value(&settings.keep_only_files_pattern)
     )
 }
@@ -394,7 +387,6 @@ fn validate_project_settings(
     Ok(StoredProjectSettings {
         mods_dir: Some(mods_dir.to_string_lossy().into_owned()),
         categories_extra_dir,
-        keep_only_files_with_pattern: settings.keep_only_files_with_pattern,
         keep_only_files_pattern: settings.keep_only_files_pattern,
     })
 }
@@ -453,7 +445,6 @@ impl Default for StoredProjectSettings {
         Self {
             mods_dir: None,
             categories_extra_dir: None,
-            keep_only_files_with_pattern: false,
             keep_only_files_pattern: DEFAULT_KEEP_ONLY_FILES_PATTERN.to_string(),
         }
     }
