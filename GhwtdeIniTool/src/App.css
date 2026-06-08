@@ -377,6 +377,101 @@ button {
   border-top: 1px solid #eeeeee;
 }
 
+.song-ini-repair {
+  display: grid;
+  grid-template-columns: minmax(13rem, 0.8fr) minmax(0, 1.2fr);
+  gap: 1rem;
+  height: calc(100% - 3.5rem);
+  min-height: 18rem;
+  margin-top: 0.75rem;
+}
+
+.song-ini-file-list {
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.song-ini-file-list li + li {
+  border-top: 1px solid #eeeeee;
+}
+
+.song-ini-file-button {
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.55rem 0.65rem;
+  border: 0;
+  background: transparent;
+  color: #1f1f1f;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono",
+    monospace;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+}
+
+.song-ini-file-button span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.song-ini-file-button span:last-child {
+  color: #b71c1c;
+  font-family: inherit;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+}
+
+.song-ini-file-button:hover,
+.song-ini-file-button.selected {
+  background: #f4f4f4;
+}
+
+.song-ini-file-button.repaired span:last-child {
+  color: #2e7d32;
+}
+
+.song-ini-file-button.repaired {
+  border-left: 3px solid #2e7d32;
+}
+
+.song-ini-editor {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.song-ini-editor .primary-btn {
+  align-self: flex-end;
+  margin-top: 0.75rem;
+}
+
+.song-ini-textarea {
+  flex: 1;
+  min-height: 12rem;
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #1f1f1f;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono",
+    monospace;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  resize: none;
+  box-sizing: border-box;
+}
+
 .scan-wizard-actions {
   justify-content: flex-end;
   margin-top: 1rem;
@@ -662,6 +757,41 @@ button {
     border-top-color: #444;
   }
 
+  .song-ini-file-list,
+  .song-ini-textarea {
+    border-color: #555;
+  }
+
+  .song-ini-file-list li + li {
+    border-top-color: #444;
+  }
+
+  .song-ini-file-button {
+    color: #f6f6f6;
+  }
+
+  .song-ini-file-button span:last-child {
+    color: #ffcdd2;
+  }
+
+  .song-ini-file-button:hover,
+  .song-ini-file-button.selected {
+    background: #333;
+  }
+
+  .song-ini-file-button.repaired span:last-child {
+    color: #c8e6c9;
+  }
+
+  .song-ini-file-button.repaired {
+    border-left-color: #81c784;
+  }
+
+  .song-ini-textarea {
+    background: #1a1a1a;
+    color: #f6f6f6;
+  }
+
   .scan-toast {
     border-color: #3b7f3f;
     background: #152f18;
@@ -711,6 +841,19 @@ button {
   .scan-wizard-actions {
     align-items: stretch;
     flex-direction: column-reverse;
+  }
+
+  .song-ini-repair {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+
+  .song-ini-file-list {
+    max-height: 12rem;
+  }
+
+  .song-ini-textarea {
+    min-height: 16rem;
   }
 
   .scan-toast {

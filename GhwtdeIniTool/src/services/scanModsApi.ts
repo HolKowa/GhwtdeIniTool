@@ -5,6 +5,8 @@ import type {
   DeleteFilesResult,
   ScanModsPreview,
   ScanModsResult,
+  SongIniScanResult,
+  SongIniValidationResult,
 } from "../types/scanMods";
 
 export function previewScanModsFolder() {
@@ -22,5 +24,16 @@ export function previewKeepOnlyFilesDelete() {
 export function deleteKeepOnlyFiles(filesToDelete: string[]) {
   return invoke<DeleteFilesResult>("delete_keep_only_files", {
     filesToDelete,
+  });
+}
+
+export function scanSongIniFiles() {
+  return invoke<SongIniScanResult>("scan_song_ini_files");
+}
+
+export function validateSongIniFile(relativePath: string, contents: string) {
+  return invoke<SongIniValidationResult>("validate_song_ini_file", {
+    relativePath,
+    contents,
   });
 }

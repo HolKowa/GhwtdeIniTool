@@ -33,15 +33,20 @@ function App() {
   } = useProjectSettings();
   const {
     cancelScan,
+    clearSongIniValidationError,
     confirmScan,
     deletePreview,
     dismissScanToast,
     isScanWizardOpen,
+    repairedSongIniPaths,
     scanError,
     scanMods,
     scanPreview,
     scanStatus,
     scanToast,
+    songIniScanResult,
+    songIniValidationError,
+    validateSongIni,
   } = useModsScanner();
 
   useEffect(() => {
@@ -116,9 +121,14 @@ function App() {
           deletePreview={deletePreview}
           onCancel={cancelScan}
           onConfirm={confirmScan}
+          onSelectSongIni={clearSongIniValidationError}
+          onValidateSongIni={validateSongIni}
           preview={scanPreview}
+          repairedSongIniPaths={repairedSongIniPaths}
           scanError={scanError}
           scanStatus={scanStatus}
+          songIniScanResult={songIniScanResult}
+          songIniValidationError={songIniValidationError}
         />
       )}
 
