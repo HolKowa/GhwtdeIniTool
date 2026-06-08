@@ -35,6 +35,14 @@ struct ScanModsResult {
     moved_categories_enabled: bool,
 }
 
+#[derive(Default, Serialize)]
+struct ScanModsPreview {
+    categories_found: usize,
+    files_to_move: Vec<String>,
+    errors: Vec<String>,
+    moved_categories_enabled: bool,
+}
+
 struct StoredProjectSettings {
     mods_dir: Option<String>,
     categories_extra_dir: Option<String>,
@@ -70,7 +78,20 @@ fn save_project_settings(settings: ProjectSettingsInput) -> Result<ProjectSettin
 }
 
 #[tauri::command]
+fn preview_scan_mods_folder() -> Result<ScanModsPreview, String> {
+    let (mods_dir, categories_extra_dir) = scan_settings_paths()?;
+
+    preview_scan_mods_folder_paths(&mods_dir, categories_extra_dir.as_deref())
+}
+
+#[tauri::command]
 fn scan_mods_folder() -> Result<ScanModsResult, String> {
+    let (mods_dir, categories_extra_dir) = scan_settings_paths()?;
+
+    scan_mods_folder_paths(&mods_dir, categories_extra_dir.as_deref())
+}
+
+fn scan_settings_paths() -> Result<(PathBuf, Option<PathBuf>), String> {
     let settings_path = settings_file_path().map_err(settings_error)?;
     let settings = match fs::read_to_string(&settings_path) {
         Ok(contents) => read_project_settings_from_ini(&contents),
@@ -84,7 +105,7 @@ fn scan_mods_folder() -> Result<ScanModsResult, String> {
         .filter(|path| !path.trim().is_empty())
         .and_then(|path| existing_dir(path, "Selected extra folder").ok());
 
-    scan_mods_folder_paths(&mods_dir, categories_extra_dir.as_deref())
+    Ok((mods_dir, categories_extra_dir))
 }
 
 fn project_settings(settings_path: PathBuf, settings: StoredProjectSettings) -> ProjectSettings {
@@ -105,6 +126,38 @@ fn project_settings(settings_path: PathBuf, settings: StoredProjectSettings) -> 
         keep_only_files_pattern: settings.keep_only_files_pattern,
         settings_file: settings_path.to_string_lossy().into_owned(),
     }
+}
+
+fn preview_scan_mods_folder_paths(
+    mods_dir: &Path,
+    categories_extra_dir: Option<&Path>,
+) -> Result<ScanModsPreview, String> {
+    let category_ini_paths = find_category_ini_files(mods_dir)?;
+    let mut preview = ScanModsPreview {
+        categories_found: category_ini_paths.len(),
+        moved_categories_enabled: categories_extra_dir.is_some(),
+        ..ScanModsPreview::default()
+    };
+
+    if categories_extra_dir.is_none() {
+        return Ok(preview);
+    }
+
+    for category_ini_path in category_ini_paths {
+        match category_data_files(&category_ini_path) {
+            Ok(paths) => {
+                preview.files_to_move.extend(
+                    paths
+                        .iter()
+                        .map(|path| mods_relative_path(mods_dir, path))
+                        .collect::<Result<Vec<_>, _>>()?,
+                );
+            }
+            Err(err) => preview.errors.push(err),
+        }
+    }
+
+    Ok(preview)
 }
 
 fn scan_mods_folder_paths(
@@ -134,6 +187,22 @@ fn scan_mods_folder_paths(
     }
 
     Ok(result)
+}
+
+fn mods_relative_path(mods_dir: &Path, path: &Path) -> Result<String, String> {
+    let relative_path = path.strip_prefix(mods_dir).map_err(|err| {
+        format!(
+            "Failed to build relative path for {} from {}: {err}",
+            path.display(),
+            mods_dir.display()
+        )
+    })?;
+    let path_parts = relative_path
+        .iter()
+        .map(|part| part.to_string_lossy())
+        .collect::<Vec<_>>();
+
+    Ok(path_parts.join("/"))
 }
 
 fn find_category_ini_files(mods_dir: &Path) -> Result<Vec<PathBuf>, String> {
@@ -195,11 +264,8 @@ fn move_category_data(
         )
     })?;
 
-    let mut files_to_move = vec![category_ini_path.to_path_buf()];
-    files_to_move.extend(sibling_img_xen_files(source_dir)?);
-
     let mut moved_files = 0;
-    for source_path in files_to_move {
+    for source_path in category_data_files(category_ini_path)? {
         let Some(file_name) = source_path.file_name() else {
             result
                 .errors
@@ -227,6 +293,19 @@ fn move_category_data(
     }
 
     Ok(())
+}
+
+fn category_data_files(category_ini_path: &Path) -> Result<Vec<PathBuf>, String> {
+    let source_dir = category_ini_path.parent().ok_or_else(|| {
+        format!(
+            "Could not determine category folder for {}.",
+            category_ini_path.display()
+        )
+    })?;
+    let mut files = vec![category_ini_path.to_path_buf()];
+    files.extend(sibling_img_xen_files(source_dir)?);
+
+    Ok(files)
 }
 
 fn sibling_img_xen_files(source_dir: &Path) -> Result<Vec<PathBuf>, String> {
@@ -495,6 +574,59 @@ mod tests {
     }
 
     #[test]
+    fn preview_lists_recursive_category_files_without_moving() {
+        let project = TestProject::new("preview-category-data");
+        let category_dir = project.mods_dir.join("Artist").join("Song");
+        fs::create_dir_all(&category_dir).expect("category folder should be created");
+        write_test_file(&category_dir.join("category.ini"));
+        write_test_file(&category_dir.join("preview.IMG.XEN"));
+        write_test_file(&category_dir.join("notes.txt"));
+
+        let preview = preview_scan_mods_folder_paths(&project.mods_dir, Some(&project.extra_dir))
+            .expect("preview should succeed");
+
+        assert_eq!(preview.categories_found, 1);
+        assert!(preview.moved_categories_enabled);
+        assert_eq!(
+            preview.files_to_move,
+            vec![
+                "Artist/Song/category.ini".to_string(),
+                "Artist/Song/preview.IMG.XEN".to_string()
+            ]
+        );
+        assert!(preview.errors.is_empty());
+        assert!(category_dir.join("category.ini").exists());
+        assert!(category_dir.join("preview.IMG.XEN").exists());
+        assert!(!project.extra_dir.join("Song").exists());
+    }
+
+    #[test]
+    fn preview_omits_mods_prefix_for_root_category_files() {
+        let project = TestProject::new("preview-root-category");
+        write_test_file(&project.mods_dir.join("category.ini"));
+
+        let preview = preview_scan_mods_folder_paths(&project.mods_dir, Some(&project.extra_dir))
+            .expect("preview should succeed");
+
+        assert_eq!(preview.files_to_move, vec!["category.ini".to_string()]);
+    }
+
+    #[test]
+    fn preview_is_empty_when_category_moving_is_disabled() {
+        let project = TestProject::new("preview-scan-only");
+        let category_dir = project.mods_dir.join("Category A");
+        fs::create_dir_all(&category_dir).expect("category folder should be created");
+        write_test_file(&category_dir.join("category.ini"));
+
+        let preview = preview_scan_mods_folder_paths(&project.mods_dir, None)
+            .expect("preview should succeed");
+
+        assert_eq!(preview.categories_found, 1);
+        assert!(!preview.moved_categories_enabled);
+        assert!(preview.files_to_move.is_empty());
+    }
+
+    #[test]
     fn scan_only_counts_recursive_categories_without_moving() {
         let project = TestProject::new("scan-only");
         let nested_category = project.mods_dir.join("Artist").join("Song");
@@ -590,6 +722,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             load_project_settings,
             save_project_settings,
+            preview_scan_mods_folder,
             scan_mods_folder
         ])
         .run(tauri::generate_context!())

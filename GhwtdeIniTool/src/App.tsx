@@ -1,5 +1,7 @@
 import { useEffect } from "react";
 
+import { ScanToast } from "./components/ScanToast";
+import { ScanWizard } from "./components/ScanWizard";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { UpdateDialog } from "./components/UpdateDialog";
 import { useAppUpdater } from "./hooks/useAppUpdater";
@@ -29,7 +31,17 @@ function App() {
     settingsError,
     settingsStatus,
   } = useProjectSettings();
-  const { scanError, scanMods, scanResult, scanStatus } = useModsScanner();
+  const {
+    cancelScan,
+    confirmScan,
+    dismissScanToast,
+    isScanWizardOpen,
+    scanError,
+    scanMods,
+    scanPreview,
+    scanStatus,
+    scanToast,
+  } = useModsScanner();
 
   useEffect(() => {
     checkForUpdates();
@@ -42,15 +54,6 @@ function App() {
     updateStatus === "ready" ||
     updateStatus === "error";
   const canCloseSettings = Boolean(settings?.mods_dir_available);
-  const scanSummary = scanResult
-    ? [
-        `${scanResult.categories_found} categories found`,
-        `${scanResult.category_folders_moved} folders moved`,
-        `${scanResult.files_moved} files moved`,
-        `${scanResult.renamed_destinations} renamed`,
-        `${scanResult.errors.length} errors`,
-      ].join(" | ")
-    : "";
 
   return (
     <main className="container">
@@ -59,35 +62,10 @@ function App() {
           className="scan-button"
           type="button"
           onClick={scanMods}
-          disabled={scanStatus === "scanning"}
+          disabled={scanStatus === "previewing" || scanStatus === "moving"}
         >
-          {scanStatus === "scanning" ? "Scanning..." : "Scan MODS folder"}
+          {scanStatus === "previewing" ? "Scanning..." : "Scan MODS folder"}
         </button>
-
-        {(scanStatus === "complete" || scanStatus === "error") && (
-          <div
-            className={`scan-summary ${
-              scanStatus === "error" || scanResult?.errors.length
-                ? "scan-summary-error"
-                : ""
-            }`}
-            role="status"
-          >
-            {scanStatus === "error" ? (
-              <p>{scanError}</p>
-            ) : (
-              <>
-                <p>{scanSummary}</p>
-                {scanResult && !scanResult.moved_categories_enabled && (
-                  <p>Category moving is disabled because no extra folder is available.</p>
-                )}
-                {scanResult?.errors.map((error, index) => (
-                  <p key={`${index}-${error}`}>{error}</p>
-                ))}
-              </>
-            )}
-          </div>
-        )}
       </div>
 
       <button
@@ -126,6 +104,20 @@ function App() {
           onStartDownload={startDownload}
           updateStatus={updateStatus}
         />
+      )}
+
+      {isScanWizardOpen && (
+        <ScanWizard
+          onCancel={cancelScan}
+          onConfirm={confirmScan}
+          preview={scanPreview}
+          scanError={scanError}
+          scanStatus={scanStatus}
+        />
+      )}
+
+      {scanToast && (
+        <ScanToast onDismiss={dismissScanToast} toast={scanToast} />
       )}
     </main>
   );

@@ -73,33 +73,6 @@ button {
   opacity: 0.75;
 }
 
-.scan-summary {
-  margin-top: 0.5rem;
-  padding: 0.65rem 0.75rem;
-  border: 1px solid #a5d6a7;
-  border-radius: 6px;
-  background: #f1f8e9;
-  color: #1b5e20;
-  font-size: 0.82rem;
-  line-height: 1.35;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
-  overflow-wrap: anywhere;
-}
-
-.scan-summary p {
-  margin: 0;
-}
-
-.scan-summary p + p {
-  margin-top: 0.35rem;
-}
-
-.scan-summary-error {
-  border-color: #ef9a9a;
-  background: #ffebee;
-  color: #b71c1c;
-}
-
 .settings-button {
   position: fixed;
   top: 1rem;
@@ -298,6 +271,160 @@ button {
   border: 1px solid #ef9a9a;
 }
 
+.scan-wizard-backdrop {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 9;
+}
+
+.scan-wizard-panel {
+  display: flex;
+  width: min(100%, 640px);
+  max-height: min(680px, calc(100vh - 3rem));
+  flex-direction: column;
+  padding: 1.25rem;
+  border: 1px solid #d9d9d9;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1f1f1f;
+  text-align: left;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.08);
+  box-sizing: border-box;
+}
+
+.scan-wizard-header,
+.scan-wizard-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.scan-wizard-header h2,
+.scan-wizard-step,
+.scan-wizard-summary,
+.scan-wizard-muted,
+.scan-wizard-error {
+  margin: 0;
+}
+
+.scan-wizard-header h2 {
+  font-size: 1.2rem;
+  line-height: 1.4;
+}
+
+.scan-wizard-step {
+  color: #565656;
+  font-size: 0.82rem;
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+
+.scan-wizard-body {
+  margin-top: 1rem;
+  overflow-y: auto;
+}
+
+.scan-wizard-summary,
+.scan-wizard-muted,
+.scan-wizard-error {
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.scan-wizard-muted {
+  margin-top: 0.5rem;
+  color: #565656;
+}
+
+.scan-wizard-error {
+  margin-top: 0.5rem;
+  color: #b71c1c;
+  overflow-wrap: anywhere;
+}
+
+.scan-file-list {
+  max-height: 320px;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.scan-file-list li {
+  padding: 0.5rem 0.65rem;
+  color: #1f1f1f;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono",
+    monospace;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.scan-file-list li + li {
+  border-top: 1px solid #eeeeee;
+}
+
+.scan-wizard-actions {
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
+
+.scan-toast {
+  position: fixed;
+  left: 1rem;
+  bottom: 1rem;
+  z-index: 11;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  max-width: min(34rem, calc(100vw - 2rem));
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #a5d6a7;
+  border-radius: 6px;
+  background: #f1f8e9;
+  color: #1b5e20;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.14);
+  overflow-wrap: anywhere;
+}
+
+.scan-toast p {
+  margin: 0;
+}
+
+.scan-toast-error {
+  border-color: #ef9a9a;
+  background: #ffebee;
+  color: #b71c1c;
+}
+
+.scan-toast-close {
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.scan-toast-close:hover {
+  border-color: currentColor;
+}
+
 .update-popup-backdrop {
   position: fixed;
   inset: 0;
@@ -459,18 +586,6 @@ button {
     background: #303030;
   }
 
-  .scan-summary {
-    border-color: #3b7f3f;
-    background: #152f18;
-    color: #c8e6c9;
-  }
-
-  .scan-summary-error {
-    background: #3b1518;
-    color: #ffcdd2;
-    border-color: #7f2b32;
-  }
-
   .secondary-btn,
   .settings-input {
     background: #242424;
@@ -511,6 +626,45 @@ button {
     border-color: #7f2b32;
   }
 
+  .scan-wizard-panel {
+    background: #242424;
+    color: #f6f6f6;
+    border-color: #555;
+  }
+
+  .scan-wizard-step,
+  .scan-wizard-muted {
+    color: #c8c8c8;
+  }
+
+  .scan-wizard-error {
+    color: #ffcdd2;
+  }
+
+  .scan-file-list {
+    border-color: #555;
+  }
+
+  .scan-file-list li {
+    color: #f6f6f6;
+  }
+
+  .scan-file-list li + li {
+    border-top-color: #444;
+  }
+
+  .scan-toast {
+    border-color: #3b7f3f;
+    background: #152f18;
+    color: #c8e6c9;
+  }
+
+  .scan-toast-error {
+    background: #3b1518;
+    color: #ffcdd2;
+    border-color: #7f2b32;
+  }
+
   .skip-btn {
     border-color: #555;
     color: #aaa;
@@ -534,6 +688,23 @@ button {
 
   .scan-button {
     width: 100%;
+  }
+
+  .scan-wizard-backdrop {
+    padding: 1rem;
+  }
+
+  .scan-wizard-panel {
+    max-height: calc(100vh - 2rem);
+  }
+
+  .scan-wizard-actions {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+
+  .scan-toast {
+    right: 1rem;
   }
 
   .settings-row {
