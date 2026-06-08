@@ -34,6 +34,7 @@ function App() {
   const {
     cancelScan,
     confirmScan,
+    deletePreview,
     dismissScanToast,
     isScanWizardOpen,
     scanError,
@@ -62,7 +63,11 @@ function App() {
           className="scan-button"
           type="button"
           onClick={scanMods}
-          disabled={scanStatus === "previewing" || scanStatus === "moving"}
+          disabled={
+            scanStatus === "previewing" ||
+            scanStatus === "moving" ||
+            scanStatus === "deleting"
+          }
         >
           {scanStatus === "previewing" ? "Scanning..." : "Scan MODS folder"}
         </button>
@@ -108,6 +113,7 @@ function App() {
 
       {isScanWizardOpen && (
         <ScanWizard
+          deletePreview={deletePreview}
           onCancel={cancelScan}
           onConfirm={confirmScan}
           preview={scanPreview}

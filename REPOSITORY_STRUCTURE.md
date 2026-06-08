@@ -41,7 +41,7 @@ Important files:
 - `GhwtdeIniTool/src/components/ScanToast.tsx` renders compact scan completion
   and error toasts.
 - `GhwtdeIniTool/src/components/ScanWizard.tsx` renders the scan confirmation
-  wizard and category move preview list.
+  wizard, category move preview list, and keep-pattern delete preview list.
 - `GhwtdeIniTool/src/components/SettingsDialog.tsx` renders project settings.
 - `GhwtdeIniTool/src/components/UpdateDialog.tsx` renders updater states.
 - `GhwtdeIniTool/src/hooks/useProjectSettings.ts` owns settings state and
@@ -50,13 +50,13 @@ Important files:
 - `GhwtdeIniTool/src/hooks/useAppUpdater.ts` owns updater state and actions.
 - `GhwtdeIniTool/src/services/projectSettingsApi.ts` wraps the Tauri settings
   commands.
-- `GhwtdeIniTool/src/services/scanModsApi.ts` wraps the Tauri MODS scan preview
-  and execute commands.
+- `GhwtdeIniTool/src/services/scanModsApi.ts` wraps the Tauri MODS scan,
+  category move, and keep-pattern delete commands.
 - `GhwtdeIniTool/src/services/modsFolderDialog.ts` wraps Tauri folder pickers.
 - `GhwtdeIniTool/src/types/projectSettings.ts` defines the frontend settings
   shape returned by Rust.
-- `GhwtdeIniTool/src/types/scanMods.ts` defines the frontend MODS scan preview
-  and result shapes.
+- `GhwtdeIniTool/src/types/scanMods.ts` defines the frontend MODS scan and
+  keep-pattern delete preview/result shapes.
 - `GhwtdeIniTool/vite.config.ts` configures Vite for Tauri development on port
   `1420`.
 
@@ -76,8 +76,11 @@ Current frontend behavior:
 - The settings button can reopen the dialog after startup.
 - The Scan MODS folder button opens a wizard that first previews category move
   files relative to the configured MODS folder, then moves files only after the
-  user confirms. The wizard scales with the app window while keeping preview
-  content scrollable. Completion and errors are shown as compact toasts.
+  user confirms. After the optional category move finishes, step 2 previews
+  remaining MODS files that do not match the keep-pattern setting and deletes
+  them only after another confirmation. Canceling step 2 stops deletion. The
+  wizard scales with the app window while keeping preview content scrollable.
+  Completion and errors are shown as compact toasts.
 - The settings dialog lets the user choose a MODS folder, choose or clear the
   extra folder used for moved categories, and edit the keep-pattern string. The
   `Keep all` button saves `*`, and `Keep default` restores the default pattern.
@@ -95,6 +98,9 @@ Current frontend behavior:
 - The frontend default pattern is
   `song.ini,*_song.pak.xen,*.fsb.xen,category.ini,*.img.xen`, matching the Rust
   default.
+- Keep-pattern entries are comma-separated, trimmed, matched case-insensitively
+  against file names, and support `*` wildcards. An empty keep-pattern setting
+  keeps all files.
 - The frontend displays unavailable configured folders as muted paths but keeps
   the stored path visible.
 
@@ -126,7 +132,9 @@ Current backend behavior:
 
 - Registers the Tauri opener, updater, process, and dialog plugins.
 - Exposes `load_project_settings`, `save_project_settings`,
-  `preview_scan_mods_folder`, and `scan_mods_folder` Tauri commands.
+  `preview_scan_mods_folder`, `scan_mods_folder`,
+  `preview_keep_only_files_delete`, and `delete_keep_only_files` Tauri
+  commands.
 - Stores project settings in `ghwtdeinitool.ini` next to the executable under a
   `[project]` section.
 - Reads and writes `mods_dir`, `categories_extra_dir`, and
@@ -142,6 +150,9 @@ Current backend behavior:
   MODS-relative source file paths for category move files, and confirmed moves
   include the INI file and case-insensitive sibling `*.img.xen` files only,
   leaving source folders in place.
+- After category moves, recursively previews remaining files that do not match
+  `keep_only_files_pattern`; confirmed deletes validate each MODS-relative path
+  before removing only those files.
 - Uses `tauri.conf.json` to configure bundling and updater artifacts.
 
 ## Build And Release
@@ -171,7 +182,7 @@ What was checked:
 - No `*.test.*` or `*.spec.*` files were found.
 - Rust scan helper tests cover recursive discovery, category move previews,
   category-data moves, destination auto-renaming, source-folder preservation,
-  and scan-only behavior.
+  scan-only behavior, keep-pattern delete previews, and safe confirmed deletes.
 
 Useful current validation commands:
 

@@ -36,6 +36,18 @@ struct ScanModsResult {
 }
 
 #[derive(Default, Serialize)]
+struct DeleteFilesPreview {
+    files_to_delete: Vec<String>,
+    errors: Vec<String>,
+}
+
+#[derive(Default, Serialize)]
+struct DeleteFilesResult {
+    files_deleted: usize,
+    errors: Vec<String>,
+}
+
+#[derive(Default, Serialize)]
 struct ScanModsPreview {
     categories_found: usize,
     files_to_move: Vec<String>,
@@ -94,7 +106,31 @@ fn scan_mods_folder() -> Result<ScanModsResult, String> {
     scan_mods_folder_paths(&mods_dir, categories_extra_dir.as_deref())
 }
 
+#[tauri::command]
+fn preview_keep_only_files_delete() -> Result<DeleteFilesPreview, String> {
+    let settings = scan_settings()?;
+    preview_keep_only_files_delete_paths(&settings.mods_dir, &settings.keep_only_files_pattern)
+}
+
+#[tauri::command]
+fn delete_keep_only_files(files_to_delete: Vec<String>) -> Result<DeleteFilesResult, String> {
+    let settings = scan_settings()?;
+    delete_keep_only_files_paths(&settings.mods_dir, &files_to_delete)
+}
+
+struct ScanSettings {
+    mods_dir: PathBuf,
+    categories_extra_dir: Option<PathBuf>,
+    keep_only_files_pattern: String,
+}
+
 fn scan_settings_paths() -> Result<(PathBuf, Option<PathBuf>), String> {
+    let settings = scan_settings()?;
+
+    Ok((settings.mods_dir, settings.categories_extra_dir))
+}
+
+fn scan_settings() -> Result<ScanSettings, String> {
     let settings_path = settings_file_path().map_err(settings_error)?;
     let settings = match fs::read_to_string(&settings_path) {
         Ok(contents) => read_project_settings_from_ini(&contents),
@@ -110,7 +146,11 @@ fn scan_settings_paths() -> Result<(PathBuf, Option<PathBuf>), String> {
             existing_or_created_extra_dir(path, &mods_dir, "Selected extra folder").ok()
         });
 
-    Ok((mods_dir, categories_extra_dir))
+    Ok(ScanSettings {
+        mods_dir,
+        categories_extra_dir,
+        keep_only_files_pattern: settings.keep_only_files_pattern,
+    })
 }
 
 fn project_settings(settings_path: PathBuf, settings: StoredProjectSettings) -> ProjectSettings {
@@ -219,6 +259,163 @@ fn scan_mods_folder_paths(
     }
 
     Ok(result)
+}
+
+fn preview_keep_only_files_delete_paths(
+    mods_dir: &Path,
+    keep_only_files_pattern: &str,
+) -> Result<DeleteFilesPreview, String> {
+    let keep_patterns = keep_patterns(keep_only_files_pattern);
+
+    if keep_patterns.is_empty() {
+        return Ok(DeleteFilesPreview::default());
+    }
+
+    let mut preview = DeleteFilesPreview::default();
+    collect_files_to_delete(mods_dir, mods_dir, &keep_patterns, &mut preview)?;
+    Ok(preview)
+}
+
+fn collect_files_to_delete(
+    mods_dir: &Path,
+    dir: &Path,
+    keep_patterns: &[String],
+    preview: &mut DeleteFilesPreview,
+) -> Result<(), String> {
+    let entries = fs::read_dir(dir)
+        .map_err(|err| format!("Failed to read folder {}: {err}", dir.display()))?;
+
+    for entry in entries {
+        let entry =
+            entry.map_err(|err| format!("Failed to read entry in {}: {err}", dir.display()))?;
+        let path = entry.path();
+        let file_type = entry
+            .file_type()
+            .map_err(|err| format!("Failed to inspect {}: {err}", path.display()))?;
+
+        if file_type.is_dir() {
+            collect_files_to_delete(mods_dir, &path, keep_patterns, preview)?;
+        } else if file_type.is_file() && !matches_keep_patterns(&path, keep_patterns) {
+            preview
+                .files_to_delete
+                .push(mods_relative_path(mods_dir, &path)?);
+        }
+    }
+
+    Ok(())
+}
+
+fn delete_keep_only_files_paths(
+    mods_dir: &Path,
+    files_to_delete: &[String],
+) -> Result<DeleteFilesResult, String> {
+    let mut result = DeleteFilesResult::default();
+
+    for relative_path in files_to_delete {
+        let path = match checked_mods_relative_path(mods_dir, relative_path) {
+            Ok(path) => path,
+            Err(err) => {
+                result.errors.push(err);
+                continue;
+            }
+        };
+
+        match fs::remove_file(&path) {
+            Ok(()) => result.files_deleted += 1,
+            Err(err) => result
+                .errors
+                .push(format!("Failed to delete {}: {err}", path.display())),
+        }
+    }
+
+    Ok(result)
+}
+
+fn checked_mods_relative_path(mods_dir: &Path, relative_path: &str) -> Result<PathBuf, String> {
+    let path = Path::new(relative_path);
+
+    if path.components().any(|component| {
+        matches!(
+            component,
+            std::path::Component::ParentDir
+                | std::path::Component::RootDir
+                | std::path::Component::Prefix(_)
+        )
+    }) {
+        return Err(format!(
+            "Rejected unsafe MODS-relative path {relative_path}."
+        ));
+    }
+
+    let full_path = mods_dir.join(path);
+
+    if !full_path.is_file() {
+        return Err(format!(
+            "Skipped {} because it is not a file.",
+            full_path.display()
+        ));
+    }
+
+    let canonical_path = full_path
+        .canonicalize()
+        .map_err(|err| format!("Failed to resolve {}: {err}", full_path.display()))?;
+
+    if !canonical_path.starts_with(mods_dir) {
+        return Err(format!("Rejected path outside MODS: {relative_path}."));
+    }
+
+    Ok(canonical_path)
+}
+
+fn keep_patterns(pattern: &str) -> Vec<String> {
+    pattern
+        .split(',')
+        .map(|part| part.trim().to_ascii_lowercase())
+        .filter(|part| !part.is_empty())
+        .collect()
+}
+
+fn matches_keep_patterns(path: &Path, keep_patterns: &[String]) -> bool {
+    let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    let file_name = file_name.to_ascii_lowercase();
+
+    keep_patterns
+        .iter()
+        .any(|pattern| wildcard_match(pattern, &file_name))
+}
+
+fn wildcard_match(pattern: &str, text: &str) -> bool {
+    let pattern = pattern.as_bytes();
+    let text = text.as_bytes();
+    let mut pattern_index = 0;
+    let mut text_index = 0;
+    let mut last_star = None;
+    let mut retry_text_index = 0;
+
+    while text_index < text.len() {
+        if pattern_index < pattern.len() && pattern[pattern_index] == text[text_index] {
+            pattern_index += 1;
+            text_index += 1;
+        } else if pattern_index < pattern.len() && pattern[pattern_index] == b'*' {
+            last_star = Some(pattern_index);
+            pattern_index += 1;
+            retry_text_index = text_index;
+        } else if let Some(star_index) = last_star {
+            pattern_index = star_index + 1;
+            retry_text_index += 1;
+            text_index = retry_text_index;
+        } else {
+            return false;
+        }
+    }
+
+    while pattern_index < pattern.len() && pattern[pattern_index] == b'*' {
+        pattern_index += 1;
+    }
+
+    pattern_index == pattern.len()
 }
 
 fn mods_relative_path(mods_dir: &Path, path: &Path) -> Result<String, String> {
@@ -777,6 +974,102 @@ mod tests {
     }
 
     #[test]
+    fn delete_preview_keeps_files_by_case_insensitive_filename_patterns() {
+        let project = TestProject::new("keep-patterns");
+        write_test_file(&project.mods_dir.join("SONG.INI"));
+        write_test_file(&project.mods_dir.join("Track.FSB.XEN"));
+        write_test_file(&project.mods_dir.join("Lead_SONG.PAK.XEN"));
+        write_test_file(&project.mods_dir.join("notes.txt"));
+
+        let preview = preview_keep_only_files_delete_paths(
+            &project.mods_dir,
+            " song.ini, *_song.pak.xen, *.fsb.xen ,, ",
+        )
+        .expect("preview should succeed");
+
+        assert_eq!(preview.files_to_delete, vec!["notes.txt".to_string()]);
+        assert!(preview.errors.is_empty());
+    }
+
+    #[test]
+    fn blank_delete_preview_keeps_all_files() {
+        let project = TestProject::new("blank-keep-patterns");
+        write_test_file(&project.mods_dir.join("notes.txt"));
+
+        let preview = preview_keep_only_files_delete_paths(&project.mods_dir, " ,  , ")
+            .expect("preview should succeed");
+
+        assert!(preview.files_to_delete.is_empty());
+        assert!(project.mods_dir.join("notes.txt").exists());
+    }
+
+    #[test]
+    fn delete_preview_after_category_move_omits_moved_category_data() {
+        let project = TestProject::new("delete-after-move");
+        let category_dir = project.mods_dir.join("Category A");
+        fs::create_dir_all(&category_dir).expect("category folder should be created");
+        write_test_file(&category_dir.join("category.ini"));
+        write_test_file(&category_dir.join("preview.img.xen"));
+        write_test_file(&category_dir.join("notes.txt"));
+
+        scan_mods_folder_paths(&project.mods_dir, Some(&project.extra_dir))
+            .expect("scan should succeed");
+        let preview = preview_keep_only_files_delete_paths(
+            &project.mods_dir,
+            DEFAULT_KEEP_ONLY_FILES_PATTERN,
+        )
+        .expect("preview should succeed");
+
+        assert_eq!(
+            preview.files_to_delete,
+            vec!["Category A/notes.txt".to_string()]
+        );
+        assert!(project
+            .extra_dir
+            .join("Category A")
+            .join("category.ini")
+            .exists());
+        assert!(project
+            .extra_dir
+            .join("Category A")
+            .join("preview.img.xen")
+            .exists());
+    }
+
+    #[test]
+    fn delete_confirm_removes_confirmed_relative_files_only() {
+        let project = TestProject::new("delete-confirmed");
+        write_test_file(&project.mods_dir.join("notes.txt"));
+        write_test_file(&project.mods_dir.join("song.ini"));
+
+        let result = delete_keep_only_files_paths(&project.mods_dir, &["notes.txt".to_string()])
+            .expect("delete should complete");
+
+        assert_eq!(result.files_deleted, 1);
+        assert!(result.errors.is_empty());
+        assert!(!project.mods_dir.join("notes.txt").exists());
+        assert!(project.mods_dir.join("song.ini").exists());
+    }
+
+    #[test]
+    fn delete_confirm_rejects_paths_outside_mods() {
+        let project = TestProject::new("reject-delete-outside");
+        let outside_file = project.root.join("outside.txt");
+        write_test_file(&outside_file);
+
+        let result =
+            delete_keep_only_files_paths(&project.mods_dir, &["../outside.txt".to_string()])
+                .expect("delete should complete with errors");
+
+        assert_eq!(result.files_deleted, 0);
+        assert_eq!(
+            result.errors,
+            vec!["Rejected unsafe MODS-relative path ../outside.txt.".to_string()]
+        );
+        assert!(outside_file.exists());
+    }
+
+    #[test]
     fn save_settings_creates_missing_extra_folder() {
         let project = TestProject::new("create-missing-extra");
         let missing_extra_dir = project.root.join("CreatedExtra");
@@ -841,7 +1134,9 @@ pub fn run() {
             load_project_settings,
             save_project_settings,
             preview_scan_mods_folder,
-            scan_mods_folder
+            scan_mods_folder,
+            preview_keep_only_files_delete,
+            delete_keep_only_files
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

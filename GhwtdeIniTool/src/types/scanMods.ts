@@ -13,3 +13,13 @@ export type ScanModsResult = {
   errors: string[];
   moved_categories_enabled: boolean;
 };
+
+export type DeleteFilesPreview = {
+  files_to_delete: string[];
+  errors: string[];
+};
+
+export type DeleteFilesResult = {
+  files_deleted: number;
+  errors: string[];
+};
