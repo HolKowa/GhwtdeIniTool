@@ -101,6 +101,9 @@ Current frontend behavior:
 - Keep-pattern entries are comma-separated, trimmed, matched case-insensitively
   against file names, and support `*` wildcards. An empty keep-pattern setting
   keeps all files.
+- The settings dialog validates the keep-pattern input before saving it and
+  disables close while the draft contains path separators or reserved filename
+  characters.
 - The frontend displays unavailable configured folders as muted paths but keeps
   the stored path visible.
 

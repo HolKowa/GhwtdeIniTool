@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 import {
   DEFAULT_KEEP_ONLY_FILES_PATTERN,
   type SettingsStatus,
@@ -27,11 +29,46 @@ export function SettingsDialog({
   settingsError,
   settingsStatus,
 }: SettingsDialogProps) {
+  const [keepOnlyFilesPatternInput, setKeepOnlyFilesPatternInput] = useState(
+    settings?.keep_only_files_pattern ?? "",
+  );
+  const [isKeepOnlyFilesPatternDirty, setIsKeepOnlyFilesPatternDirty] =
+    useState(false);
   const hasAvailableModsFolder =
     settings?.mods_dir && settings.mods_dir_available;
   const hasAvailableCategoriesExtraFolder =
     settings?.categories_extra_dir && settings.categories_extra_dir_available;
   const canEditProjectSettings = Boolean(hasAvailableModsFolder);
+  const keepOnlyFilesPatternError = validateKeepOnlyFilesPattern(
+    keepOnlyFilesPatternInput,
+  );
+  const canCloseSettings = canClose && !keepOnlyFilesPatternError;
+  const savedKeepOnlyFilesPattern = settings?.keep_only_files_pattern ?? "";
+
+  useEffect(() => {
+    if (
+      isKeepOnlyFilesPatternDirty &&
+      keepOnlyFilesPatternInput !== savedKeepOnlyFilesPattern
+    ) {
+      return;
+    }
+
+    setKeepOnlyFilesPatternInput(savedKeepOnlyFilesPattern);
+    setIsKeepOnlyFilesPatternDirty(false);
+  }, [
+    isKeepOnlyFilesPatternDirty,
+    keepOnlyFilesPatternInput,
+    savedKeepOnlyFilesPattern,
+  ]);
+
+  const updateKeepOnlyFilesPattern = (pattern: string) => {
+    setKeepOnlyFilesPatternInput(pattern);
+    setIsKeepOnlyFilesPatternDirty(true);
+
+    if (!validateKeepOnlyFilesPattern(pattern)) {
+      onKeepOnlyFilesPatternChange(pattern);
+    }
+  };
 
   return (
     <div className="settings-backdrop" role="presentation">
@@ -50,6 +87,7 @@ export function SettingsDialog({
               type="button"
               onClick={onClose}
               aria-label="Close settings"
+              disabled={!canCloseSettings}
             >
               &times;
             </button>
@@ -126,7 +164,7 @@ export function SettingsDialog({
               <button
                 className="secondary-btn"
                 type="button"
-                onClick={() => onKeepOnlyFilesPatternChange("*")}
+                onClick={() => updateKeepOnlyFilesPattern("*")}
                 disabled={!canEditProjectSettings}
               >
                 Keep all
@@ -135,7 +173,7 @@ export function SettingsDialog({
                 className="primary-btn"
                 type="button"
                 onClick={() =>
-                  onKeepOnlyFilesPatternChange(DEFAULT_KEEP_ONLY_FILES_PATTERN)
+                  updateKeepOnlyFilesPattern(DEFAULT_KEEP_ONLY_FILES_PATTERN)
                 }
                 disabled={!canEditProjectSettings}
               >
@@ -145,18 +183,51 @@ export function SettingsDialog({
           </div>
           <input
             id="keep-files-pattern"
-            className="settings-input"
+            className={`settings-input${
+              keepOnlyFilesPatternError ? " settings-input-error" : ""
+            }`}
             type="text"
-            value={settings?.keep_only_files_pattern ?? ""}
+            value={keepOnlyFilesPatternInput}
             disabled={!canEditProjectSettings}
+            aria-invalid={Boolean(keepOnlyFilesPatternError)}
+            aria-describedby={
+              keepOnlyFilesPatternError
+                ? "keep-files-pattern-error"
+                : undefined
+            }
             onChange={(event) =>
-              onKeepOnlyFilesPatternChange(event.currentTarget.value)
+              updateKeepOnlyFilesPattern(event.currentTarget.value)
             }
           />
+          {keepOnlyFilesPatternError && (
+            <p className="settings-error" id="keep-files-pattern-error">
+              {keepOnlyFilesPatternError}
+            </p>
+          )}
         </div>
 
         {settingsError && <p className="settings-error">{settingsError}</p>}
       </section>
     </div>
   );
+}
+
+function validateKeepOnlyFilesPattern(pattern: string) {
+  const invalidCharacterPattern = /[<>:"/\\|?]/;
+  const invalidCharacters = '< > : " / \\ | ?';
+  const patterns = pattern.split(",");
+
+  for (const rawPattern of patterns) {
+    const trimmedPattern = rawPattern.trim();
+
+    if (!trimmedPattern) {
+      continue;
+    }
+
+    if (invalidCharacterPattern.test(trimmedPattern)) {
+      return `Keep patterns match file names only. Remove path or reserved characters: ${invalidCharacters}.`;
+    }
+  }
+
+  return "";
 }

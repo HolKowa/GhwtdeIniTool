@@ -258,6 +258,10 @@ button {
   cursor: not-allowed;
 }
 
+.settings-input-error {
+  border-color: #c62828;
+}
+
 .settings-error {
   margin-top: 1rem;
   padding: 0.75rem;
@@ -598,6 +602,10 @@ button {
     background: #333;
     color: #8f8f8f;
     border-color: #4a4a4a;
+  }
+
+  .settings-input-error {
+    border-color: #ef9a9a;
   }
 
   .secondary-btn:hover:not(:disabled) {
