@@ -82,8 +82,8 @@ Current frontend behavior:
 - The Clean MODS folder button opens a two-step wizard that asks for a
   keep-pattern, previews MODS files that do not match it, and deletes only after
   user confirmation. The pattern defaults to
-  `song.ini,*_song.pak.xen,*.fsb.xen,category.ini,*.img.xen` each time and is
-  not saved.
+  `song*.ini,*_song.pak.xen,*.fsb.xen,category*.ini,*.img.xen,Readme.txt`
+  each time and is not saved.
 - The Scan MODS folder button opens a wizard that parses `song.ini` files,
   stores valid parsed results in backend memory, and lets the user repair faulty
   files before finishing. The wizard scales with the app window while keeping

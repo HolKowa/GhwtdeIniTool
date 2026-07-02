@@ -1,5 +1,5 @@
 export const DEFAULT_KEEP_ONLY_FILES_PATTERN =
-  "song.ini,*_song.pak.xen,*.fsb.xen,category.ini,*.img.xen";
+  "song*.ini,*_song.pak.xen,*.fsb.xen,category*.ini,*.img.xen,Readme.txt";
 
 export function validateKeepOnlyFilesPattern(pattern: string) {
   const invalidCharacterPattern = /[<>:"/\\|?]/;
