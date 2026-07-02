@@ -20,9 +20,7 @@ function App() {
     updateStatus,
   } = useAppUpdater();
   const {
-    chooseCategoriesExtraFolder,
     chooseModsFolder,
-    clearCategoriesExtraFolder,
     isSettingsOpen,
     loadSettings,
     setIsSettingsOpen,
@@ -41,7 +39,6 @@ function App() {
     repairedSongIniPaths,
     scanError,
     scanMods,
-    scanPreview,
     scanStatus,
     scanToast,
     songIniScanResult,
@@ -70,7 +67,6 @@ function App() {
           onClick={scanMods}
           disabled={
             scanStatus === "previewing" ||
-            scanStatus === "moving" ||
             scanStatus === "deleting"
           }
         >
@@ -90,9 +86,7 @@ function App() {
       {isSettingsOpen && (
         <SettingsDialog
           canClose={canCloseSettings}
-          onChangeCategoriesExtraFolder={chooseCategoriesExtraFolder}
           onChangeFolder={chooseModsFolder}
-          onClearCategoriesExtraFolder={clearCategoriesExtraFolder}
           onClose={() => {
             if (canCloseSettings) {
               setIsSettingsOpen(false);
@@ -123,7 +117,6 @@ function App() {
           onConfirm={confirmScan}
           onSelectSongIni={clearSongIniValidationError}
           onValidateSongIni={validateSongIni}
-          preview={scanPreview}
           repairedSongIniPaths={repairedSongIniPaths}
           scanError={scanError}
           scanStatus={scanStatus}

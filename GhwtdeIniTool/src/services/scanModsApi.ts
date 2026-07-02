@@ -3,19 +3,9 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   DeleteFilesPreview,
   DeleteFilesResult,
-  ScanModsPreview,
-  ScanModsResult,
   SongIniScanResult,
   SongIniValidationResult,
 } from "../types/scanMods";
-
-export function previewScanModsFolder() {
-  return invoke<ScanModsPreview>("preview_scan_mods_folder");
-}
-
-export function scanModsFolder() {
-  return invoke<ScanModsResult>("scan_mods_folder");
-}
 
 export function previewKeepOnlyFilesDelete() {
   return invoke<DeleteFilesPreview>("preview_keep_only_files_delete");

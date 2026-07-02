@@ -3,24 +3,18 @@ import { useCallback, useEffect, useState } from "react";
 import {
   deleteKeepOnlyFiles,
   previewKeepOnlyFilesDelete,
-  previewScanModsFolder,
-  scanModsFolder,
   scanSongIniFiles,
   validateSongIniFile,
 } from "../services/scanModsApi";
 import type {
   DeleteFilesPreview,
   DeleteFilesResult,
-  ScanModsPreview,
-  ScanModsResult,
   SongIniScanResult,
 } from "../types/scanMods";
 
 export type ScanModsStatus =
   | "idle"
   | "previewing"
-  | "readyMove"
-  | "moving"
   | "readyDelete"
   | "deleting"
   | "scanningSongs"
@@ -35,8 +29,6 @@ export type ScanToast = {
 
 export function useModsScanner() {
   const [scanStatus, setScanStatus] = useState<ScanModsStatus>("idle");
-  const [scanPreview, setScanPreview] = useState<ScanModsPreview | null>(null);
-  const [scanResult, setScanResult] = useState<ScanModsResult | null>(null);
   const [deletePreview, setDeletePreview] =
     useState<DeleteFilesPreview | null>(null);
   const [deleteResult, setDeleteResult] = useState<DeleteFilesResult | null>(
@@ -56,8 +48,6 @@ export function useModsScanner() {
     setIsScanWizardOpen(true);
     setScanStatus("previewing");
     setScanError("");
-    setScanPreview(null);
-    setScanResult(null);
     setDeletePreview(null);
     setDeleteResult(null);
     setSongIniScanResult(null);
@@ -66,12 +56,10 @@ export function useModsScanner() {
     setScanToast(null);
 
     try {
-      const preview = await previewScanModsFolder();
-      setScanPreview(preview);
-      setScanStatus("readyMove");
+      const preview = await previewKeepOnlyFilesDelete();
+      setDeletePreview(preview);
+      setScanStatus("readyDelete");
     } catch (err) {
-      setScanPreview(null);
-      setScanResult(null);
       setDeletePreview(null);
       setDeleteResult(null);
       setSongIniScanResult(null);
@@ -130,40 +118,6 @@ export function useModsScanner() {
       }
 
       return;
-    }
-
-    setScanStatus("moving");
-    setScanError("");
-    setSongIniValidationError("");
-
-    try {
-      const result = await scanModsFolder();
-      setScanResult(result);
-      const nextDeletePreview = await previewKeepOnlyFilesDelete();
-      setDeletePreview(nextDeletePreview);
-      setDeleteResult(null);
-      setScanStatus("readyDelete");
-      setScanToast({
-        message: [
-          `${result.category_folders_moved} folders moved`,
-          `${result.files_moved} files moved`,
-          `${result.renamed_destinations} renamed`,
-          `${result.errors.length} errors`,
-        ].join(" | "),
-        tone: result.errors.length ? "error" : "success",
-      });
-    } catch (err) {
-      setScanResult(null);
-      setDeletePreview(null);
-      setDeleteResult(null);
-      setSongIniScanResult(null);
-      setRepairedSongIniPaths([]);
-      setScanError(String(err));
-      setScanStatus("error");
-      setScanToast({
-        message: String(err),
-        tone: "error",
-      });
     }
   }, [deletePreview, scanStatus]);
 
@@ -231,8 +185,6 @@ export function useModsScanner() {
     setIsScanWizardOpen(false);
     setScanStatus("idle");
     setScanError("");
-    setScanPreview(null);
-    setScanResult(null);
     setDeletePreview(null);
     setDeleteResult(null);
     setSongIniScanResult(null);
@@ -267,8 +219,6 @@ export function useModsScanner() {
     repairedSongIniPaths,
     scanError,
     scanMods,
-    scanPreview,
-    scanResult,
     scanStatus,
     scanToast,
     songIniScanResult,

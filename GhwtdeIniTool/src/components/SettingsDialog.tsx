@@ -8,9 +8,7 @@ import type { ProjectSettings } from "../types/projectSettings";
 
 type SettingsDialogProps = {
   canClose: boolean;
-  onChangeCategoriesExtraFolder: () => void;
   onChangeFolder: () => void;
-  onClearCategoriesExtraFolder: () => void;
   onClose: () => void;
   onKeepOnlyFilesPatternChange: (pattern: string) => void;
   settings: ProjectSettings | null;
@@ -20,9 +18,7 @@ type SettingsDialogProps = {
 
 export function SettingsDialog({
   canClose,
-  onChangeCategoriesExtraFolder,
   onChangeFolder,
-  onClearCategoriesExtraFolder,
   onClose,
   onKeepOnlyFilesPatternChange,
   settings,
@@ -36,8 +32,6 @@ export function SettingsDialog({
     useState(false);
   const hasAvailableModsFolder =
     settings?.mods_dir && settings.mods_dir_available;
-  const hasAvailableCategoriesExtraFolder =
-    settings?.categories_extra_dir && settings.categories_extra_dir_available;
   const canEditProjectSettings = Boolean(hasAvailableModsFolder);
   const keepOnlyFilesPatternError = validateKeepOnlyFilesPattern(
     keepOnlyFilesPatternInput,
@@ -115,44 +109,6 @@ export function SettingsDialog({
           >
             Change folder
           </button>
-        </div>
-
-        <div className="settings-row">
-          <div>
-            <h3>Move categories to extra folder</h3>
-            <p
-              className={
-                hasAvailableCategoriesExtraFolder
-                  ? "folder-path"
-                  : "folder-path muted"
-              }
-            >
-              {settingsStatus === "loading"
-                ? "Loading..."
-                : settings?.categories_extra_dir ?? "No folder selected"}
-            </p>
-          </div>
-
-          <div className="settings-actions">
-            <button
-              className="secondary-btn"
-              type="button"
-              onClick={onClearCategoriesExtraFolder}
-              disabled={
-                !canEditProjectSettings || !settings?.categories_extra_dir
-              }
-            >
-              Clear folder
-            </button>
-            <button
-              className="primary-btn"
-              type="button"
-              onClick={onChangeCategoriesExtraFolder}
-              disabled={!canEditProjectSettings}
-            >
-              Change folder
-            </button>
-          </div>
         </div>
 
         <div className="settings-field">

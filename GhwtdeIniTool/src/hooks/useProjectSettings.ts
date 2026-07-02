@@ -1,9 +1,6 @@
 import { useCallback, useState } from "react";
 
-import {
-  openCategoriesExtraFolderDialog,
-  openModsFolderDialog,
-} from "../services/modsFolderDialog";
+import { openModsFolderDialog } from "../services/modsFolderDialog";
 import {
   loadProjectSettings,
   saveProjectSettings,
@@ -18,8 +15,6 @@ export const DEFAULT_KEEP_ONLY_FILES_PATTERN =
 const defaultSettings: ProjectSettings = {
   mods_dir: null,
   mods_dir_available: false,
-  categories_extra_dir: null,
-  categories_extra_dir_available: false,
   keep_only_files_pattern: DEFAULT_KEEP_ONLY_FILES_PATTERN,
   settings_file: "",
 };
@@ -64,30 +59,6 @@ export function useProjectSettings() {
     }
   }, [persistSettings]);
 
-  const chooseCategoriesExtraFolder = useCallback(async () => {
-    try {
-      const selected = await openCategoriesExtraFolderDialog();
-
-      if (typeof selected !== "string") {
-        return;
-      }
-
-      await persistSettings({ categories_extra_dir: selected });
-    } catch (err) {
-      setSettingsStatus("error");
-      setSettingsError(String(err));
-    }
-  }, [persistSettings]);
-
-  const clearCategoriesExtraFolder = useCallback(async () => {
-    try {
-      await persistSettings({ categories_extra_dir: null });
-    } catch (err) {
-      setSettingsStatus("error");
-      setSettingsError(String(err));
-    }
-  }, [persistSettings]);
-
   const setKeepOnlyFilesPattern = useCallback(
     async (keepOnlyFilesPattern: string) => {
       try {
@@ -122,9 +93,7 @@ export function useProjectSettings() {
   }, []);
 
   return {
-    chooseCategoriesExtraFolder,
     chooseModsFolder,
-    clearCategoriesExtraFolder,
     isSettingsOpen,
     loadSettings,
     setIsSettingsOpen,

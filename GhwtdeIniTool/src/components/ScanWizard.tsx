@@ -1,11 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import type { ScanModsStatus } from "../hooks/useModsScanner";
-import type {
-  DeleteFilesPreview,
-  ScanModsPreview,
-  SongIniScanResult,
-} from "../types/scanMods";
+import type { DeleteFilesPreview, SongIniScanResult } from "../types/scanMods";
 
 type ScanWizardProps = {
   deletePreview: DeleteFilesPreview | null;
@@ -13,7 +9,6 @@ type ScanWizardProps = {
   onConfirm: () => void;
   onSelectSongIni: () => void;
   onValidateSongIni: (relativePath: string, contents: string) => void;
-  preview: ScanModsPreview | null;
   repairedSongIniPaths: string[];
   scanError: string;
   scanStatus: ScanModsStatus;
@@ -27,7 +22,6 @@ export function ScanWizard({
   onConfirm,
   onSelectSongIni,
   onValidateSongIni,
-  preview,
   repairedSongIniPaths,
   scanError,
   scanStatus,
@@ -39,18 +33,16 @@ export function ScanWizard({
     Record<string, string>
   >({});
   const isPreviewing = scanStatus === "previewing";
-  const isMoving = scanStatus === "moving";
   const isDeleting = scanStatus === "deleting";
   const isScanningSongs = scanStatus === "scanningSongs";
   const isValidatingSong = scanStatus === "validatingSong";
   const isBusy =
-    isPreviewing || isMoving || isDeleting || isScanningSongs || isValidatingSong;
+    isPreviewing || isDeleting || isScanningSongs || isValidatingSong;
   const isDeleteStep = scanStatus === "readyDelete" || isDeleting;
   const isSongIniStep =
     scanStatus === "scanningSongs" ||
     scanStatus === "readySongRepair" ||
     scanStatus === "validatingSong";
-  const hasFilesToMove = Boolean(preview?.files_to_move.length);
   const hasFilesToDelete = Boolean(deletePreview?.files_to_delete.length);
   const repairedPathSet = useMemo(
     () => new Set(repairedSongIniPaths),
@@ -111,12 +103,10 @@ export function ScanWizard({
     setSelectedSongIniPath(firstUnresolvedFile.relative_path);
   }, [faultySongIniFiles, repairedPathSet, selectedSongIniPath]);
 
-  const stepLabel = isSongIniStep ? "Step 3" : isDeleteStep ? "Step 2" : "Step 1";
+  const stepLabel = isSongIniStep ? "Step 2" : "Step 1";
   const title = isSongIniStep
     ? "Validate song.ini files"
-    : isDeleteStep
-      ? "Keep only files with pattern"
-      : "Move categories";
+    : "Keep only files with pattern";
 
   return (
     <div className="scan-wizard-backdrop" role="presentation">
@@ -136,7 +126,7 @@ export function ScanWizard({
             type="button"
             onClick={onCancel}
             aria-label="Cancel scan"
-            disabled={isMoving || isDeleting || isScanningSongs || isValidatingSong}
+            disabled={isDeleting || isScanningSongs || isValidatingSong}
           >
             &times;
           </button>
@@ -144,11 +134,6 @@ export function ScanWizard({
 
         <div className="scan-wizard-body">
           {isPreviewing && <p className="scan-wizard-muted">Scanning...</p>}
-          {isMoving && (
-            <p className="scan-wizard-muted">
-              Moving categories and preparing delete preview...
-            </p>
-          )}
           {isDeleting && <p className="scan-wizard-muted">Deleting files...</p>}
           {isScanningSongs && (
             <p className="scan-wizard-muted">Parsing song.ini files...</p>
@@ -156,38 +141,6 @@ export function ScanWizard({
 
           {scanStatus === "error" && (
             <p className="scan-wizard-error">{scanError}</p>
-          )}
-
-          {!isDeleteStep && !isSongIniStep && preview && (
-            <>
-              <p className="scan-wizard-summary">
-                {preview.files_to_move.length} files ready to move from{" "}
-                {preview.categories_found} categories.
-              </p>
-
-              {!preview.moved_categories_enabled && (
-                <p className="scan-wizard-muted">
-                  Category moving is disabled because no extra folder is
-                  available.
-                </p>
-              )}
-
-              {hasFilesToMove ? (
-                <ul className="scan-file-list">
-                  {preview.files_to_move.map((filePath) => (
-                    <li key={filePath}>{filePath}</li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="scan-wizard-muted">No files will be moved.</p>
-              )}
-
-              {preview.errors.map((error, index) => (
-                <p className="scan-wizard-error" key={`${index}-${error}`}>
-                  {error}
-                </p>
-              ))}
-            </>
           )}
 
           {isDeleteStep && deletePreview && (
@@ -329,7 +282,7 @@ export function ScanWizard({
             className="secondary-btn"
             type="button"
             onClick={onCancel}
-            disabled={isMoving || isDeleting || isScanningSongs || isValidatingSong}
+            disabled={isDeleting || isScanningSongs || isValidatingSong}
           >
             Cancel
           </button>
@@ -343,9 +296,7 @@ export function ScanWizard({
               (isSongIniStep && !canFinishSongIniStep)
             }
           >
-            {isMoving
-              ? "Moving..."
-              : isDeleting
+            {isDeleting
                 ? "Deleting..."
                 : isScanningSongs
                   ? "Parsing..."
