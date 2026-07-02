@@ -507,6 +507,86 @@ button {
   box-sizing: border-box;
 }
 
+.song-conflict-section {
+  margin-top: 1rem;
+}
+
+.song-conflict-section h3 {
+  margin: 0 0 0.5rem;
+  color: #1f1f1f;
+  font-size: 1rem;
+  line-height: 1.3;
+}
+
+.song-conflict-group {
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.song-conflict-group + .song-conflict-group {
+  margin-top: 0.75rem;
+}
+
+.song-conflict-group-header,
+.song-conflict-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.song-conflict-group-header {
+  padding: 0.55rem 0.65rem;
+  background: #f4f4f4;
+  color: #1f1f1f;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono",
+    monospace;
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.song-conflict-group-header span:first-child,
+.song-conflict-list span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.song-conflict-group-header span:last-child {
+  color: #b71c1c;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+}
+
+.song-conflict-group-header span:last-child.resolved {
+  color: #2e7d32;
+}
+
+.song-conflict-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.song-conflict-list li {
+  padding: 0.55rem 0.65rem;
+  color: #1f1f1f;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono",
+    monospace;
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.song-conflict-list li + li {
+  border-top: 1px solid #eeeeee;
+}
+
+.song-conflict-list .secondary-btn {
+  padding: 0.45rem 0.7rem;
+  font-family: inherit;
+  font-size: 0.76rem;
+}
+
 .scan-wizard-actions {
   justify-content: flex-end;
   margin-top: 1rem;
@@ -825,6 +905,32 @@ button {
   .song-ini-textarea {
     background: #1a1a1a;
     color: #f6f6f6;
+  }
+
+  .song-conflict-section h3,
+  .song-conflict-group-header,
+  .song-conflict-list li {
+    color: #f6f6f6;
+  }
+
+  .song-conflict-group {
+    border-color: #555;
+  }
+
+  .song-conflict-group-header {
+    background: #333;
+  }
+
+  .song-conflict-group-header span:last-child {
+    color: #ffcdd2;
+  }
+
+  .song-conflict-group-header span:last-child.resolved {
+    color: #c8e6c9;
+  }
+
+  .song-conflict-list li + li {
+    border-top-color: #444;
   }
 
   .scan-toast {

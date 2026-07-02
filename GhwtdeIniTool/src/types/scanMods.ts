@@ -14,15 +14,40 @@ export type FaultySongIniFile = {
   error: string;
 };
 
+export type DuplicateChecksumGroup = {
+  checksum: string;
+  relative_paths: string[];
+};
+
+export type DisabledSongConflict = {
+  active_path: string;
+  disabled_path: string;
+};
+
 export type SongIniScanResult = {
   songs_found: number;
   songs_parsed: number;
   faulty_files: FaultySongIniFile[];
+  duplicate_checksum_groups: DuplicateChecksumGroup[];
+  disabled_song_conflicts: DisabledSongConflict[];
   errors: string[];
 };
 
 export type SongIniValidationResult = {
   relative_path: string;
   contents: string;
+  songs_parsed: number;
+  duplicate_checksum_groups: DuplicateChecksumGroup[];
+  disabled_song_conflicts: DisabledSongConflict[];
+};
+
+export type SongIniDisableResult = {
+  relative_path: string;
+  disabled_path: string;
+  songs_parsed: number;
+};
+
+export type SongIniDeleteResult = {
+  relative_path: string;
   songs_parsed: number;
 };

@@ -42,8 +42,8 @@ Important files:
   cleanup wizard for keep-pattern entry and delete confirmation.
 - `GhwtdeIniTool/src/components/ScanToast.tsx` renders compact scan completion
   and error toasts.
-- `GhwtdeIniTool/src/components/ScanWizard.tsx` renders the `song.ini` scan and
-  repair wizard.
+- `GhwtdeIniTool/src/components/ScanWizard.tsx` renders the `song.ini` scan,
+  repair, duplicate checksum, and disabled-file conflict wizard.
 - `GhwtdeIniTool/src/components/SettingsDialog.tsx` renders project settings.
 - `GhwtdeIniTool/src/components/UpdateDialog.tsx` renders updater states.
 - `GhwtdeIniTool/src/hooks/useProjectSettings.ts` owns settings state and
@@ -54,12 +54,12 @@ Important files:
 - `GhwtdeIniTool/src/services/projectSettingsApi.ts` wraps the Tauri settings
   commands.
 - `GhwtdeIniTool/src/services/scanModsApi.ts` wraps the Tauri keep-pattern
-  delete and `song.ini` scan/validation commands.
+  delete and `song.ini` scan/validation/disable/conflict delete commands.
 - `GhwtdeIniTool/src/services/modsFolderDialog.ts` wraps Tauri folder pickers.
 - `GhwtdeIniTool/src/types/projectSettings.ts` defines the frontend settings
   shape returned by Rust.
 - `GhwtdeIniTool/src/types/scanMods.ts` defines the frontend MODS scan,
-  keep-pattern delete, and `song.ini` scan/validation result shapes.
+  keep-pattern delete, and `song.ini` scan/validation/conflict result shapes.
 - `GhwtdeIniTool/src/utils/keepOnlyFilesPattern.ts` defines the default
   keep-pattern and frontend validation helper.
 - `GhwtdeIniTool/vite.config.ts` configures Vite for Tauri development on port
@@ -85,11 +85,14 @@ Current frontend behavior:
   review step. The pattern defaults to
   `song*.ini,*_song.pak.xen,*.fsb.xen,category*.ini,*.img.xen,Readme.txt`
   each time and is not saved.
-- The Scan MODS folder button opens a one-step wizard that parses `song.ini`
-  files, stores valid parsed results in backend memory, and lets the user repair
-  faulty files before finishing. The wizard scales with the app window while
-  keeping preview content scrollable. Completion and errors are shown as compact
-  toasts.
+- The Scan MODS folder button opens a two-step wizard that parses `song.ini`
+  files, stores valid parsed results in backend memory, lets the user repair
+  faulty files, then resolves duplicate checksum groups and folders containing
+  both `song.ini` and `song.disabled.ini`. Duplicate checksums are resolved by
+  disabling selected active songs, which renames `song.ini` to
+  `song.disabled.ini`; active/disabled sibling conflicts can delete either file.
+  The wizard scales with the app window while keeping preview content
+  scrollable. Completion and errors are shown as compact toasts.
 - The settings dialog lets the user choose a MODS folder and toggle whether
   original `song.ini` files are kept before their first edit.
 - Settings changes are saved immediately through `save_project_settings`; there
@@ -131,7 +134,8 @@ Current backend behavior:
 - Registers the Tauri opener, updater, process, and dialog plugins.
 - Exposes `load_project_settings`, `save_project_settings`,
   `preview_keep_only_files_delete`, `delete_keep_only_files`,
-  `scan_song_ini_files`, and `validate_song_ini_file` Tauri commands.
+  `scan_song_ini_files`, `validate_song_ini_file`, `disable_song_ini_file`, and
+  `delete_song_ini_conflict_file` Tauri commands.
 - Stores project settings in `ghwtdeinitool.ini` next to the executable under a
   `[project]` section.
 - Reads and writes `mods_dir` and `keep_original_song_ini`. Missing
@@ -148,10 +152,13 @@ Current backend behavior:
   contents and parse errors to the wizard, rejects duplicate keys within the
   same section, requires exact `[ModInfo]` and `[SongInfo]` sections plus a
   non-empty `Checksum` entry in `[SongInfo]`, auto-corrects canonical casing for
-  known `ModInfo`/`SongInfo` keys while allowing extra unknown keys, and
-  validates repaired contents before writing them back to disk. When
+  known `ModInfo`/`SongInfo` keys while allowing extra unknown keys, groups
+  duplicate parsed `[SongInfo]` checksum values across valid active songs,
+  reports sibling `song.ini`/`song.disabled.ini` conflicts, and validates
+  repaired contents before writing them back to disk. When
   `keep_original_song_ini` is enabled, the backend creates a sibling
-  `song.original.ini` before the first write to each `song.ini`.
+  `song.original.ini` before the first write to each `song.ini` and before a
+  `song.ini` is disabled by rename.
 - Uses `tauri.conf.json` to configure bundling and updater artifacts.
 
 ## Build And Release
@@ -183,7 +190,9 @@ What was checked:
   deletes, settings parsing/writing, `song.ini` parsing, faulty file reporting,
   validation writes, original backup behavior, store updates, duplicate key
   rejection, required `song.ini` fields, canonical key casing auto-correction,
-  and unsafe repair path rejection.
+  duplicate checksum grouping, disabled-file conflict reporting,
+  disable-by-rename behavior, conflict file deletion, and unsafe repair/action
+  path rejection.
 
 Useful current validation commands:
 

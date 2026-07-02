@@ -48,6 +48,10 @@ function App() {
     cancelScan,
     clearSongIniValidationError,
     confirmScan,
+    deleteSongIniConflict,
+    deletedSongIniConflictPaths,
+    disableSongIni,
+    disabledSongIniPaths,
     dismissScanToast,
     isScanWizardOpen,
     repairedSongIniPaths,
@@ -55,6 +59,7 @@ function App() {
     scanMods,
     scanStatus,
     scanToast,
+    songIniConflictError,
     songIniScanResult,
     songIniValidationError,
     validateSongIni,
@@ -72,7 +77,10 @@ function App() {
     updateStatus === "error";
   const canCloseSettings = Boolean(settings?.mods_dir_available);
   const isScanBusy =
-    scanStatus === "scanningSongs" || scanStatus === "validatingSong";
+    scanStatus === "scanningSongs" ||
+    scanStatus === "validatingSong" ||
+    scanStatus === "disablingSong" ||
+    scanStatus === "deletingSongConflict";
   const isCleanBusy =
     cleanStatus === "previewing" || cleanStatus === "deleting";
   const isWorkflowOpen = isCleanWizardOpen || isScanWizardOpen;
@@ -154,11 +162,16 @@ function App() {
         <ScanWizard
           onCancel={cancelScan}
           onConfirm={confirmScan}
+          onDeleteSongIniConflict={deleteSongIniConflict}
+          onDisableSongIni={disableSongIni}
           onSelectSongIni={clearSongIniValidationError}
           onValidateSongIni={validateSongIni}
+          deletedSongIniConflictPaths={deletedSongIniConflictPaths}
+          disabledSongIniPaths={disabledSongIniPaths}
           repairedSongIniPaths={repairedSongIniPaths}
           scanError={scanError}
           scanStatus={scanStatus}
+          songIniConflictError={songIniConflictError}
           songIniScanResult={songIniScanResult}
           songIniValidationError={songIniValidationError}
         />

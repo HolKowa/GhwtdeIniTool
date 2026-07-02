@@ -1,7 +1,7 @@
 use ini::Ini;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     env, fs, io,
     path::{Path, PathBuf},
     sync::Mutex,
@@ -91,6 +91,8 @@ struct SongIniScanResult {
     songs_found: usize,
     songs_parsed: usize,
     faulty_files: Vec<FaultySongIniFile>,
+    duplicate_checksum_groups: Vec<DuplicateChecksumGroup>,
+    disabled_song_conflicts: Vec<DisabledSongConflict>,
     errors: Vec<String>,
 }
 
@@ -101,10 +103,37 @@ struct FaultySongIniFile {
     error: String,
 }
 
+#[derive(Clone, Debug, Serialize)]
+struct DuplicateChecksumGroup {
+    checksum: String,
+    relative_paths: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct DisabledSongConflict {
+    active_path: String,
+    disabled_path: String,
+}
+
 #[derive(Debug, Serialize)]
 struct SongIniValidationResult {
     relative_path: String,
     contents: String,
+    songs_parsed: usize,
+    duplicate_checksum_groups: Vec<DuplicateChecksumGroup>,
+    disabled_song_conflicts: Vec<DisabledSongConflict>,
+}
+
+#[derive(Debug, Serialize)]
+struct SongIniDisableResult {
+    relative_path: String,
+    disabled_path: String,
+    songs_parsed: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct SongIniDeleteResult {
+    relative_path: String,
     songs_parsed: usize,
 }
 
@@ -169,6 +198,24 @@ fn validate_song_ini_file(
 ) -> Result<SongIniValidationResult, String> {
     let settings = scan_settings()?;
     validate_song_ini_file_path(&settings, &relative_path, &contents, &store)
+}
+
+#[tauri::command]
+fn disable_song_ini_file(
+    relative_path: String,
+    store: tauri::State<'_, SongIniStore>,
+) -> Result<SongIniDisableResult, String> {
+    let settings = scan_settings()?;
+    disable_song_ini_file_path(&settings, &relative_path, &store)
+}
+
+#[tauri::command]
+fn delete_song_ini_conflict_file(
+    relative_path: String,
+    store: tauri::State<'_, SongIniStore>,
+) -> Result<SongIniDeleteResult, String> {
+    let settings = scan_settings()?;
+    delete_song_ini_conflict_file_path(&settings, &relative_path, &store)
 }
 
 struct ScanSettings {
@@ -288,7 +335,7 @@ fn scan_song_ini_files_paths(
     };
     let mut parsed_songs = Vec::new();
 
-    for song_ini_path in song_ini_paths {
+    for song_ini_path in &song_ini_paths {
         let relative_path = mods_relative_path(mods_dir, &song_ini_path)?;
         let contents = match fs::read_to_string(&song_ini_path) {
             Ok(contents) => contents,
@@ -326,6 +373,8 @@ fn scan_song_ini_files_paths(
     }
 
     result.songs_parsed = parsed_songs.len();
+    result.duplicate_checksum_groups = duplicate_checksum_groups(&parsed_songs);
+    result.disabled_song_conflicts = disabled_song_conflicts(mods_dir, &song_ini_paths)?;
     replace_song_ini_store(store, parsed_songs)?;
     Ok(result)
 }
@@ -349,11 +398,85 @@ fn validate_song_ini_file_path(
     write_song_ini_file(&path, &normalized_contents, settings.keep_original_song_ini)
         .map_err(|err| format!("Failed to write {}: {err}", path.display()))?;
 
-    let songs_parsed = upsert_song_ini_store(store, parsed_song)?;
+    let parsed_songs = upsert_song_ini_store(store, parsed_song)?;
+    let songs_parsed = parsed_songs.len();
+    let song_ini_paths = find_song_ini_files(mods_dir)?;
 
     Ok(SongIniValidationResult {
         relative_path: relative_path.to_string(),
         contents: normalized_contents,
+        songs_parsed,
+        duplicate_checksum_groups: duplicate_checksum_groups(&parsed_songs),
+        disabled_song_conflicts: disabled_song_conflicts(mods_dir, &song_ini_paths)?,
+    })
+}
+
+fn disable_song_ini_file_path(
+    settings: &ScanSettings,
+    relative_path: &str,
+    store: &SongIniStore,
+) -> Result<SongIniDisableResult, String> {
+    let mods_dir = &settings.mods_dir;
+    let path = checked_mods_relative_path(mods_dir, relative_path)?;
+
+    if !is_song_ini(&path) {
+        return Err(format!("{relative_path} is not a song.ini file."));
+    }
+
+    if let Some(disabled_path) = find_sibling_disabled_song_ini(&path)? {
+        return Err(format!(
+            "Cannot disable {relative_path} because {} already exists.",
+            mods_relative_path(mods_dir, &disabled_path)?
+        ));
+    }
+
+    if settings.keep_original_song_ini {
+        backup_original_song_ini(&path)
+            .map_err(|err| format!("Failed to back up {}: {err}", path.display()))?;
+    }
+
+    let disabled_path = path.with_file_name("song.disabled.ini");
+    fs::rename(&path, &disabled_path).map_err(|err| {
+        format!(
+            "Failed to disable {} as {}: {err}",
+            path.display(),
+            disabled_path.display()
+        )
+    })?;
+
+    let songs_parsed = remove_song_ini_from_store(store, relative_path)?;
+
+    Ok(SongIniDisableResult {
+        relative_path: relative_path.to_string(),
+        disabled_path: mods_relative_path(mods_dir, &disabled_path)?,
+        songs_parsed,
+    })
+}
+
+fn delete_song_ini_conflict_file_path(
+    settings: &ScanSettings,
+    relative_path: &str,
+    store: &SongIniStore,
+) -> Result<SongIniDeleteResult, String> {
+    let mods_dir = &settings.mods_dir;
+    let path = checked_mods_relative_path(mods_dir, relative_path)?;
+
+    if !is_song_ini(&path) && !is_disabled_song_ini(&path) {
+        return Err(format!(
+            "{relative_path} is not a song.ini or song.disabled.ini file."
+        ));
+    }
+
+    fs::remove_file(&path).map_err(|err| format!("Failed to delete {}: {err}", path.display()))?;
+
+    let songs_parsed = if is_song_ini(&path) {
+        remove_song_ini_from_store(store, relative_path)?
+    } else {
+        store_song_count(store)?
+    };
+
+    Ok(SongIniDeleteResult {
+        relative_path: relative_path.to_string(),
         songs_parsed,
     })
 }
@@ -538,6 +661,94 @@ fn validate_required_song_ini_fields(
     Ok(())
 }
 
+fn song_ini_checksum(song: &ParsedSongIni) -> Option<String> {
+    song.sections
+        .iter()
+        .find(|section| section.name.as_deref() == Some("SongInfo"))?
+        .entries
+        .iter()
+        .find(|entry| entry.key == "Checksum")
+        .map(|entry| entry.value.trim().to_string())
+}
+
+fn duplicate_checksum_groups(parsed_songs: &[ParsedSongIni]) -> Vec<DuplicateChecksumGroup> {
+    let mut paths_by_checksum: HashMap<String, Vec<String>> = HashMap::new();
+
+    for song in parsed_songs {
+        let Some(checksum) = song_ini_checksum(song) else {
+            continue;
+        };
+
+        paths_by_checksum
+            .entry(checksum)
+            .or_default()
+            .push(song.relative_path.clone());
+    }
+
+    let mut groups = paths_by_checksum
+        .into_iter()
+        .filter_map(|(checksum, mut relative_paths)| {
+            if relative_paths.len() < 2 {
+                return None;
+            }
+
+            relative_paths.sort();
+            Some(DuplicateChecksumGroup {
+                checksum,
+                relative_paths,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    groups.sort_by(|left, right| left.checksum.cmp(&right.checksum));
+    groups
+}
+
+fn disabled_song_conflicts(
+    mods_dir: &Path,
+    song_ini_paths: &[PathBuf],
+) -> Result<Vec<DisabledSongConflict>, String> {
+    let mut conflicts = Vec::new();
+
+    for song_ini_path in song_ini_paths {
+        let Some(disabled_path) = find_sibling_disabled_song_ini(song_ini_path)? else {
+            continue;
+        };
+
+        conflicts.push(DisabledSongConflict {
+            active_path: mods_relative_path(mods_dir, song_ini_path)?,
+            disabled_path: mods_relative_path(mods_dir, &disabled_path)?,
+        });
+    }
+
+    conflicts.sort_by(|left, right| left.active_path.cmp(&right.active_path));
+    Ok(conflicts)
+}
+
+fn find_sibling_disabled_song_ini(song_ini_path: &Path) -> Result<Option<PathBuf>, String> {
+    let Some(parent) = song_ini_path.parent() else {
+        return Ok(None);
+    };
+
+    let entries = fs::read_dir(parent)
+        .map_err(|err| format!("Failed to read folder {}: {err}", parent.display()))?;
+
+    for entry in entries {
+        let entry =
+            entry.map_err(|err| format!("Failed to read entry in {}: {err}", parent.display()))?;
+        let path = entry.path();
+        let file_type = entry
+            .file_type()
+            .map_err(|err| format!("Failed to inspect {}: {err}", path.display()))?;
+
+        if file_type.is_file() && is_disabled_song_ini(&path) {
+            return Ok(Some(path));
+        }
+    }
+
+    Ok(None)
+}
+
 fn validate_unique_ini_keys(relative_path: &str, contents: &str) -> Result<(), String> {
     let mut current_section = String::new();
     let mut keys_by_section: Vec<(String, HashSet<String>)> =
@@ -613,7 +824,7 @@ fn replace_song_ini_store(
 fn upsert_song_ini_store(
     store: &SongIniStore,
     parsed_song: ParsedSongIni,
-) -> Result<usize, String> {
+) -> Result<Vec<ParsedSongIni>, String> {
     let mut songs = store
         .0
         .lock()
@@ -627,6 +838,25 @@ fn upsert_song_ini_store(
     } else {
         songs.push(parsed_song);
     }
+
+    Ok(songs.clone())
+}
+
+fn remove_song_ini_from_store(store: &SongIniStore, relative_path: &str) -> Result<usize, String> {
+    let mut songs = store
+        .0
+        .lock()
+        .map_err(|_| "Failed to lock song.ini store.".to_string())?;
+
+    songs.retain(|song| song.relative_path != relative_path);
+    Ok(songs.len())
+}
+
+fn store_song_count(store: &SongIniStore) -> Result<usize, String> {
+    let songs = store
+        .0
+        .lock()
+        .map_err(|_| "Failed to lock song.ini store.".to_string())?;
 
     Ok(songs.len())
 }
@@ -767,6 +997,12 @@ fn is_song_ini(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
         .is_some_and(|name| name.eq_ignore_ascii_case("song.ini"))
+}
+
+fn is_disabled_song_ini(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.eq_ignore_ascii_case("song.disabled.ini"))
 }
 
 fn settings_file_path() -> io::Result<PathBuf> {
@@ -1257,6 +1493,127 @@ mod tests {
     }
 
     #[test]
+    fn song_scan_groups_duplicate_checksums_from_songinfo() {
+        let project = TestProject::new("song-scan-duplicate-checksums");
+        let first_dir = project.mods_dir.join("First");
+        let second_dir = project.mods_dir.join("Second");
+        fs::create_dir_all(&first_dir).expect("first song folder should be created");
+        fs::create_dir_all(&second_dir).expect("second song folder should be created");
+        write_test_file_contents(
+            &first_dir.join("song.ini"),
+            valid_song_ini("First", "Rush2112P1").as_str(),
+        );
+        write_test_file_contents(
+            &second_dir.join("song.ini"),
+            valid_song_ini("Second", "  Rush2112P1  ").as_str(),
+        );
+        let store = SongIniStore::default();
+
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should complete");
+
+        assert_eq!(result.songs_parsed, 2);
+        assert_eq!(result.duplicate_checksum_groups.len(), 1);
+        assert_eq!(result.duplicate_checksum_groups[0].checksum, "Rush2112P1");
+        assert_eq!(
+            result.duplicate_checksum_groups[0].relative_paths,
+            vec!["First/song.ini".to_string(), "Second/song.ini".to_string()]
+        );
+    }
+
+    #[test]
+    fn song_scan_ignores_duplicate_looking_checksum_outside_songinfo() {
+        let project = TestProject::new("song-scan-checksum-section");
+        let first_dir = project.mods_dir.join("First");
+        let second_dir = project.mods_dir.join("Second");
+        fs::create_dir_all(&first_dir).expect("first song folder should be created");
+        fs::create_dir_all(&second_dir).expect("second song folder should be created");
+        write_test_file_contents(
+            &first_dir.join("song.ini"),
+            "[ModInfo]\nName=First\nChecksum=NotSongInfo\n\n[SongInfo]\nChecksum=FirstChecksum\nTitle=First\n",
+        );
+        write_test_file_contents(
+            &second_dir.join("song.ini"),
+            "[ModInfo]\nName=Second\nChecksum=NotSongInfo\n\n[SongInfo]\nChecksum=SecondChecksum\nTitle=Second\n",
+        );
+        let store = SongIniStore::default();
+
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should complete");
+
+        assert_eq!(result.songs_parsed, 2);
+        assert!(result.duplicate_checksum_groups.is_empty());
+    }
+
+    #[test]
+    fn song_scan_reports_no_duplicate_groups_for_unique_checksums() {
+        let project = TestProject::new("song-scan-unique-checksums");
+        let first_dir = project.mods_dir.join("First");
+        let second_dir = project.mods_dir.join("Second");
+        fs::create_dir_all(&first_dir).expect("first song folder should be created");
+        fs::create_dir_all(&second_dir).expect("second song folder should be created");
+        write_test_file_contents(
+            &first_dir.join("song.ini"),
+            valid_song_ini("First", "first_checksum").as_str(),
+        );
+        write_test_file_contents(
+            &second_dir.join("song.ini"),
+            valid_song_ini("Second", "second_checksum").as_str(),
+        );
+        let store = SongIniStore::default();
+
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should complete");
+
+        assert_eq!(result.songs_parsed, 2);
+        assert!(result.duplicate_checksum_groups.is_empty());
+    }
+
+    #[test]
+    fn song_scan_ignores_disabled_song_ini_as_active_song() {
+        let project = TestProject::new("song-scan-disabled-not-active");
+        write_test_file_contents(
+            &project.mods_dir.join("song.disabled.ini"),
+            valid_song_ini("Disabled", "disabled_checksum").as_str(),
+        );
+        let store = SongIniStore::default();
+
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should complete");
+
+        assert_eq!(result.songs_found, 0);
+        assert_eq!(result.songs_parsed, 0);
+        assert!(result.duplicate_checksum_groups.is_empty());
+        assert!(store.0.lock().expect("store should lock").is_empty());
+    }
+
+    #[test]
+    fn song_scan_reports_active_and_disabled_sibling_conflict() {
+        let project = TestProject::new("song-scan-disabled-conflict");
+        write_test_file_contents(
+            &project.mods_dir.join("song.ini"),
+            valid_song_ini("Active", "active_checksum").as_str(),
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("song.disabled.ini"),
+            valid_song_ini("Disabled", "disabled_checksum").as_str(),
+        );
+        let store = SongIniStore::default();
+
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should complete");
+
+        assert_eq!(result.songs_found, 1);
+        assert_eq!(result.songs_parsed, 1);
+        assert_eq!(result.disabled_song_conflicts.len(), 1);
+        assert_eq!(result.disabled_song_conflicts[0].active_path, "song.ini");
+        assert_eq!(
+            result.disabled_song_conflicts[0].disabled_path,
+            "song.disabled.ini"
+        );
+    }
+
+    #[test]
     fn song_validation_rejects_invalid_contents_without_writing() {
         let project = TestProject::new("song-validate-invalid");
         let song_ini_path = project.mods_dir.join("song.ini");
@@ -1400,6 +1757,53 @@ mod tests {
     }
 
     #[test]
+    fn song_validation_returns_refreshed_conflicts_after_repair() {
+        let project = TestProject::new("song-validate-refresh-conflicts");
+        let valid_dir = project.mods_dir.join("Valid");
+        let repaired_dir = project.mods_dir.join("Repaired");
+        fs::create_dir_all(&valid_dir).expect("valid song folder should be created");
+        fs::create_dir_all(&repaired_dir).expect("repaired song folder should be created");
+        write_test_file_contents(
+            &valid_dir.join("song.ini"),
+            valid_song_ini("Valid", "shared_checksum").as_str(),
+        );
+        write_test_file_contents(&repaired_dir.join("song.ini"), "[SongInfo\nTitle=Broken\n");
+        write_test_file_contents(
+            &repaired_dir.join("song.disabled.ini"),
+            valid_song_ini("Disabled", "disabled_checksum").as_str(),
+        );
+        let store = SongIniStore::default();
+
+        let scan_result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should complete");
+        assert!(scan_result.duplicate_checksum_groups.is_empty());
+        assert_eq!(scan_result.disabled_song_conflicts.len(), 1);
+
+        let validation_result = validate_song_ini_file_path(
+            &test_scan_settings(&project),
+            "Repaired/song.ini",
+            &valid_song_ini("Repaired", "shared_checksum"),
+            &store,
+        )
+        .expect("validation should pass");
+
+        assert_eq!(validation_result.songs_parsed, 2);
+        assert_eq!(validation_result.duplicate_checksum_groups.len(), 1);
+        assert_eq!(
+            validation_result.duplicate_checksum_groups[0].relative_paths,
+            vec![
+                "Repaired/song.ini".to_string(),
+                "Valid/song.ini".to_string()
+            ]
+        );
+        assert_eq!(validation_result.disabled_song_conflicts.len(), 1);
+        assert_eq!(
+            validation_result.disabled_song_conflicts[0].active_path,
+            "Repaired/song.ini"
+        );
+    }
+
+    #[test]
     fn song_validation_preserves_existing_original_backup() {
         let project = TestProject::new("song-validate-existing-backup");
         let song_ini_path = project.mods_dir.join("song.ini");
@@ -1501,6 +1905,151 @@ mod tests {
         );
     }
 
+    #[test]
+    fn song_disable_saves_original_renames_file_and_updates_store() {
+        let project = TestProject::new("song-disable");
+        let song_ini_path = project.mods_dir.join("song.ini");
+        let original_song_ini = valid_song_ini("Original", "original_checksum");
+        write_test_file_contents(&song_ini_path, &original_song_ini);
+        let store = SongIniStore::default();
+        scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should populate store");
+
+        let result = disable_song_ini_file_path(&test_scan_settings(&project), "song.ini", &store)
+            .expect("disable should succeed");
+
+        assert_eq!(result.relative_path, "song.ini");
+        assert_eq!(result.disabled_path, "song.disabled.ini");
+        assert_eq!(result.songs_parsed, 0);
+        assert!(!song_ini_path.exists());
+        assert_eq!(
+            fs::read_to_string(project.mods_dir.join("song.disabled.ini"))
+                .expect("disabled song should read"),
+            original_song_ini
+        );
+        assert_eq!(
+            fs::read_to_string(project.mods_dir.join("song.original.ini"))
+                .expect("original backup should read"),
+            original_song_ini
+        );
+        assert!(store.0.lock().expect("store should lock").is_empty());
+    }
+
+    #[test]
+    fn song_disable_preserves_existing_original_backup() {
+        let project = TestProject::new("song-disable-existing-backup");
+        let song_ini_path = project.mods_dir.join("song.ini");
+        let backup_path = project.mods_dir.join("song.original.ini");
+        let existing_backup = valid_song_ini("Earlier Backup", "earlier_checksum");
+        write_test_file_contents(
+            &song_ini_path,
+            valid_song_ini("Original", "original_checksum").as_str(),
+        );
+        write_test_file_contents(&backup_path, &existing_backup);
+        let store = SongIniStore::default();
+
+        disable_song_ini_file_path(&test_scan_settings(&project), "song.ini", &store)
+            .expect("disable should succeed");
+
+        assert_eq!(
+            fs::read_to_string(backup_path).expect("backup should read"),
+            existing_backup
+        );
+    }
+
+    #[test]
+    fn song_disable_rejects_unsafe_path_and_existing_disabled_file() {
+        let project = TestProject::new("song-disable-rejects");
+        let outside_file = project.root.join("song.ini");
+        write_test_file_contents(&outside_file, valid_song_ini("Outside", "outside").as_str());
+        write_test_file_contents(
+            &project.mods_dir.join("song.ini"),
+            valid_song_ini("Original", "original_checksum").as_str(),
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("song.disabled.ini"),
+            valid_song_ini("Disabled", "disabled_checksum").as_str(),
+        );
+        let store = SongIniStore::default();
+
+        assert_eq!(
+            disable_song_ini_file_path(&test_scan_settings(&project), "../song.ini", &store)
+                .expect_err("unsafe path should be rejected"),
+            "Rejected unsafe MODS-relative path ../song.ini."
+        );
+        assert!(
+            disable_song_ini_file_path(&test_scan_settings(&project), "song.ini", &store)
+                .expect_err("existing disabled file should be rejected")
+                .contains("song.disabled.ini already exists")
+        );
+        assert!(project.mods_dir.join("song.ini").exists());
+        assert!(outside_file.exists());
+    }
+
+    #[test]
+    fn song_conflict_delete_removes_selected_active_or_disabled_file() {
+        let project = TestProject::new("song-conflict-delete");
+        let active_dir = project.mods_dir.join("Active");
+        let disabled_dir = project.mods_dir.join("Disabled");
+        fs::create_dir_all(&active_dir).expect("active folder should be created");
+        fs::create_dir_all(&disabled_dir).expect("disabled folder should be created");
+        write_test_file_contents(
+            &active_dir.join("song.ini"),
+            valid_song_ini("Active", "active_checksum").as_str(),
+        );
+        write_test_file_contents(
+            &disabled_dir.join("song.disabled.ini"),
+            valid_song_ini("Disabled", "disabled_checksum").as_str(),
+        );
+        let store = SongIniStore::default();
+        scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should populate active song");
+
+        let active_result = delete_song_ini_conflict_file_path(
+            &test_scan_settings(&project),
+            "Active/song.ini",
+            &store,
+        )
+        .expect("active delete should succeed");
+        let disabled_result = delete_song_ini_conflict_file_path(
+            &test_scan_settings(&project),
+            "Disabled/song.disabled.ini",
+            &store,
+        )
+        .expect("disabled delete should succeed");
+
+        assert_eq!(active_result.songs_parsed, 0);
+        assert_eq!(disabled_result.songs_parsed, 0);
+        assert!(!active_dir.join("song.ini").exists());
+        assert!(!disabled_dir.join("song.disabled.ini").exists());
+    }
+
+    #[test]
+    fn song_conflict_delete_rejects_unsafe_and_non_song_paths() {
+        let project = TestProject::new("song-conflict-delete-rejects");
+        let outside_file = project.root.join("song.ini");
+        write_test_file_contents(&outside_file, valid_song_ini("Outside", "outside").as_str());
+        write_test_file_contents(&project.mods_dir.join("notes.txt"), "notes");
+        let store = SongIniStore::default();
+
+        assert_eq!(
+            delete_song_ini_conflict_file_path(
+                &test_scan_settings(&project),
+                "../song.ini",
+                &store
+            )
+            .expect_err("unsafe path should be rejected"),
+            "Rejected unsafe MODS-relative path ../song.ini."
+        );
+        assert_eq!(
+            delete_song_ini_conflict_file_path(&test_scan_settings(&project), "notes.txt", &store)
+                .expect_err("non-song path should be rejected"),
+            "notes.txt is not a song.ini or song.disabled.ini file."
+        );
+        assert!(outside_file.exists());
+        assert!(project.mods_dir.join("notes.txt").exists());
+    }
+
     fn write_test_file(path: &Path) {
         fs::write(path, b"test").expect("test file should be written");
     }
@@ -1530,7 +2079,9 @@ pub fn run() {
             preview_keep_only_files_delete,
             delete_keep_only_files,
             scan_song_ini_files,
-            validate_song_ini_file
+            validate_song_ini_file,
+            disable_song_ini_file,
+            delete_song_ini_conflict_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
