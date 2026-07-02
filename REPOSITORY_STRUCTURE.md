@@ -43,7 +43,8 @@ Important files:
 - `GhwtdeIniTool/src/components/ScanToast.tsx` renders compact scan completion
   and error toasts.
 - `GhwtdeIniTool/src/components/ScanWizard.tsx` renders the `song.ini` scan,
-  repair, duplicate checksum, and disabled-file conflict wizard.
+  repair, duplicate checksum, disabled-file conflict, and content layout
+  wizard.
 - `GhwtdeIniTool/src/components/SettingsDialog.tsx` renders project settings.
 - `GhwtdeIniTool/src/components/UpdateDialog.tsx` renders updater states.
 - `GhwtdeIniTool/src/hooks/useProjectSettings.ts` owns settings state and
@@ -59,7 +60,8 @@ Important files:
 - `GhwtdeIniTool/src/types/projectSettings.ts` defines the frontend settings
   shape returned by Rust.
 - `GhwtdeIniTool/src/types/scanMods.ts` defines the frontend MODS scan,
-  keep-pattern delete, and `song.ini` scan/validation/conflict result shapes.
+  keep-pattern delete, and `song.ini` scan/validation/conflict/content result
+  shapes.
 - `GhwtdeIniTool/src/utils/keepOnlyFilesPattern.ts` defines the default
   keep-pattern and frontend validation helper.
 - `GhwtdeIniTool/vite.config.ts` configures Vite for Tauri development on port
@@ -85,14 +87,18 @@ Current frontend behavior:
   review step. The pattern defaults to
   `song*.ini,*_song.pak.xen,*.fsb.xen,category*.ini,*.img.xen,Readme.txt`
   each time and is not saved.
-- The Scan MODS folder button opens a two-step wizard that parses `song.ini`
+- The Scan MODS folder button opens a three-step wizard that parses `song.ini`
   files, stores valid parsed results in backend memory, lets the user repair
   faulty files, then resolves duplicate checksum groups and folders containing
   both `song.ini` and `song.disabled.ini`. Duplicate checksums are resolved by
   disabling selected active songs, which renames `song.ini` to
   `song.disabled.ini`; active/disabled sibling conflicts can delete either file.
-  The wizard scales with the app window while keeping preview content
-  scrollable. Completion and errors are shown as compact toasts.
+  The final step validates each active song folder's `Content` and
+  `Content/MUSIC` layout against the parsed checksum, auto-corrects only those
+  folder names when their casing differs, reports missing/misnamed/extra files,
+  lets the user copy the native absolute path to the related song folder, and can
+  disable that `song.ini`. The wizard scales with the app window while keeping
+  preview content scrollable. Completion and errors are shown as compact toasts.
 - The settings dialog lets the user choose a MODS folder and toggle whether
   original `song.ini` files are kept before their first edit.
 - Settings changes are saved immediately through `save_project_settings`; there
@@ -154,8 +160,11 @@ Current backend behavior:
   non-empty `Checksum` entry in `[SongInfo]`, auto-corrects canonical casing for
   known `ModInfo`/`SongInfo` keys while allowing extra unknown keys, groups
   duplicate parsed `[SongInfo]` checksum values across valid active songs,
-  reports sibling `song.ini`/`song.disabled.ini` conflicts, and validates
-  repaired contents before writing them back to disk. When
+  reports sibling `song.ini`/`song.disabled.ini` conflicts, validates active song
+  `Content` layouts against exact checksum-derived file names, reports strict
+  extra files in `Content` and `Content/MUSIC`, auto-renames only case-mismatched
+  `Content`/`MUSIC` folders, and validates repaired contents before writing them
+  back to disk. When
   `keep_original_song_ini` is enabled, the backend creates a sibling
   `song.original.ini` before the first write to each `song.ini` and before a
   `song.ini` is disabled by rename.
@@ -191,8 +200,9 @@ What was checked:
   validation writes, original backup behavior, store updates, duplicate key
   rejection, required `song.ini` fields, canonical key casing auto-correction,
   duplicate checksum grouping, disabled-file conflict reporting,
-  disable-by-rename behavior, conflict file deletion, and unsafe repair/action
-  path rejection.
+  disable-by-rename behavior, conflict file deletion, content layout validation,
+  content folder case correction, strict extra content file reporting, refreshed
+  content issues after checksum repair, and unsafe repair/action path rejection.
 
 Useful current validation commands:
 

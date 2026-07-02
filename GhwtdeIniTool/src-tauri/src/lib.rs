@@ -93,6 +93,7 @@ struct SongIniScanResult {
     faulty_files: Vec<FaultySongIniFile>,
     duplicate_checksum_groups: Vec<DuplicateChecksumGroup>,
     disabled_song_conflicts: Vec<DisabledSongConflict>,
+    content_file_issues: Vec<SongContentIssue>,
     errors: Vec<String>,
 }
 
@@ -115,6 +116,15 @@ struct DisabledSongConflict {
     disabled_path: String,
 }
 
+#[derive(Clone, Debug, Serialize)]
+struct SongContentIssue {
+    song_ini_relative_path: String,
+    song_ini_absolute_path: String,
+    checksum: String,
+    message: String,
+    absolute_path: String,
+}
+
 #[derive(Debug, Serialize)]
 struct SongIniValidationResult {
     relative_path: String,
@@ -122,6 +132,7 @@ struct SongIniValidationResult {
     songs_parsed: usize,
     duplicate_checksum_groups: Vec<DuplicateChecksumGroup>,
     disabled_song_conflicts: Vec<DisabledSongConflict>,
+    content_file_issues: Vec<SongContentIssue>,
 }
 
 #[derive(Debug, Serialize)]
@@ -375,6 +386,7 @@ fn scan_song_ini_files_paths(
     result.songs_parsed = parsed_songs.len();
     result.duplicate_checksum_groups = duplicate_checksum_groups(&parsed_songs);
     result.disabled_song_conflicts = disabled_song_conflicts(mods_dir, &song_ini_paths)?;
+    result.content_file_issues = song_content_issues(mods_dir, &parsed_songs)?;
     replace_song_ini_store(store, parsed_songs)?;
     Ok(result)
 }
@@ -408,6 +420,7 @@ fn validate_song_ini_file_path(
         songs_parsed,
         duplicate_checksum_groups: duplicate_checksum_groups(&parsed_songs),
         disabled_song_conflicts: disabled_song_conflicts(mods_dir, &song_ini_paths)?,
+        content_file_issues: song_content_issues(mods_dir, &parsed_songs)?,
     })
 }
 
@@ -747,6 +760,346 @@ fn find_sibling_disabled_song_ini(song_ini_path: &Path) -> Result<Option<PathBuf
     }
 
     Ok(None)
+}
+
+fn song_content_issues(
+    mods_dir: &Path,
+    parsed_songs: &[ParsedSongIni],
+) -> Result<Vec<SongContentIssue>, String> {
+    let mut issues = Vec::new();
+
+    for song in parsed_songs {
+        let Some(checksum) = song_ini_checksum(song) else {
+            continue;
+        };
+        let song_ini_path = mods_dir.join(Path::new(&song.relative_path));
+        let song_ini_absolute_path = song_ini_path.display().to_string();
+        let Some(song_dir) = song_ini_path.parent() else {
+            continue;
+        };
+
+        let Some(content_dir) = normalized_child_dir(
+            &mut issues,
+            song,
+            &song_ini_absolute_path,
+            &checksum,
+            song_dir,
+            "Content",
+        )?
+        else {
+            continue;
+        };
+
+        validate_required_content_file(
+            &mut issues,
+            song,
+            &song_ini_absolute_path,
+            &checksum,
+            &content_dir.join(format!("a{checksum}_song.pak.xen")),
+        );
+
+        let Some(music_dir) = normalized_child_dir(
+            &mut issues,
+            song,
+            &song_ini_absolute_path,
+            &checksum,
+            &content_dir,
+            "MUSIC",
+        )?
+        else {
+            validate_extra_content_entries(
+                &mut issues,
+                song,
+                &song_ini_absolute_path,
+                &checksum,
+                &content_dir,
+                &[format!("a{checksum}_song.pak.xen"), "MUSIC".to_string()],
+            )?;
+            continue;
+        };
+
+        let music_file_names = [
+            format!("{checksum}_preview.fsb.xen"),
+            format!("{checksum}_1.fsb.xen"),
+            format!("{checksum}_2.fsb.xen"),
+            format!("{checksum}_3.fsb.xen"),
+        ];
+
+        for file_name in &music_file_names {
+            validate_required_content_file(
+                &mut issues,
+                song,
+                &song_ini_absolute_path,
+                &checksum,
+                &music_dir.join(file_name),
+            );
+        }
+
+        validate_extra_content_entries(
+            &mut issues,
+            song,
+            &song_ini_absolute_path,
+            &checksum,
+            &content_dir,
+            &[format!("a{checksum}_song.pak.xen"), "MUSIC".to_string()],
+        )?;
+        validate_extra_content_entries(
+            &mut issues,
+            song,
+            &song_ini_absolute_path,
+            &checksum,
+            &music_dir,
+            &music_file_names,
+        )?;
+    }
+
+    issues.sort_by(|left, right| {
+        left.song_ini_relative_path
+            .cmp(&right.song_ini_relative_path)
+            .then(left.absolute_path.cmp(&right.absolute_path))
+            .then(left.message.cmp(&right.message))
+    });
+    Ok(issues)
+}
+
+fn normalized_child_dir(
+    issues: &mut Vec<SongContentIssue>,
+    song: &ParsedSongIni,
+    song_ini_absolute_path: &str,
+    checksum: &str,
+    parent: &Path,
+    expected_name: &str,
+) -> Result<Option<PathBuf>, String> {
+    let entries = match fs::read_dir(parent) {
+        Ok(entries) => entries,
+        Err(err) => {
+            push_content_issue(
+                issues,
+                song,
+                song_ini_absolute_path,
+                checksum,
+                format!("Failed to read folder {}: {err}", parent.display()),
+                parent,
+            );
+            return Ok(None);
+        }
+    };
+    let mut matches = Vec::new();
+
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(err) => {
+                push_content_issue(
+                    issues,
+                    song,
+                    song_ini_absolute_path,
+                    checksum,
+                    format!("Failed to read entry in {}: {err}", parent.display()),
+                    parent,
+                );
+                return Ok(None);
+            }
+        };
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+
+        if name.eq_ignore_ascii_case(expected_name) {
+            matches.push(entry.path());
+        }
+    }
+
+    if matches.is_empty() {
+        let expected_path = parent.join(expected_name);
+        push_content_issue(
+            issues,
+            song,
+            song_ini_absolute_path,
+            checksum,
+            format!("Missing required {expected_name} folder."),
+            &expected_path,
+        );
+        return Ok(None);
+    }
+
+    if matches.len() > 1 {
+        push_content_issue(
+            issues,
+            song,
+            song_ini_absolute_path,
+            checksum,
+            format!("Multiple folders match required {expected_name} folder casing."),
+            parent,
+        );
+        return Ok(None);
+    }
+
+    let path = matches.remove(0);
+    let metadata = match fs::metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(err) => {
+            push_content_issue(
+                issues,
+                song,
+                song_ini_absolute_path,
+                checksum,
+                format!("Failed to inspect {}: {err}", path.display()),
+                &path,
+            );
+            return Ok(None);
+        }
+    };
+
+    if !metadata.is_dir() {
+        push_content_issue(
+            issues,
+            song,
+            song_ini_absolute_path,
+            checksum,
+            format!("{expected_name} exists but is not a folder."),
+            &path,
+        );
+        return Ok(None);
+    }
+
+    let current_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("");
+
+    if current_name == expected_name {
+        return Ok(Some(path));
+    }
+
+    let corrected_path = parent.join(expected_name);
+    if let Err(err) = fs::rename(&path, &corrected_path) {
+        push_content_issue(
+            issues,
+            song,
+            song_ini_absolute_path,
+            checksum,
+            format!(
+                "Failed to correct folder casing from {} to {}: {err}",
+                path.display(),
+                corrected_path.display()
+            ),
+            &path,
+        );
+        return Ok(None);
+    }
+
+    Ok(Some(corrected_path))
+}
+
+fn validate_required_content_file(
+    issues: &mut Vec<SongContentIssue>,
+    song: &ParsedSongIni,
+    song_ini_absolute_path: &str,
+    checksum: &str,
+    path: &Path,
+) {
+    match fs::metadata(path) {
+        Ok(metadata) if metadata.is_file() => {}
+        Ok(_) => push_content_issue(
+            issues,
+            song,
+            song_ini_absolute_path,
+            checksum,
+            "Expected file is not a file.".to_string(),
+            path,
+        ),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => push_content_issue(
+            issues,
+            song,
+            song_ini_absolute_path,
+            checksum,
+            "Missing required file.".to_string(),
+            path,
+        ),
+        Err(err) => push_content_issue(
+            issues,
+            song,
+            song_ini_absolute_path,
+            checksum,
+            format!("Failed to inspect file: {err}"),
+            path,
+        ),
+    }
+}
+
+fn validate_extra_content_entries(
+    issues: &mut Vec<SongContentIssue>,
+    song: &ParsedSongIni,
+    song_ini_absolute_path: &str,
+    checksum: &str,
+    dir: &Path,
+    allowed_names: &[String],
+) -> Result<(), String> {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(err) => {
+            push_content_issue(
+                issues,
+                song,
+                song_ini_absolute_path,
+                checksum,
+                format!("Failed to read folder {}: {err}", dir.display()),
+                dir,
+            );
+            return Ok(());
+        }
+    };
+
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(err) => {
+                push_content_issue(
+                    issues,
+                    song,
+                    song_ini_absolute_path,
+                    checksum,
+                    format!("Failed to read entry in {}: {err}", dir.display()),
+                    dir,
+                );
+                continue;
+            }
+        };
+        let name = entry.file_name().to_string_lossy().into_owned();
+
+        if !allowed_names
+            .iter()
+            .any(|allowed_name| allowed_name == &name)
+        {
+            push_content_issue(
+                issues,
+                song,
+                song_ini_absolute_path,
+                checksum,
+                "Unexpected file or folder.".to_string(),
+                &entry.path(),
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn push_content_issue(
+    issues: &mut Vec<SongContentIssue>,
+    song: &ParsedSongIni,
+    song_ini_absolute_path: &str,
+    checksum: &str,
+    message: String,
+    path: &Path,
+) {
+    issues.push(SongContentIssue {
+        song_ini_relative_path: song.relative_path.clone(),
+        song_ini_absolute_path: song_ini_absolute_path.to_string(),
+        checksum: checksum.to_string(),
+        message,
+        absolute_path: path.display().to_string(),
+    });
 }
 
 fn validate_unique_ini_keys(relative_path: &str, contents: &str) -> Result<(), String> {
@@ -1570,6 +1923,175 @@ mod tests {
     }
 
     #[test]
+    fn song_scan_accepts_valid_content_layout() {
+        let project = TestProject::new("song-scan-valid-content");
+        write_test_file_contents(
+            &project.mods_dir.join("song.ini"),
+            valid_song_ini("Valid", "valid_checksum").as_str(),
+        );
+        write_valid_content_files(&project.mods_dir, "valid_checksum");
+        let store = SongIniStore::default();
+
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should complete");
+
+        assert!(result.content_file_issues.is_empty());
+    }
+
+    #[test]
+    fn song_scan_corrects_content_and_music_folder_casing() {
+        let project = TestProject::new("song-scan-content-folder-case");
+        let content_dir = project.mods_dir.join("content");
+        let music_dir = content_dir.join("music");
+        write_test_file_contents(
+            &project.mods_dir.join("song.ini"),
+            valid_song_ini("Valid", "case_checksum").as_str(),
+        );
+        fs::create_dir_all(&music_dir).expect("music dir should be created");
+        write_test_file(&content_dir.join("acase_checksum_song.pak.xen"));
+        write_test_file(&music_dir.join("case_checksum_preview.fsb.xen"));
+        write_test_file(&music_dir.join("case_checksum_1.fsb.xen"));
+        write_test_file(&music_dir.join("case_checksum_2.fsb.xen"));
+        write_test_file(&music_dir.join("case_checksum_3.fsb.xen"));
+        let store = SongIniStore::default();
+
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should complete");
+
+        assert!(result.content_file_issues.is_empty());
+        assert!(project.mods_dir.join("Content").join("MUSIC").is_dir());
+        assert!(!project.mods_dir.join("content").exists());
+    }
+
+    #[test]
+    fn song_scan_reports_missing_required_content_files_with_absolute_paths() {
+        let project = TestProject::new("song-scan-content-missing-file");
+        write_test_file_contents(
+            &project.mods_dir.join("song.ini"),
+            valid_song_ini("Valid", "missing_checksum").as_str(),
+        );
+        write_valid_content_files(&project.mods_dir, "missing_checksum");
+        fs::remove_file(
+            project
+                .mods_dir
+                .join("Content")
+                .join("MUSIC")
+                .join("missing_checksum_3.fsb.xen"),
+        )
+        .expect("required file should be removed");
+        let store = SongIniStore::default();
+
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should complete");
+
+        assert_eq!(result.content_file_issues.len(), 1);
+        assert_eq!(
+            result.content_file_issues[0].message,
+            "Missing required file."
+        );
+        assert!(result.content_file_issues[0]
+            .absolute_path
+            .ends_with("Content/MUSIC/missing_checksum_3.fsb.xen"));
+        assert!(Path::new(&result.content_file_issues[0].absolute_path).is_absolute());
+    }
+
+    #[test]
+    fn song_scan_reports_wrong_checksum_and_malformed_content_file_names() {
+        let project = TestProject::new("song-scan-content-wrong-files");
+        let content_dir = project.mods_dir.join("Content");
+        let music_dir = content_dir.join("MUSIC");
+        write_test_file_contents(
+            &project.mods_dir.join("song.ini"),
+            valid_song_ini("Valid", "expected_checksum").as_str(),
+        );
+        fs::create_dir_all(&music_dir).expect("music dir should be created");
+        write_test_file(&content_dir.join("aother_checksum_song.pak.xen"));
+        write_test_file(&music_dir.join("expected_checksum_preview.fsb.xen"));
+        write_test_file(&music_dir.join("expected_checksum_1.fsb.xen"));
+        write_test_file(&music_dir.join("expected_checksum_2fsb.xen"));
+        write_test_file(&music_dir.join("expected_checksum_3.fsb.xen"));
+        let store = SongIniStore::default();
+
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should complete");
+
+        assert!(result.content_file_issues.iter().any(|issue| {
+            issue.message == "Missing required file."
+                && issue
+                    .absolute_path
+                    .ends_with("aexpected_checksum_song.pak.xen")
+        }));
+        assert!(result.content_file_issues.iter().any(|issue| {
+            issue.message == "Missing required file."
+                && issue.absolute_path.ends_with("expected_checksum_2.fsb.xen")
+        }));
+        assert!(result.content_file_issues.iter().any(|issue| {
+            issue.message == "Unexpected file or folder."
+                && issue
+                    .absolute_path
+                    .ends_with("aother_checksum_song.pak.xen")
+        }));
+        assert!(result.content_file_issues.iter().any(|issue| {
+            issue.message == "Unexpected file or folder."
+                && issue.absolute_path.ends_with("expected_checksum_2fsb.xen")
+        }));
+    }
+
+    #[test]
+    fn song_scan_reports_extra_content_and_music_files() {
+        let project = TestProject::new("song-scan-content-extra-files");
+        write_test_file_contents(
+            &project.mods_dir.join("song.ini"),
+            valid_song_ini("Valid", "extra_checksum").as_str(),
+        );
+        write_valid_content_files(&project.mods_dir, "extra_checksum");
+        write_test_file(&project.mods_dir.join("Content").join("extra.txt"));
+        write_test_file(
+            &project
+                .mods_dir
+                .join("Content")
+                .join("MUSIC")
+                .join("extra.fsb.xen"),
+        );
+        let store = SongIniStore::default();
+
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should complete");
+
+        assert_eq!(
+            result
+                .content_file_issues
+                .iter()
+                .filter(|issue| issue.message == "Unexpected file or folder.")
+                .count(),
+            2
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn song_scan_reports_ambiguous_content_folder_casing() {
+        let project = TestProject::new("song-scan-content-ambiguous-case");
+        write_test_file_contents(
+            &project.mods_dir.join("song.ini"),
+            valid_song_ini("Valid", "ambiguous_checksum").as_str(),
+        );
+        fs::create_dir_all(project.mods_dir.join("Content"))
+            .expect("Content dir should be created");
+        fs::create_dir_all(project.mods_dir.join("content"))
+            .expect("content dir should be created");
+        let store = SongIniStore::default();
+
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should complete");
+
+        assert_eq!(result.content_file_issues.len(), 1);
+        assert!(result.content_file_issues[0]
+            .message
+            .contains("Multiple folders match required Content folder casing"));
+    }
+
+    #[test]
     fn song_scan_ignores_disabled_song_ini_as_active_song() {
         let project = TestProject::new("song-scan-disabled-not-active");
         write_test_file_contents(
@@ -1801,6 +2323,36 @@ mod tests {
             validation_result.disabled_song_conflicts[0].active_path,
             "Repaired/song.ini"
         );
+    }
+
+    #[test]
+    fn song_validation_returns_refreshed_content_issues_after_checksum_change() {
+        let project = TestProject::new("song-validate-refresh-content");
+        write_test_file_contents(
+            &project.mods_dir.join("song.ini"),
+            valid_song_ini("Original", "old_checksum").as_str(),
+        );
+        write_valid_content_files(&project.mods_dir, "old_checksum");
+        let store = SongIniStore::default();
+        scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should populate store");
+
+        let result = validate_song_ini_file_path(
+            &test_scan_settings(&project),
+            "song.ini",
+            &valid_song_ini("Updated", "new_checksum"),
+            &store,
+        )
+        .expect("validation should pass");
+
+        assert!(result.content_file_issues.iter().any(|issue| {
+            issue.message == "Missing required file."
+                && issue.absolute_path.ends_with("anew_checksum_song.pak.xen")
+        }));
+        assert!(result.content_file_issues.iter().any(|issue| {
+            issue.message == "Unexpected file or folder."
+                && issue.absolute_path.ends_with("aold_checksum_song.pak.xen")
+        }));
     }
 
     #[test]
@@ -2056,6 +2608,18 @@ mod tests {
 
     fn write_test_file_contents(path: &Path, contents: &str) {
         fs::write(path, contents).expect("test file should be written");
+    }
+
+    fn write_valid_content_files(song_dir: &Path, checksum: &str) {
+        let content_dir = song_dir.join("Content");
+        let music_dir = content_dir.join("MUSIC");
+
+        fs::create_dir_all(&music_dir).expect("content dirs should be created");
+        write_test_file(&content_dir.join(format!("a{checksum}_song.pak.xen")));
+        write_test_file(&music_dir.join(format!("{checksum}_preview.fsb.xen")));
+        write_test_file(&music_dir.join(format!("{checksum}_1.fsb.xen")));
+        write_test_file(&music_dir.join(format!("{checksum}_2.fsb.xen")));
+        write_test_file(&music_dir.join(format!("{checksum}_3.fsb.xen")));
     }
 
     fn valid_song_ini(title: &str, checksum: &str) -> String {

@@ -24,12 +24,21 @@ export type DisabledSongConflict = {
   disabled_path: string;
 };
 
+export type SongContentIssue = {
+  song_ini_relative_path: string;
+  song_ini_absolute_path: string;
+  checksum: string;
+  message: string;
+  absolute_path: string;
+};
+
 export type SongIniScanResult = {
   songs_found: number;
   songs_parsed: number;
   faulty_files: FaultySongIniFile[];
   duplicate_checksum_groups: DuplicateChecksumGroup[];
   disabled_song_conflicts: DisabledSongConflict[];
+  content_file_issues: SongContentIssue[];
   errors: string[];
 };
 
@@ -39,6 +48,7 @@ export type SongIniValidationResult = {
   songs_parsed: number;
   duplicate_checksum_groups: DuplicateChecksumGroup[];
   disabled_song_conflicts: DisabledSongConflict[];
+  content_file_issues: SongContentIssue[];
 };
 
 export type SongIniDisableResult = {

@@ -48,6 +48,7 @@ function App() {
     cancelScan,
     clearSongIniValidationError,
     confirmScan,
+    copyContentIssuePath,
     deleteSongIniConflict,
     deletedSongIniConflictPaths,
     disableSongIni,
@@ -162,6 +163,7 @@ function App() {
         <ScanWizard
           onCancel={cancelScan}
           onConfirm={confirmScan}
+          onCopyContentIssuePath={copyContentIssuePath}
           onDeleteSongIniConflict={deleteSongIniConflict}
           onDisableSongIni={disableSongIni}
           onSelectSongIni={clearSongIniValidationError}

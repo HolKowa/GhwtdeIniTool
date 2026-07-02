@@ -57,7 +57,8 @@ export function useModsScanner() {
       const hasWizardIssues =
         nextSongIniScanResult.faulty_files.length > 0 ||
         nextSongIniScanResult.duplicate_checksum_groups.length > 0 ||
-        nextSongIniScanResult.disabled_song_conflicts.length > 0;
+        nextSongIniScanResult.disabled_song_conflicts.length > 0 ||
+        nextSongIniScanResult.content_file_issues.length > 0;
 
       setSongIniScanResult(nextSongIniScanResult);
       setScanStatus("readySongRepair");
@@ -111,6 +112,7 @@ export function useModsScanner() {
               songs_parsed: result.songs_parsed,
               duplicate_checksum_groups: result.duplicate_checksum_groups,
               disabled_song_conflicts: result.disabled_song_conflicts,
+              content_file_issues: result.content_file_issues,
               faulty_files: currentResult.faulty_files.map((file) =>
                 file.relative_path === relativePath
                     ? { ...file, contents: result.contents, error: "" }
@@ -149,6 +151,21 @@ export function useModsScanner() {
   const clearSongIniValidationError = useCallback(() => {
     setSongIniValidationError("");
     setSongIniConflictError("");
+  }, []);
+
+  const copyContentIssuePath = useCallback(async (absolutePath: string) => {
+    try {
+      await navigator.clipboard.writeText(absolutePath);
+      setScanToast({
+        message: "Path copied to clipboard",
+        tone: "success",
+      });
+    } catch (err) {
+      setScanToast({
+        message: `Failed to copy path: ${String(err)}`,
+        tone: "error",
+      });
+    }
   }, []);
 
   const disableSongIni = useCallback(
@@ -261,6 +278,7 @@ export function useModsScanner() {
     cancelScan,
     clearSongIniValidationError,
     confirmScan,
+    copyContentIssuePath,
     deleteSongIniConflict,
     deletedSongIniConflictPaths,
     disableSongIni,

@@ -562,6 +562,13 @@ button {
   color: #2e7d32;
 }
 
+.song-conflict-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
 .song-conflict-list {
   margin: 0;
   padding: 0;
@@ -581,10 +588,28 @@ button {
   border-top: 1px solid #eeeeee;
 }
 
+.song-conflict-group-header .secondary-btn,
 .song-conflict-list .secondary-btn {
   padding: 0.45rem 0.7rem;
   font-family: inherit;
   font-size: 0.76rem;
+}
+
+.song-content-issue-row span {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.song-conflict-list .song-content-issue-row {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.song-content-issue-row small {
+  color: #565656;
+  font-size: 0.76rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .scan-wizard-actions {
@@ -929,8 +954,16 @@ button {
     color: #c8e6c9;
   }
 
+  .song-conflict-actions {
+    color: #f6f6f6;
+  }
+
   .song-conflict-list li + li {
     border-top-color: #444;
+  }
+
+  .song-content-issue-row small {
+    color: #c8c8c8;
   }
 
   .scan-toast {

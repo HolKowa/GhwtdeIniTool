@@ -6,6 +6,7 @@ import type { SongIniScanResult } from "../types/scanMods";
 type ScanWizardProps = {
   onCancel: () => void;
   onConfirm: () => void;
+  onCopyContentIssuePath: (absolutePath: string) => void;
   onDeleteSongIniConflict: (relativePath: string) => void;
   onDisableSongIni: (relativePath: string) => void;
   onSelectSongIni: () => void;
@@ -23,6 +24,7 @@ type ScanWizardProps = {
 export function ScanWizard({
   onCancel,
   onConfirm,
+  onCopyContentIssuePath,
   onDeleteSongIniConflict,
   onDisableSongIni,
   onSelectSongIni,
@@ -36,7 +38,7 @@ export function ScanWizard({
   songIniScanResult,
   songIniValidationError,
 }: ScanWizardProps) {
-  const [activeStep, setActiveStep] = useState<1 | 2>(1);
+  const [activeStep, setActiveStep] = useState<1 | 2 | 3>(1);
   const [selectedSongIniPath, setSelectedSongIniPath] = useState("");
   const [editedSongIniContents, setEditedSongIniContents] = useState<
     Record<string, string>
@@ -76,6 +78,7 @@ export function ScanWizard({
     songIniScanResult?.duplicate_checksum_groups ?? [];
   const disabledSongConflicts =
     songIniScanResult?.disabled_song_conflicts ?? [];
+  const contentFileIssues = songIniScanResult?.content_file_issues ?? [];
   const unresolvedDuplicateChecksumGroups = duplicateChecksumGroups.filter(
     (group) =>
       group.relative_paths.filter(
@@ -93,9 +96,31 @@ export function ScanWizard({
     !hasUnresolvedDisabledSongConflicts && duplicateChecksumGroups.length > 0;
   const hasConflictStep =
     duplicateChecksumGroups.length > 0 || disabledSongConflicts.length > 0;
+  const unresolvedContentFileIssues = contentFileIssues.filter(
+    (issue) =>
+      !disabledPathSet.has(issue.song_ini_relative_path) &&
+      !deletedPathSet.has(issue.song_ini_relative_path),
+  );
+  const hasContentStep = contentFileIssues.length > 0;
+  const contentIssuesBySong = useMemo(() => {
+    const groups = new Map<string, typeof unresolvedContentFileIssues>();
+
+    for (const issue of unresolvedContentFileIssues) {
+      const group = groups.get(issue.song_ini_relative_path) ?? [];
+
+      group.push(issue);
+      groups.set(issue.song_ini_relative_path, group);
+    }
+
+    return Array.from(groups.entries()).map(([relativePath, issues]) => ({
+      relativePath,
+      issues,
+    }));
+  }, [unresolvedContentFileIssues]);
   const unresolvedConflictCount =
     unresolvedDuplicateChecksumGroups.length +
     unresolvedDisabledSongConflicts.length;
+  const unresolvedContentIssueCount = unresolvedContentFileIssues.length;
   const selectedSongIniFile = faultySongIniFiles.find(
     (file) => file.relative_path === selectedSongIniPath,
   );
@@ -106,11 +131,18 @@ export function ScanWizard({
   const canFinishSongIniStep =
     activeStep === 1 && isScanWorkflow && unresolvedSongIniCount === 0;
   const canFinishConflictStep = activeStep === 2 && unresolvedConflictCount === 0;
+  const canFinishContentStep =
+    activeStep === 3 && unresolvedContentIssueCount === 0;
   const title =
     activeStep === 1
       ? "Check song.ini format"
-      : "Resolve song conflicts";
-  const stepLabel = activeStep === 1 ? "Step 1 of 2" : "Step 2 of 2";
+      : activeStep === 2
+        ? "Resolve song conflicts"
+        : "Check content files";
+  const stepLabel = `Step ${activeStep} of 3`;
+  const hasNextStep =
+    (activeStep === 1 && (hasConflictStep || hasContentStep)) ||
+    (activeStep === 2 && hasContentStep);
 
   function isSongIniStep() {
     return activeStep === 1 && isScanWorkflow;
@@ -130,6 +162,48 @@ export function ScanWizard({
     return lastSeparatorIndex === -1
       ? relativePath
       : relativePath.slice(lastSeparatorIndex + 1);
+  }
+
+  function contentIssueDisplayPath(issue: {
+    absolute_path: string;
+    song_ini_absolute_path: string;
+  }) {
+    const songFolderPath = absoluteParentPath(issue.song_ini_absolute_path);
+    const pathFromSongFolder = issue.absolute_path.slice(songFolderPath.length);
+
+    return pathFromSongFolder.replace(/^[/\\]/, "");
+  }
+
+  function absoluteParentPath(absolutePath: string) {
+    return absolutePath.replace(/[/\\][^/\\]*$/, "");
+  }
+
+  function goBack() {
+    if (activeStep === 3 && hasConflictStep) {
+      setActiveStep(2);
+      return;
+    }
+
+    setActiveStep(1);
+  }
+
+  function continueOrFinish() {
+    if (activeStep === 1 && hasConflictStep) {
+      setActiveStep(2);
+      return;
+    }
+
+    if (activeStep === 1 && hasContentStep) {
+      setActiveStep(3);
+      return;
+    }
+
+    if (activeStep === 2 && hasContentStep) {
+      setActiveStep(3);
+      return;
+    }
+
+    onConfirm();
   }
 
   useEffect(() => {
@@ -298,6 +372,80 @@ export function ScanWizard({
     </>
   );
 
+  const renderContentStep = () => (
+    <>
+      <p className="scan-wizard-summary">
+        {unresolvedContentIssueCount} content issue
+        {unresolvedContentIssueCount === 1 ? "" : "s"} remaining.
+      </p>
+
+      {songIniConflictError && (
+        <p className="scan-wizard-error">{songIniConflictError}</p>
+      )}
+
+      {contentIssuesBySong.map(({ relativePath, issues }) => {
+        const firstIssue = issues[0];
+        const isDisabled = disabledPathSet.has(relativePath);
+        const isDeleted = deletedPathSet.has(relativePath);
+
+        return (
+          <div className="song-conflict-group" key={relativePath}>
+            <div className="song-conflict-group-header">
+              <span>
+                {relativePath} ({firstIssue.checksum})
+              </span>
+              <div className="song-conflict-actions">
+                <button
+                  className="secondary-btn"
+                  type="button"
+                  onClick={() =>
+                    onCopyContentIssuePath(
+                      absoluteParentPath(firstIssue.song_ini_absolute_path),
+                    )
+                  }
+                  disabled={isBusy}
+                >
+                  Copy path
+                </button>
+                <button
+                  className="secondary-btn"
+                  type="button"
+                  onClick={() => onDisableSongIni(relativePath)}
+                  disabled={isBusy || isDisabled || isDeleted}
+                >
+                  {isDisabled ? "Disabled" : "Disable song.ini"}
+                </button>
+              </div>
+            </div>
+            <ul className="song-conflict-list">
+              {issues.map((issue) => (
+                <li
+                  className="song-content-issue-row"
+                  key={`${issue.absolute_path}-${issue.message}`}
+                >
+                  <span>
+                    <strong>{issue.message}</strong>
+                    <small>{contentIssueDisplayPath(issue)}</small>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      })}
+
+      {hasContentStep && unresolvedContentIssueCount === 0 && (
+        <p className="scan-wizard-muted">
+          All content file issues have been resolved.
+        </p>
+      )}
+
+      {!hasContentStep && (
+        <p className="scan-wizard-muted">No content file issues were found.</p>
+      )}
+    </>
+  );
+
   return (
     <div className="scan-wizard-backdrop" role="presentation">
       <section
@@ -443,14 +591,18 @@ export function ScanWizard({
           {activeStep === 2 && isScanWorkflow && songIniScanResult && (
             renderConflictStep()
           )}
+
+          {activeStep === 3 && isScanWorkflow && songIniScanResult && (
+            renderContentStep()
+          )}
         </div>
 
         <div className="scan-wizard-actions">
-          {activeStep === 2 && (
+          {activeStep !== 1 && (
             <button
               className="secondary-btn"
               type="button"
-              onClick={() => setActiveStep(1)}
+              onClick={goBack}
               disabled={isBusy}
             >
               Back
@@ -459,24 +611,18 @@ export function ScanWizard({
           <button
             className="primary-btn"
             type="button"
-            onClick={() => {
-              if (activeStep === 1 && hasConflictStep) {
-                setActiveStep(2);
-                return;
-              }
-
-              onConfirm();
-            }}
+            onClick={continueOrFinish}
             disabled={
               isBusy ||
               scanStatus === "error" ||
               (activeStep === 1 && !canFinishSongIniStep) ||
-              (activeStep === 2 && !canFinishConflictStep)
+              (activeStep === 2 && !canFinishConflictStep) ||
+              (activeStep === 3 && !canFinishContentStep)
             }
           >
             {isScanningSongs
               ? "Parsing..."
-              : activeStep === 1 && hasConflictStep
+              : hasNextStep
                 ? "Continue"
                 : "Finish"}
           </button>
