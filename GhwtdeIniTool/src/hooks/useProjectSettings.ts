@@ -9,13 +9,9 @@ import type { ProjectSettings } from "../types/projectSettings";
 
 export type SettingsStatus = "loading" | "ready" | "needs-folder" | "error";
 
-export const DEFAULT_KEEP_ONLY_FILES_PATTERN =
-  "song.ini,*_song.pak.xen,*.fsb.xen,category.ini,*.img.xen";
-
 const defaultSettings: ProjectSettings = {
   mods_dir: null,
   mods_dir_available: false,
-  keep_only_files_pattern: DEFAULT_KEEP_ONLY_FILES_PATTERN,
   settings_file: "",
 };
 
@@ -59,20 +55,6 @@ export function useProjectSettings() {
     }
   }, [persistSettings]);
 
-  const setKeepOnlyFilesPattern = useCallback(
-    async (keepOnlyFilesPattern: string) => {
-      try {
-        await persistSettings({
-          keep_only_files_pattern: keepOnlyFilesPattern,
-        });
-      } catch (err) {
-        setSettingsStatus("error");
-        setSettingsError(String(err));
-      }
-    },
-    [persistSettings],
-  );
-
   const loadSettings = useCallback(async () => {
     try {
       const loadedSettings = await loadProjectSettings();
@@ -97,7 +79,6 @@ export function useProjectSettings() {
     isSettingsOpen,
     loadSettings,
     setIsSettingsOpen,
-    setKeepOnlyFilesPattern,
     settings,
     settingsError,
     settingsStatus,

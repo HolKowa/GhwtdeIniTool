@@ -8,8 +8,6 @@ use std::{
 };
 
 const SETTINGS_FILE_NAME: &str = "ghwtdeinitool.ini";
-const DEFAULT_KEEP_ONLY_FILES_PATTERN: &str =
-    "song.ini,*_song.pak.xen,*.fsb.xen,category.ini,*.img.xen";
 const MOD_INFO_KEYS: &[&str] = &["Key", "Name", "Description", "Author", "Version"];
 const SONG_INFO_KEYS: &[&str] = &[
     "Key",
@@ -45,14 +43,12 @@ const SONG_INFO_KEYS: &[&str] = &[
 struct ProjectSettings {
     mods_dir: Option<String>,
     mods_dir_available: bool,
-    keep_only_files_pattern: String,
     settings_file: String,
 }
 
 #[derive(Deserialize)]
 struct ProjectSettingsInput {
     mods_dir: Option<String>,
-    keep_only_files_pattern: String,
 }
 
 #[derive(Default, Serialize)]
@@ -112,7 +108,6 @@ struct SongIniValidationResult {
 
 struct StoredProjectSettings {
     mods_dir: Option<String>,
-    keep_only_files_pattern: String,
 }
 
 #[tauri::command]
@@ -144,9 +139,11 @@ fn save_project_settings(settings: ProjectSettingsInput) -> Result<ProjectSettin
 }
 
 #[tauri::command]
-fn preview_keep_only_files_delete() -> Result<DeleteFilesPreview, String> {
+fn preview_keep_only_files_delete(
+    keep_only_files_pattern: String,
+) -> Result<DeleteFilesPreview, String> {
     let settings = scan_settings()?;
-    preview_keep_only_files_delete_paths(&settings.mods_dir, &settings.keep_only_files_pattern)
+    preview_keep_only_files_delete_paths(&settings.mods_dir, &keep_only_files_pattern)
 }
 
 #[tauri::command]
@@ -173,7 +170,6 @@ fn validate_song_ini_file(
 
 struct ScanSettings {
     mods_dir: PathBuf,
-    keep_only_files_pattern: String,
 }
 
 fn scan_settings() -> Result<ScanSettings, String> {
@@ -188,7 +184,6 @@ fn scan_settings() -> Result<ScanSettings, String> {
 
     Ok(ScanSettings {
         mods_dir,
-        keep_only_files_pattern: settings.keep_only_files_pattern,
     })
 }
 
@@ -201,7 +196,6 @@ fn project_settings(settings_path: PathBuf, settings: StoredProjectSettings) -> 
     ProjectSettings {
         mods_dir: settings.mods_dir,
         mods_dir_available,
-        keep_only_files_pattern: settings.keep_only_files_pattern,
         settings_file: settings_path.to_string_lossy().into_owned(),
     }
 }
@@ -780,7 +774,6 @@ fn read_project_settings_from_ini(contents: &str) -> StoredProjectSettings {
 
         match key.trim() {
             "mods_dir" => settings.mods_dir = (!value.is_empty()).then_some(value),
-            "keep_only_files_pattern" => settings.keep_only_files_pattern = value,
             _ => {}
         }
     }
@@ -790,9 +783,8 @@ fn read_project_settings_from_ini(contents: &str) -> StoredProjectSettings {
 
 fn write_project_settings_to_ini(settings: &StoredProjectSettings) -> String {
     format!(
-        "[project]\nmods_dir={}\nkeep_only_files_pattern={}\n",
-        escape_ini_value(settings.mods_dir.as_deref().unwrap_or("")),
-        escape_ini_value(&settings.keep_only_files_pattern)
+        "[project]\nmods_dir={}\n",
+        escape_ini_value(settings.mods_dir.as_deref().unwrap_or(""))
     )
 }
 
@@ -803,7 +795,6 @@ fn validate_project_settings(
 
     Ok(StoredProjectSettings {
         mods_dir: Some(mods_dir.to_string_lossy().into_owned()),
-        keep_only_files_pattern: settings.keep_only_files_pattern,
     })
 }
 
@@ -858,10 +849,7 @@ fn settings_error(err: io::Error) -> String {
 
 impl Default for StoredProjectSettings {
     fn default() -> Self {
-        Self {
-            mods_dir: None,
-            keep_only_files_pattern: DEFAULT_KEEP_ONLY_FILES_PATTERN.to_string(),
-        }
+        Self { mods_dir: None }
     }
 }
 

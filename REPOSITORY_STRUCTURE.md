@@ -38,16 +38,18 @@ Important files:
 - `GhwtdeIniTool/src/main.tsx` mounts the React application.
 - `GhwtdeIniTool/src/App.tsx` coordinates startup, settings, and update UI.
 - `GhwtdeIniTool/src/App.css` contains the current app styling.
+- `GhwtdeIniTool/src/components/CleanModsWizard.tsx` renders the two-step MODS
+  cleanup wizard for keep-pattern entry and delete confirmation.
 - `GhwtdeIniTool/src/components/ScanToast.tsx` renders compact scan completion
   and error toasts.
-- `GhwtdeIniTool/src/components/ScanWizard.tsx` renders the scan confirmation
-  wizard, keep-pattern delete preview list, and faulty `song.ini` repair
-  editor.
+- `GhwtdeIniTool/src/components/ScanWizard.tsx` renders the `song.ini` scan and
+  repair wizard.
 - `GhwtdeIniTool/src/components/SettingsDialog.tsx` renders project settings.
 - `GhwtdeIniTool/src/components/UpdateDialog.tsx` renders updater states.
 - `GhwtdeIniTool/src/hooks/useProjectSettings.ts` owns settings state and
   persistence calls.
-- `GhwtdeIniTool/src/hooks/useModsScanner.ts` owns MODS scan action state.
+- `GhwtdeIniTool/src/hooks/useModsCleaner.ts` owns keep-pattern cleanup state.
+- `GhwtdeIniTool/src/hooks/useModsScanner.ts` owns `song.ini` scan action state.
 - `GhwtdeIniTool/src/hooks/useAppUpdater.ts` owns updater state and actions.
 - `GhwtdeIniTool/src/services/projectSettingsApi.ts` wraps the Tauri settings
   commands.
@@ -58,6 +60,8 @@ Important files:
   shape returned by Rust.
 - `GhwtdeIniTool/src/types/scanMods.ts` defines the frontend MODS scan,
   keep-pattern delete, and `song.ini` scan/validation result shapes.
+- `GhwtdeIniTool/src/utils/keepOnlyFilesPattern.ts` defines the default
+  keep-pattern and frontend validation helper.
 - `GhwtdeIniTool/vite.config.ts` configures Vite for Tauri development on port
   `1420`.
 
@@ -75,28 +79,23 @@ Current frontend behavior:
   settings status becomes `needs-folder` and the settings dialog opens
   automatically. The dialog cannot be closed until `mods_dir_available` is true.
 - The settings button can reopen the dialog after startup.
-- The Scan MODS folder button opens a wizard that first previews MODS files
-  that do not match the keep-pattern setting and deletes them only after user
-  confirmation. After deletion, step 2 parses all remaining `song.ini` files,
+- The Clean MODS folder button opens a two-step wizard that asks for a
+  keep-pattern, previews MODS files that do not match it, and deletes only after
+  user confirmation. The pattern defaults to
+  `song.ini,*_song.pak.xen,*.fsb.xen,category.ini,*.img.xen` each time and is
+  not saved.
+- The Scan MODS folder button opens a wizard that parses `song.ini` files,
   stores valid parsed results in backend memory, and lets the user repair faulty
   files before finishing. The wizard scales with the app window while keeping
   preview content scrollable. Completion and errors are shown as compact toasts.
-- The settings dialog lets the user choose a MODS folder and edit the
-  keep-pattern string. The `Keep all` button saves `*`, and `Keep default`
-  restores the default pattern.
-- When no available MODS folder is selected, the keep-pattern setting is
-  disabled until the user chooses a valid MODS folder.
+- The settings dialog lets the user choose a MODS folder.
 - Settings changes are saved immediately through `save_project_settings`; there
   is no separate Apply or Save button.
-- The frontend default pattern is
-  `song.ini,*_song.pak.xen,*.fsb.xen,category.ini,*.img.xen`, matching the Rust
-  default.
 - Keep-pattern entries are comma-separated, trimmed, matched case-insensitively
-  against file names, and support `*` wildcards. An empty keep-pattern setting
-  keeps all files.
-- The settings dialog validates the keep-pattern input before saving it and
-  disables close while the draft contains path separators or reserved filename
-  characters.
+  against file names, and support `*` wildcards. An empty keep-pattern keeps
+  all files.
+- The clean wizard validates the keep-pattern input before previewing and
+  rejects path separators or reserved filename characters.
 - The frontend displays unavailable configured folders as muted paths but keeps
   the stored path visible.
 
@@ -132,14 +131,15 @@ Current backend behavior:
   `scan_song_ini_files`, and `validate_song_ini_file` Tauri commands.
 - Stores project settings in `ghwtdeinitool.ini` next to the executable under a
   `[project]` section.
-- Reads and writes `mods_dir` and `keep_only_files_pattern`.
+- Reads and writes `mods_dir`. Legacy `keep_only_files_pattern` entries in old
+  settings files are ignored.
 - Reports `mods_dir_available` by checking whether the stored path still exists
   as a directory.
 - Requires `mods_dir` to be an existing directory before saving settings.
-- Recursively previews files that do not match `keep_only_files_pattern`;
-  confirmed deletes validate each MODS-relative path before removing only those
-  files.
-- After deletion, recursively scans case-insensitive `song.ini` files, stores
+- Recursively previews files that do not match the keep-pattern argument passed
+  by the clean wizard; confirmed deletes validate each MODS-relative path
+  before removing only those files.
+- Recursively scans case-insensitive `song.ini` files, stores
   valid parsed INI data in non-persistent backend memory, returns faulty file
   contents and parse errors to the wizard, rejects duplicate keys within the
   same section, requires exact `[ModInfo]` and `[SongInfo]` sections plus a

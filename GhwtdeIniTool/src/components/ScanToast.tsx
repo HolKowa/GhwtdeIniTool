@@ -1,8 +1,9 @@
-import type { ScanToast as ScanToastState } from "../hooks/useModsScanner";
-
 type ScanToastProps = {
   onDismiss: () => void;
-  toast: ScanToastState;
+  toast: {
+    message: string;
+    tone: "success" | "error";
+  };
 };
 
 export function ScanToast({ onDismiss, toast }: ScanToastProps) {

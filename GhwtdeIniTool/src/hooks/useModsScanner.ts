@@ -1,22 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 
 import {
-  deleteKeepOnlyFiles,
-  previewKeepOnlyFilesDelete,
   scanSongIniFiles,
   validateSongIniFile,
 } from "../services/scanModsApi";
-import type {
-  DeleteFilesPreview,
-  DeleteFilesResult,
-  SongIniScanResult,
-} from "../types/scanMods";
+import type { SongIniScanResult } from "../types/scanMods";
 
 export type ScanModsStatus =
   | "idle"
-  | "previewing"
-  | "readyDelete"
-  | "deleting"
   | "scanningSongs"
   | "readySongRepair"
   | "validatingSong"
@@ -29,11 +20,6 @@ export type ScanToast = {
 
 export function useModsScanner() {
   const [scanStatus, setScanStatus] = useState<ScanModsStatus>("idle");
-  const [deletePreview, setDeletePreview] =
-    useState<DeleteFilesPreview | null>(null);
-  const [deleteResult, setDeleteResult] = useState<DeleteFilesResult | null>(
-    null,
-  );
   const [songIniScanResult, setSongIniScanResult] =
     useState<SongIniScanResult | null>(null);
   const [repairedSongIniPaths, setRepairedSongIniPaths] = useState<string[]>(
@@ -46,22 +32,29 @@ export function useModsScanner() {
 
   const scanMods = useCallback(async () => {
     setIsScanWizardOpen(true);
-    setScanStatus("previewing");
+    setScanStatus("scanningSongs");
     setScanError("");
-    setDeletePreview(null);
-    setDeleteResult(null);
     setSongIniScanResult(null);
     setRepairedSongIniPaths([]);
     setSongIniValidationError("");
     setScanToast(null);
 
     try {
-      const preview = await previewKeepOnlyFilesDelete();
-      setDeletePreview(preview);
-      setScanStatus("readyDelete");
+      const nextSongIniScanResult = await scanSongIniFiles();
+      setSongIniScanResult(nextSongIniScanResult);
+      setScanStatus("readySongRepair");
+      setScanToast({
+        message: [
+          `${nextSongIniScanResult.songs_parsed} songs parsed`,
+          `${nextSongIniScanResult.faulty_files.length} song.ini errors`,
+        ].join(" | "),
+        tone:
+          nextSongIniScanResult.errors.length ||
+          nextSongIniScanResult.faulty_files.length
+            ? "error"
+            : "success",
+      });
     } catch (err) {
-      setDeletePreview(null);
-      setDeleteResult(null);
       setSongIniScanResult(null);
       setRepairedSongIniPaths([]);
       setSongIniValidationError("");
@@ -74,52 +67,8 @@ export function useModsScanner() {
     if (scanStatus === "readySongRepair") {
       setIsScanWizardOpen(false);
       setScanStatus("idle");
-      return;
     }
-
-    if (scanStatus === "readyDelete") {
-      setScanStatus("deleting");
-      setScanError("");
-      setSongIniValidationError("");
-
-      try {
-        const result = await deleteKeepOnlyFiles(
-          deletePreview?.files_to_delete ?? [],
-        );
-        setDeleteResult(result);
-        setScanStatus("scanningSongs");
-        const nextSongIniScanResult = await scanSongIniFiles();
-        setSongIniScanResult(nextSongIniScanResult);
-        setRepairedSongIniPaths([]);
-        setScanStatus("readySongRepair");
-        setScanToast({
-          message: [
-            `${result.files_deleted} files deleted`,
-            `${nextSongIniScanResult.songs_parsed} songs parsed`,
-            `${nextSongIniScanResult.faulty_files.length} song.ini errors`,
-          ].join(" | "),
-          tone:
-            result.errors.length ||
-            nextSongIniScanResult.errors.length ||
-            nextSongIniScanResult.faulty_files.length
-              ? "error"
-              : "success",
-        });
-      } catch (err) {
-        setDeleteResult(null);
-        setSongIniScanResult(null);
-        setRepairedSongIniPaths([]);
-        setScanError(String(err));
-        setScanStatus("error");
-        setScanToast({
-          message: String(err),
-          tone: "error",
-        });
-      }
-
-      return;
-    }
-  }, [deletePreview, scanStatus]);
+  }, [scanStatus]);
 
   const validateSongIni = useCallback(
     async (relativePath: string, contents: string) => {
@@ -185,8 +134,6 @@ export function useModsScanner() {
     setIsScanWizardOpen(false);
     setScanStatus("idle");
     setScanError("");
-    setDeletePreview(null);
-    setDeleteResult(null);
     setSongIniScanResult(null);
     setRepairedSongIniPaths([]);
     setSongIniValidationError("");
@@ -212,8 +159,6 @@ export function useModsScanner() {
     cancelScan,
     clearSongIniValidationError,
     confirmScan,
-    deletePreview,
-    deleteResult,
     dismissScanToast,
     isScanWizardOpen,
     repairedSongIniPaths,

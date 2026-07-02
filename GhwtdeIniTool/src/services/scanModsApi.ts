@@ -7,8 +7,10 @@ import type {
   SongIniValidationResult,
 } from "../types/scanMods";
 
-export function previewKeepOnlyFilesDelete() {
-  return invoke<DeleteFilesPreview>("preview_keep_only_files_delete");
+export function previewKeepOnlyFilesDelete(keepOnlyFilesPattern: string) {
+  return invoke<DeleteFilesPreview>("preview_keep_only_files_delete", {
+    keepOnlyFilesPattern,
+  });
 }
 
 export function deleteKeepOnlyFiles(filesToDelete: string[]) {

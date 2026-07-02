@@ -1,10 +1,12 @@
 import { useEffect } from "react";
 
+import { CleanModsWizard } from "./components/CleanModsWizard";
 import { ScanToast } from "./components/ScanToast";
 import { ScanWizard } from "./components/ScanWizard";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { UpdateDialog } from "./components/UpdateDialog";
 import { useAppUpdater } from "./hooks/useAppUpdater";
+import { useModsCleaner } from "./hooks/useModsCleaner";
 import { useModsScanner } from "./hooks/useModsScanner";
 import { useProjectSettings } from "./hooks/useProjectSettings";
 import "./App.css";
@@ -24,16 +26,26 @@ function App() {
     isSettingsOpen,
     loadSettings,
     setIsSettingsOpen,
-    setKeepOnlyFilesPattern,
     settings,
     settingsError,
     settingsStatus,
   } = useProjectSettings();
   const {
+    cancelClean,
+    cleanError,
+    cleanMods,
+    cleanStatus,
+    cleanToast,
+    confirmClean,
+    deletePreview,
+    dismissCleanToast,
+    isCleanWizardOpen,
+    previewClean,
+  } = useModsCleaner();
+  const {
     cancelScan,
     clearSongIniValidationError,
     confirmScan,
-    deletePreview,
     dismissScanToast,
     isScanWizardOpen,
     repairedSongIniPaths,
@@ -57,20 +69,34 @@ function App() {
     updateStatus === "ready" ||
     updateStatus === "error";
   const canCloseSettings = Boolean(settings?.mods_dir_available);
+  const isScanBusy =
+    scanStatus === "scanningSongs" || scanStatus === "validatingSong";
+  const isCleanBusy =
+    cleanStatus === "previewing" || cleanStatus === "deleting";
+  const isWorkflowOpen = isCleanWizardOpen || isScanWizardOpen;
+  const activeToast = cleanToast ?? scanToast;
+  const dismissActiveToast = cleanToast
+    ? dismissCleanToast
+    : dismissScanToast;
 
   return (
     <main className="container">
       <div className="scan-panel">
         <button
+          className="clean-button"
+          type="button"
+          onClick={cleanMods}
+          disabled={isWorkflowOpen || isScanBusy || isCleanBusy}
+        >
+          {isCleanBusy ? "Cleaning..." : "Clean MODS folder"}
+        </button>
+        <button
           className="scan-button"
           type="button"
           onClick={scanMods}
-          disabled={
-            scanStatus === "previewing" ||
-            scanStatus === "deleting"
-          }
+          disabled={isWorkflowOpen || isScanBusy || isCleanBusy}
         >
-          {scanStatus === "previewing" ? "Scanning..." : "Scan MODS folder"}
+          {isScanBusy ? "Scanning..." : "Scan MODS folder"}
         </button>
       </div>
 
@@ -92,7 +118,6 @@ function App() {
               setIsSettingsOpen(false);
             }
           }}
-          onKeepOnlyFilesPatternChange={setKeepOnlyFilesPattern}
           settings={settings}
           settingsError={settingsError}
           settingsStatus={settingsStatus}
@@ -110,9 +135,19 @@ function App() {
         />
       )}
 
+      {isCleanWizardOpen && (
+        <CleanModsWizard
+          cleanError={cleanError}
+          cleanStatus={cleanStatus}
+          deletePreview={deletePreview}
+          onCancel={cancelClean}
+          onConfirmDelete={confirmClean}
+          onPreview={previewClean}
+        />
+      )}
+
       {isScanWizardOpen && (
         <ScanWizard
-          deletePreview={deletePreview}
           onCancel={cancelScan}
           onConfirm={confirmScan}
           onSelectSongIni={clearSongIniValidationError}
@@ -125,8 +160,8 @@ function App() {
         />
       )}
 
-      {scanToast && (
-        <ScanToast onDismiss={dismissScanToast} toast={scanToast} />
+      {activeToast && (
+        <ScanToast onDismiss={dismissActiveToast} toast={activeToast} />
       )}
     </main>
   );

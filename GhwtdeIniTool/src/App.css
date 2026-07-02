@@ -48,10 +48,13 @@ button {
   top: 1rem;
   left: 1rem;
   z-index: 5;
-  width: min(26rem, calc(100vw - 10rem));
+  display: flex;
+  gap: 0.5rem;
+  width: min(34rem, calc(100vw - 10rem));
   text-align: left;
 }
 
+.clean-button,
 .scan-button {
   padding: 0.5rem 1rem;
   border: none;
@@ -64,10 +67,19 @@ button {
   transition: background 0.2s;
 }
 
+.clean-button {
+  background: #6a1b9a;
+}
+
+.clean-button:hover:not(:disabled) {
+  background: #4a148c;
+}
+
 .scan-button:hover:not(:disabled) {
   background: #1b5e20;
 }
 
+.clean-button:disabled,
 .scan-button:disabled {
   cursor: wait;
   opacity: 0.75;
@@ -822,9 +834,11 @@ button {
 
   .scan-panel {
     top: 4rem;
+    flex-direction: column;
     width: calc(100vw - 2rem);
   }
 
+  .clean-button,
   .scan-button {
     width: 100%;
   }

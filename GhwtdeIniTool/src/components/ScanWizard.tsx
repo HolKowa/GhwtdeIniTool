@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 
 import type { ScanModsStatus } from "../hooks/useModsScanner";
-import type { DeleteFilesPreview, SongIniScanResult } from "../types/scanMods";
+import type { SongIniScanResult } from "../types/scanMods";
 
 type ScanWizardProps = {
-  deletePreview: DeleteFilesPreview | null;
   onCancel: () => void;
   onConfirm: () => void;
   onSelectSongIni: () => void;
@@ -17,7 +16,6 @@ type ScanWizardProps = {
 };
 
 export function ScanWizard({
-  deletePreview,
   onCancel,
   onConfirm,
   onSelectSongIni,
@@ -32,18 +30,13 @@ export function ScanWizard({
   const [editedSongIniContents, setEditedSongIniContents] = useState<
     Record<string, string>
   >({});
-  const isPreviewing = scanStatus === "previewing";
-  const isDeleting = scanStatus === "deleting";
   const isScanningSongs = scanStatus === "scanningSongs";
   const isValidatingSong = scanStatus === "validatingSong";
-  const isBusy =
-    isPreviewing || isDeleting || isScanningSongs || isValidatingSong;
-  const isDeleteStep = scanStatus === "readyDelete" || isDeleting;
+  const isBusy = isScanningSongs || isValidatingSong;
   const isSongIniStep =
     scanStatus === "scanningSongs" ||
     scanStatus === "readySongRepair" ||
     scanStatus === "validatingSong";
-  const hasFilesToDelete = Boolean(deletePreview?.files_to_delete.length);
   const repairedPathSet = useMemo(
     () => new Set(repairedSongIniPaths),
     [repairedSongIniPaths],
@@ -103,11 +96,6 @@ export function ScanWizard({
     setSelectedSongIniPath(firstUnresolvedFile.relative_path);
   }, [faultySongIniFiles, repairedPathSet, selectedSongIniPath]);
 
-  const stepLabel = isSongIniStep ? "Step 2" : "Step 1";
-  const title = isSongIniStep
-    ? "Validate song.ini files"
-    : "Keep only files with pattern";
-
   return (
     <div className="scan-wizard-backdrop" role="presentation">
       <section
@@ -118,54 +106,27 @@ export function ScanWizard({
       >
         <div className="scan-wizard-header">
           <div>
-            <p className="scan-wizard-step">{stepLabel}</p>
-            <h2 id="scan-wizard-title">{title}</h2>
+            <p className="scan-wizard-step">Step 1</p>
+            <h2 id="scan-wizard-title">Validate song.ini files</h2>
           </div>
           <button
             className="close-btn"
             type="button"
             onClick={onCancel}
             aria-label="Cancel scan"
-            disabled={isDeleting || isScanningSongs || isValidatingSong}
+            disabled={isScanningSongs || isValidatingSong}
           >
             &times;
           </button>
         </div>
 
         <div className="scan-wizard-body">
-          {isPreviewing && <p className="scan-wizard-muted">Scanning...</p>}
-          {isDeleting && <p className="scan-wizard-muted">Deleting files...</p>}
           {isScanningSongs && (
             <p className="scan-wizard-muted">Parsing song.ini files...</p>
           )}
 
           {scanStatus === "error" && (
             <p className="scan-wizard-error">{scanError}</p>
-          )}
-
-          {isDeleteStep && deletePreview && (
-            <>
-              <p className="scan-wizard-summary">
-                {deletePreview.files_to_delete.length} files do not match the
-                keep patterns and are ready to delete.
-              </p>
-
-              {hasFilesToDelete ? (
-                <ul className="scan-file-list">
-                  {deletePreview.files_to_delete.map((filePath) => (
-                    <li key={filePath}>{filePath}</li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="scan-wizard-muted">No files will be deleted.</p>
-              )}
-
-              {deletePreview.errors.map((error, index) => (
-                <p className="scan-wizard-error" key={`${index}-${error}`}>
-                  {error}
-                </p>
-              ))}
-            </>
           )}
 
           {isSongIniStep && songIniScanResult && (
@@ -282,7 +243,7 @@ export function ScanWizard({
             className="secondary-btn"
             type="button"
             onClick={onCancel}
-            disabled={isDeleting || isScanningSongs || isValidatingSong}
+            disabled={isScanningSongs || isValidatingSong}
           >
             Cancel
           </button>
@@ -293,16 +254,10 @@ export function ScanWizard({
             disabled={
               isBusy ||
               scanStatus === "error" ||
-              (isSongIniStep && !canFinishSongIniStep)
+              !canFinishSongIniStep
             }
           >
-            {isDeleting
-                ? "Deleting..."
-                : isScanningSongs
-                  ? "Parsing..."
-                  : isSongIniStep
-                    ? "Finish"
-                    : "Confirm"}
+            {isScanningSongs ? "Parsing..." : "Finish"}
           </button>
         </div>
       </section>

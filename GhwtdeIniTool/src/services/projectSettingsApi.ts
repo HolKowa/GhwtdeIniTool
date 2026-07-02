@@ -10,7 +10,6 @@ export function saveProjectSettings(settings: ProjectSettings) {
   return invoke<ProjectSettings>("save_project_settings", {
     settings: {
       mods_dir: settings.mods_dir,
-      keep_only_files_pattern: settings.keep_only_files_pattern,
     },
   });
 }
