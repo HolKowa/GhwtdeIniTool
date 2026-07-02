@@ -84,6 +84,16 @@ export function useModsCleaner() {
     }
   }, [cleanStatus, deletePreview]);
 
+  const backToCleanPattern = useCallback(() => {
+    if (cleanStatus !== "readyDelete") {
+      return;
+    }
+
+    setCleanStatus("editing");
+    setCleanError("");
+    setDeletePreview(null);
+  }, [cleanStatus]);
+
   const cancelClean = useCallback(() => {
     setIsCleanWizardOpen(false);
     setCleanStatus("idle");
@@ -108,6 +118,7 @@ export function useModsCleaner() {
   }, [cleanToast]);
 
   return {
+    backToCleanPattern,
     cancelClean,
     cleanError,
     cleanMods,

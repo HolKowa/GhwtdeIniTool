@@ -80,14 +80,16 @@ Current frontend behavior:
   automatically. The dialog cannot be closed until `mods_dir_available` is true.
 - The settings button can reopen the dialog after startup.
 - The Clean MODS folder button opens a two-step wizard that asks for a
-  keep-pattern, previews MODS files that do not match it, and deletes only after
-  user confirmation. The pattern defaults to
+  keep-pattern, previews MODS files that do not match it, allows returning from
+  preview to edit the pattern, and deletes only after the user finishes the
+  review step. The pattern defaults to
   `song*.ini,*_song.pak.xen,*.fsb.xen,category*.ini,*.img.xen,Readme.txt`
   each time and is not saved.
-- The Scan MODS folder button opens a wizard that parses `song.ini` files,
-  stores valid parsed results in backend memory, and lets the user repair faulty
-  files before finishing. The wizard scales with the app window while keeping
-  preview content scrollable. Completion and errors are shown as compact toasts.
+- The Scan MODS folder button opens a one-step wizard that parses `song.ini`
+  files, stores valid parsed results in backend memory, and lets the user repair
+  faulty files before finishing. The wizard scales with the app window while
+  keeping preview content scrollable. Completion and errors are shown as compact
+  toasts.
 - The settings dialog lets the user choose a MODS folder and toggle whether
   original `song.ini` files are kept before their first edit.
 - Settings changes are saved immediately through `save_project_settings`; there

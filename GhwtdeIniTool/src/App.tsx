@@ -32,6 +32,7 @@ function App() {
     settingsStatus,
   } = useProjectSettings();
   const {
+    backToCleanPattern,
     cancelClean,
     cleanError,
     cleanMods,
@@ -142,6 +143,7 @@ function App() {
           cleanError={cleanError}
           cleanStatus={cleanStatus}
           deletePreview={deletePreview}
+          onBack={backToCleanPattern}
           onCancel={cancelClean}
           onConfirmDelete={confirmClean}
           onPreview={previewClean}

@@ -11,6 +11,7 @@ type CleanModsWizardProps = {
   cleanError: string;
   cleanStatus: CleanModsStatus;
   deletePreview: DeleteFilesPreview | null;
+  onBack: () => void;
   onCancel: () => void;
   onConfirmDelete: () => void;
   onPreview: (keepOnlyFilesPattern: string) => void;
@@ -20,6 +21,7 @@ export function CleanModsWizard({
   cleanError,
   cleanStatus,
   deletePreview,
+  onBack,
   onCancel,
   onConfirmDelete,
   onPreview,
@@ -141,14 +143,16 @@ export function CleanModsWizard({
         </div>
 
         <div className="scan-wizard-actions">
-          <button
-            className="secondary-btn"
-            type="button"
-            onClick={onCancel}
-            disabled={isPreviewing || isDeleting}
-          >
-            Cancel
-          </button>
+          {isDeleteStep && (
+            <button
+              className="secondary-btn"
+              type="button"
+              onClick={onBack}
+              disabled={isDeleting}
+            >
+              Back
+            </button>
+          )}
           <button
             className="primary-btn"
             type="button"
@@ -165,7 +169,9 @@ export function CleanModsWizard({
               ? "Scanning..."
               : isDeleting
                 ? "Deleting..."
-                : "Confirm"}
+                : isDeleteStep
+                  ? "Finish"
+                  : "Next"}
           </button>
         </div>
       </section>
