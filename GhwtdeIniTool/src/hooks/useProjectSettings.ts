@@ -12,6 +12,7 @@ export type SettingsStatus = "loading" | "ready" | "needs-folder" | "error";
 const defaultSettings: ProjectSettings = {
   mods_dir: null,
   mods_dir_available: false,
+  keep_original_song_ini: true,
   settings_file: "",
 };
 
@@ -55,6 +56,20 @@ export function useProjectSettings() {
     }
   }, [persistSettings]);
 
+  const setKeepOriginalSongIni = useCallback(
+    async (keepOriginalSongIni: boolean) => {
+      try {
+        await persistSettings({
+          keep_original_song_ini: keepOriginalSongIni,
+        });
+      } catch (err) {
+        setSettingsStatus("error");
+        setSettingsError(String(err));
+      }
+    },
+    [persistSettings],
+  );
+
   const loadSettings = useCallback(async () => {
     try {
       const loadedSettings = await loadProjectSettings();
@@ -78,6 +93,7 @@ export function useProjectSettings() {
     chooseModsFolder,
     isSettingsOpen,
     loadSettings,
+    setKeepOriginalSongIni,
     setIsSettingsOpen,
     settings,
     settingsError,

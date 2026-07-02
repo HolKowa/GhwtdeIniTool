@@ -231,6 +231,29 @@ button {
   color: #777;
 }
 
+.settings-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1.25rem;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.settings-toggle-row input {
+  width: 1.15rem;
+  height: 1.15rem;
+  flex: 0 0 auto;
+  accent-color: #396cd8;
+  cursor: pointer;
+}
+
+.settings-toggle-row input:disabled {
+  cursor: not-allowed;
+}
+
 .settings-actions {
   display: flex;
   flex: 0 0 auto;
@@ -876,6 +899,10 @@ button {
 
   .settings-row {
     flex-direction: column;
+  }
+
+  .settings-toggle-row {
+    align-items: flex-start;
   }
 
   .settings-field-header {

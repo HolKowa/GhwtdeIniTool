@@ -88,7 +88,8 @@ Current frontend behavior:
   stores valid parsed results in backend memory, and lets the user repair faulty
   files before finishing. The wizard scales with the app window while keeping
   preview content scrollable. Completion and errors are shown as compact toasts.
-- The settings dialog lets the user choose a MODS folder.
+- The settings dialog lets the user choose a MODS folder and toggle whether
+  original `song.ini` files are kept before their first edit.
 - Settings changes are saved immediately through `save_project_settings`; there
   is no separate Apply or Save button.
 - Keep-pattern entries are comma-separated, trimmed, matched case-insensitively
@@ -131,8 +132,9 @@ Current backend behavior:
   `scan_song_ini_files`, and `validate_song_ini_file` Tauri commands.
 - Stores project settings in `ghwtdeinitool.ini` next to the executable under a
   `[project]` section.
-- Reads and writes `mods_dir`. Legacy `keep_only_files_pattern` entries in old
-  settings files are ignored.
+- Reads and writes `mods_dir` and `keep_original_song_ini`. Missing
+  `keep_original_song_ini` values default to `true`; legacy
+  `keep_only_files_pattern` entries in old settings files are ignored.
 - Reports `mods_dir_available` by checking whether the stored path still exists
   as a directory.
 - Requires `mods_dir` to be an existing directory before saving settings.
@@ -145,7 +147,9 @@ Current backend behavior:
   same section, requires exact `[ModInfo]` and `[SongInfo]` sections plus a
   non-empty `Checksum` entry in `[SongInfo]`, auto-corrects canonical casing for
   known `ModInfo`/`SongInfo` keys while allowing extra unknown keys, and
-  validates repaired contents before writing them back to disk.
+  validates repaired contents before writing them back to disk. When
+  `keep_original_song_ini` is enabled, the backend creates a sibling
+  `song.original.ini` before the first write to each `song.ini`.
 - Uses `tauri.conf.json` to configure bundling and updater artifacts.
 
 ## Build And Release
@@ -174,9 +178,10 @@ What was checked:
   Testing Library is listed.
 - No `*.test.*` or `*.spec.*` files were found.
 - Rust scan helper tests cover keep-pattern delete previews, safe confirmed
-  deletes, `song.ini` parsing, faulty file reporting, validation writes, store
-  updates, duplicate key rejection, required `song.ini` fields, canonical key
-  casing auto-correction, and unsafe repair path rejection.
+  deletes, settings parsing/writing, `song.ini` parsing, faulty file reporting,
+  validation writes, original backup behavior, store updates, duplicate key
+  rejection, required `song.ini` fields, canonical key casing auto-correction,
+  and unsafe repair path rejection.
 
 Useful current validation commands:
 

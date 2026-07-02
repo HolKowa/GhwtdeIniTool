@@ -5,6 +5,7 @@ type SettingsDialogProps = {
   canClose: boolean;
   onChangeFolder: () => void;
   onClose: () => void;
+  onKeepOriginalSongIniChange: (keepOriginalSongIni: boolean) => void;
   settings: ProjectSettings | null;
   settingsError: string;
   settingsStatus: SettingsStatus;
@@ -14,12 +15,15 @@ export function SettingsDialog({
   canClose,
   onChangeFolder,
   onClose,
+  onKeepOriginalSongIniChange,
   settings,
   settingsError,
   settingsStatus,
 }: SettingsDialogProps) {
-  const hasAvailableModsFolder =
-    settings?.mods_dir && settings.mods_dir_available;
+  const hasAvailableModsFolder = Boolean(
+    settings?.mods_dir && settings.mods_dir_available,
+  );
+  const isLoading = settingsStatus === "loading";
 
   return (
     <div className="settings-backdrop" role="presentation">
@@ -66,6 +70,18 @@ export function SettingsDialog({
             Change folder
           </button>
         </div>
+
+        <label className="settings-toggle-row">
+          <span>Keep original on first song.ini change</span>
+          <input
+            type="checkbox"
+            checked={settings?.keep_original_song_ini ?? true}
+            disabled={isLoading || !hasAvailableModsFolder}
+            onChange={(event) =>
+              onKeepOriginalSongIniChange(event.currentTarget.checked)
+            }
+          />
+        </label>
 
         {settingsError && <p className="settings-error">{settingsError}</p>}
       </section>

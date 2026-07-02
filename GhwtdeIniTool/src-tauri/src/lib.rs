@@ -43,12 +43,14 @@ const SONG_INFO_KEYS: &[&str] = &[
 struct ProjectSettings {
     mods_dir: Option<String>,
     mods_dir_available: bool,
+    keep_original_song_ini: bool,
     settings_file: String,
 }
 
 #[derive(Deserialize)]
 struct ProjectSettingsInput {
     mods_dir: Option<String>,
+    keep_original_song_ini: Option<bool>,
 }
 
 #[derive(Default, Serialize)]
@@ -108,6 +110,7 @@ struct SongIniValidationResult {
 
 struct StoredProjectSettings {
     mods_dir: Option<String>,
+    keep_original_song_ini: bool,
 }
 
 #[tauri::command]
@@ -155,7 +158,7 @@ fn delete_keep_only_files(files_to_delete: Vec<String>) -> Result<DeleteFilesRes
 #[tauri::command]
 fn scan_song_ini_files(store: tauri::State<'_, SongIniStore>) -> Result<SongIniScanResult, String> {
     let settings = scan_settings()?;
-    scan_song_ini_files_paths(&settings.mods_dir, &store)
+    scan_song_ini_files_paths(&settings, &store)
 }
 
 #[tauri::command]
@@ -165,11 +168,12 @@ fn validate_song_ini_file(
     store: tauri::State<'_, SongIniStore>,
 ) -> Result<SongIniValidationResult, String> {
     let settings = scan_settings()?;
-    validate_song_ini_file_path(&settings.mods_dir, &relative_path, &contents, &store)
+    validate_song_ini_file_path(&settings, &relative_path, &contents, &store)
 }
 
 struct ScanSettings {
     mods_dir: PathBuf,
+    keep_original_song_ini: bool,
 }
 
 fn scan_settings() -> Result<ScanSettings, String> {
@@ -184,6 +188,7 @@ fn scan_settings() -> Result<ScanSettings, String> {
 
     Ok(ScanSettings {
         mods_dir,
+        keep_original_song_ini: settings.keep_original_song_ini,
     })
 }
 
@@ -196,6 +201,7 @@ fn project_settings(settings_path: PathBuf, settings: StoredProjectSettings) -> 
     ProjectSettings {
         mods_dir: settings.mods_dir,
         mods_dir_available,
+        keep_original_song_ini: settings.keep_original_song_ini,
         settings_file: settings_path.to_string_lossy().into_owned(),
     }
 }
@@ -271,9 +277,10 @@ fn delete_keep_only_files_paths(
 }
 
 fn scan_song_ini_files_paths(
-    mods_dir: &Path,
+    settings: &ScanSettings,
     store: &SongIniStore,
 ) -> Result<SongIniScanResult, String> {
+    let mods_dir = &settings.mods_dir;
     let song_ini_paths = find_song_ini_files(mods_dir)?;
     let mut result = SongIniScanResult {
         songs_found: song_ini_paths.len(),
@@ -297,7 +304,11 @@ fn scan_song_ini_files_paths(
         match parse_song_ini(&relative_path, &normalized_contents) {
             Ok(parsed_song) => {
                 if normalized_contents != contents {
-                    if let Err(err) = fs::write(&song_ini_path, &normalized_contents) {
+                    if let Err(err) = write_song_ini_file(
+                        &song_ini_path,
+                        &normalized_contents,
+                        settings.keep_original_song_ini,
+                    ) {
                         result.errors.push(format!(
                             "Failed to save corrected key casing in {}: {err}",
                             song_ini_path.display()
@@ -320,11 +331,12 @@ fn scan_song_ini_files_paths(
 }
 
 fn validate_song_ini_file_path(
-    mods_dir: &Path,
+    settings: &ScanSettings,
     relative_path: &str,
     contents: &str,
     store: &SongIniStore,
 ) -> Result<SongIniValidationResult, String> {
+    let mods_dir = &settings.mods_dir;
     let path = checked_mods_relative_path(mods_dir, relative_path)?;
 
     if !is_song_ini(&path) {
@@ -334,7 +346,7 @@ fn validate_song_ini_file_path(
     let normalized_contents = normalize_song_ini_key_case(contents);
     let parsed_song = parse_song_ini(relative_path, &normalized_contents)?;
 
-    fs::write(&path, &normalized_contents)
+    write_song_ini_file(&path, &normalized_contents, settings.keep_original_song_ini)
         .map_err(|err| format!("Failed to write {}: {err}", path.display()))?;
 
     let songs_parsed = upsert_song_ini_store(store, parsed_song)?;
@@ -344,6 +356,28 @@ fn validate_song_ini_file_path(
         contents: normalized_contents,
         songs_parsed,
     })
+}
+
+fn write_song_ini_file(
+    path: &Path,
+    contents: &str,
+    keep_original_song_ini: bool,
+) -> io::Result<()> {
+    if keep_original_song_ini {
+        backup_original_song_ini(path)?;
+    }
+
+    fs::write(path, contents)
+}
+
+fn backup_original_song_ini(path: &Path) -> io::Result<()> {
+    let backup_path = path.with_file_name("song.original.ini");
+
+    if backup_path.exists() {
+        return Ok(());
+    }
+
+    fs::copy(path, backup_path).map(|_| ())
 }
 
 fn parse_song_ini(relative_path: &str, contents: &str) -> Result<ParsedSongIni, String> {
@@ -774,6 +808,9 @@ fn read_project_settings_from_ini(contents: &str) -> StoredProjectSettings {
 
         match key.trim() {
             "mods_dir" => settings.mods_dir = (!value.is_empty()).then_some(value),
+            "keep_original_song_ini" => {
+                settings.keep_original_song_ini = parse_ini_bool(&value).unwrap_or(true)
+            }
             _ => {}
         }
     }
@@ -783,8 +820,9 @@ fn read_project_settings_from_ini(contents: &str) -> StoredProjectSettings {
 
 fn write_project_settings_to_ini(settings: &StoredProjectSettings) -> String {
     format!(
-        "[project]\nmods_dir={}\n",
-        escape_ini_value(settings.mods_dir.as_deref().unwrap_or(""))
+        "[project]\nmods_dir={}\nkeep_original_song_ini={}\n",
+        escape_ini_value(settings.mods_dir.as_deref().unwrap_or("")),
+        settings.keep_original_song_ini
     )
 }
 
@@ -795,6 +833,7 @@ fn validate_project_settings(
 
     Ok(StoredProjectSettings {
         mods_dir: Some(mods_dir.to_string_lossy().into_owned()),
+        keep_original_song_ini: settings.keep_original_song_ini.unwrap_or(true),
     })
 }
 
@@ -843,19 +882,32 @@ fn unescape_ini_value(value: &str) -> String {
     result
 }
 
+fn parse_ini_bool(value: &str) -> Option<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "true" | "1" | "yes" | "on" => Some(true),
+        "false" | "0" | "no" | "off" => Some(false),
+        _ => None,
+    }
+}
+
 fn settings_error(err: io::Error) -> String {
     format!("Failed to locate settings file next to the executable: {err}")
 }
 
 impl Default for StoredProjectSettings {
     fn default() -> Self {
-        Self { mods_dir: None }
+        Self {
+            mods_dir: None,
+            keep_original_song_ini: true,
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
     use std::{
         fs,
         time::{SystemTime, UNIX_EPOCH},
@@ -880,10 +932,7 @@ mod tests {
 
             fs::create_dir_all(&mods_dir).expect("mods dir should be created");
 
-            Self {
-                root,
-                mods_dir,
-            }
+            Self { root, mods_dir }
         }
     }
 
@@ -891,6 +940,50 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.root);
         }
+    }
+
+    fn test_scan_settings(project: &TestProject) -> ScanSettings {
+        ScanSettings {
+            mods_dir: project.mods_dir.clone(),
+            keep_original_song_ini: true,
+        }
+    }
+
+    fn test_scan_settings_without_song_ini_backup(project: &TestProject) -> ScanSettings {
+        ScanSettings {
+            mods_dir: project.mods_dir.clone(),
+            keep_original_song_ini: false,
+        }
+    }
+
+    #[test]
+    fn settings_default_to_keeping_original_song_ini() {
+        let settings = read_project_settings_from_ini("[project]\nmods_dir=/tmp/MODS\n");
+
+        assert_eq!(settings.mods_dir.as_deref(), Some("/tmp/MODS"));
+        assert!(settings.keep_original_song_ini);
+    }
+
+    #[test]
+    fn settings_parse_keep_original_song_ini() {
+        let settings = read_project_settings_from_ini(
+            "[project]\nmods_dir=/tmp/MODS\nkeep_original_song_ini=false\n",
+        );
+
+        assert!(!settings.keep_original_song_ini);
+    }
+
+    #[test]
+    fn settings_writer_includes_keep_original_song_ini() {
+        let settings = StoredProjectSettings {
+            mods_dir: Some("/tmp/MODS".to_string()),
+            keep_original_song_ini: false,
+        };
+
+        assert_eq!(
+            write_project_settings_to_ini(&settings),
+            "[project]\nmods_dir=/tmp/MODS\nkeep_original_song_ini=false\n"
+        );
     }
 
     #[test]
@@ -989,8 +1082,8 @@ mod tests {
         );
         let store = SongIniStore::default();
 
-        let result =
-            scan_song_ini_files_paths(&project.mods_dir, &store).expect("scan should complete");
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should complete");
         let stored_songs = store.0.lock().expect("store should lock");
 
         assert_eq!(result.songs_found, 1);
@@ -1021,8 +1114,8 @@ mod tests {
         );
         let store = SongIniStore::default();
 
-        let result =
-            scan_song_ini_files_paths(&project.mods_dir, &store).expect("scan should complete");
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should complete");
         let stored_songs = store.0.lock().expect("store should lock");
 
         assert_eq!(result.songs_found, 1);
@@ -1036,14 +1129,13 @@ mod tests {
     fn song_scan_auto_corrects_known_keys_with_wrong_case() {
         let project = TestProject::new("song-scan-key-case");
         let song_ini_path = project.mods_dir.join("song.ini");
-        write_test_file_contents(
-            &song_ini_path,
-            "[ModInfo]\nName=Wrong Key Case\n\n[SongInfo]\nChecksum=wrong_key_case\nartist=Motorhead\n",
-        );
+        let original_contents =
+            "[ModInfo]\nName=Wrong Key Case\n\n[SongInfo]\nChecksum=wrong_key_case\nartist=Motorhead\n";
+        write_test_file_contents(&song_ini_path, original_contents);
         let store = SongIniStore::default();
 
-        let result =
-            scan_song_ini_files_paths(&project.mods_dir, &store).expect("scan should complete");
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should complete");
         let stored_songs = store.0.lock().expect("store should lock");
 
         assert_eq!(result.songs_found, 1);
@@ -1052,6 +1144,11 @@ mod tests {
         assert_eq!(
             fs::read_to_string(song_ini_path).expect("song.ini should read"),
             "[ModInfo]\nName=Wrong Key Case\n\n[SongInfo]\nChecksum=wrong_key_case\nArtist=Motorhead\n"
+        );
+        assert_eq!(
+            fs::read_to_string(project.mods_dir.join("song.original.ini"))
+                .expect("song.original.ini should read"),
+            original_contents
         );
         assert_eq!(stored_songs.len(), 1);
         assert_eq!(stored_songs[0].sections[1].entries[1].key, "Artist");
@@ -1066,8 +1163,8 @@ mod tests {
         );
         let store = SongIniStore::default();
 
-        let result =
-            scan_song_ini_files_paths(&project.mods_dir, &store).expect("scan should complete");
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should complete");
         let stored_songs = store.0.lock().expect("store should lock");
 
         assert_eq!(result.songs_found, 1);
@@ -1085,8 +1182,8 @@ mod tests {
         );
         let store = SongIniStore::default();
 
-        let result =
-            scan_song_ini_files_paths(&project.mods_dir, &store).expect("scan should complete");
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should complete");
         let stored_songs = store.0.lock().expect("store should lock");
 
         assert_eq!(result.songs_found, 1);
@@ -1107,8 +1204,8 @@ mod tests {
         );
         let store = SongIniStore::default();
 
-        let result =
-            scan_song_ini_files_paths(&project.mods_dir, &store).expect("scan should complete");
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should complete");
         let stored_songs = store.0.lock().expect("store should lock");
 
         assert_eq!(result.songs_found, 1);
@@ -1130,8 +1227,8 @@ mod tests {
         );
         let store = SongIniStore::default();
 
-        let result =
-            scan_song_ini_files_paths(&project.mods_dir, &store).expect("scan should complete");
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should complete");
 
         assert_eq!(result.songs_parsed, 0);
         assert_eq!(result.faulty_files.len(), 1);
@@ -1149,8 +1246,8 @@ mod tests {
         );
         let store = SongIniStore::default();
 
-        let result =
-            scan_song_ini_files_paths(&project.mods_dir, &store).expect("scan should complete");
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should complete");
 
         assert_eq!(result.songs_parsed, 0);
         assert_eq!(result.faulty_files.len(), 1);
@@ -1170,7 +1267,7 @@ mod tests {
         let store = SongIniStore::default();
 
         let result = validate_song_ini_file_path(
-            &project.mods_dir,
+            &test_scan_settings(&project),
             "song.ini",
             "[SongInfo\nTitle=Broken\n",
             &store,
@@ -1195,7 +1292,7 @@ mod tests {
         let store = SongIniStore::default();
 
         let result = validate_song_ini_file_path(
-            &project.mods_dir,
+            &test_scan_settings(&project),
             "song.ini",
             "[ModInfo]\nName=Duplicate\n\n[SongInfo]\nChecksum=duplicate\nArtist=OK Go\nartist=OK Go\n",
             &store,
@@ -1222,7 +1319,7 @@ mod tests {
         let store = SongIniStore::default();
 
         let result = validate_song_ini_file_path(
-            &project.mods_dir,
+            &test_scan_settings(&project),
             "song.ini",
             "[ModInfo]\nName=Wrong Key Case\n\n[SongInfo]\nChecksum=wrong_key_case\nartist=Motorhead\n",
             &store,
@@ -1253,7 +1350,7 @@ mod tests {
         let store = SongIniStore::default();
 
         let result = validate_song_ini_file_path(
-            &project.mods_dir,
+            &test_scan_settings(&project),
             "song.ini",
             "[ModInfo]\nName=No Checksum\n\n[SongInfo]\nTitle=No Checksum\n",
             &store,
@@ -1273,16 +1370,18 @@ mod tests {
     fn song_validation_writes_valid_contents_and_updates_store() {
         let project = TestProject::new("song-validate-valid");
         let song_ini_path = project.mods_dir.join("song.ini");
-        write_test_file_contents(
-            &song_ini_path,
-            valid_song_ini("Original", "original_checksum").as_str(),
-        );
+        let original_song_ini = valid_song_ini("Original", "original_checksum");
+        write_test_file_contents(&song_ini_path, original_song_ini.as_str());
         let store = SongIniStore::default();
 
         let repaired_song_ini = valid_song_ini("Repaired", "repaired_checksum");
-        let result =
-            validate_song_ini_file_path(&project.mods_dir, "song.ini", &repaired_song_ini, &store)
-                .expect("validation should pass");
+        let result = validate_song_ini_file_path(
+            &test_scan_settings(&project),
+            "song.ini",
+            &repaired_song_ini,
+            &store,
+        )
+        .expect("validation should pass");
         let stored_songs = store.0.lock().expect("store should lock");
 
         assert_eq!(result.relative_path, "song.ini");
@@ -1291,8 +1390,91 @@ mod tests {
             fs::read_to_string(song_ini_path).expect("song.ini should read"),
             repaired_song_ini
         );
+        assert_eq!(
+            fs::read_to_string(project.mods_dir.join("song.original.ini"))
+                .expect("song.original.ini should read"),
+            original_song_ini
+        );
         assert_eq!(stored_songs.len(), 1);
         assert_eq!(stored_songs[0].sections[1].entries[1].value, "Repaired");
+    }
+
+    #[test]
+    fn song_validation_preserves_existing_original_backup() {
+        let project = TestProject::new("song-validate-existing-backup");
+        let song_ini_path = project.mods_dir.join("song.ini");
+        let backup_path = project.mods_dir.join("song.original.ini");
+        let existing_backup = valid_song_ini("Earlier Backup", "earlier_checksum");
+        write_test_file_contents(
+            &song_ini_path,
+            valid_song_ini("Original", "original_checksum").as_str(),
+        );
+        write_test_file_contents(&backup_path, &existing_backup);
+        let store = SongIniStore::default();
+
+        validate_song_ini_file_path(
+            &test_scan_settings(&project),
+            "song.ini",
+            &valid_song_ini("Repaired", "repaired_checksum"),
+            &store,
+        )
+        .expect("validation should pass");
+
+        assert_eq!(
+            fs::read_to_string(backup_path).expect("backup should read"),
+            existing_backup
+        );
+    }
+
+    #[test]
+    fn song_validation_skips_original_backup_when_setting_is_disabled() {
+        let project = TestProject::new("song-validate-no-backup");
+        let song_ini_path = project.mods_dir.join("song.ini");
+        write_test_file_contents(
+            &song_ini_path,
+            valid_song_ini("Original", "original_checksum").as_str(),
+        );
+        let store = SongIniStore::default();
+
+        validate_song_ini_file_path(
+            &test_scan_settings_without_song_ini_backup(&project),
+            "song.ini",
+            &valid_song_ini("Repaired", "repaired_checksum"),
+            &store,
+        )
+        .expect("validation should pass");
+
+        assert!(!project.mods_dir.join("song.original.ini").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn song_validation_does_not_write_when_original_backup_fails() {
+        let project = TestProject::new("song-validate-backup-fails");
+        let song_ini_path = project.mods_dir.join("song.ini");
+        let original_song_ini = valid_song_ini("Original", "original_checksum");
+        write_test_file_contents(&song_ini_path, &original_song_ini);
+        fs::set_permissions(&project.mods_dir, fs::Permissions::from_mode(0o500))
+            .expect("mods dir should become read-only");
+        let store = SongIniStore::default();
+
+        let result = validate_song_ini_file_path(
+            &test_scan_settings(&project),
+            "song.ini",
+            &valid_song_ini("Repaired", "repaired_checksum"),
+            &store,
+        );
+
+        fs::set_permissions(&project.mods_dir, fs::Permissions::from_mode(0o700))
+            .expect("mods dir should become writable for cleanup");
+        assert!(result
+            .expect_err("backup failure should reject write")
+            .contains("Failed to write"));
+        assert_eq!(
+            fs::read_to_string(song_ini_path).expect("song.ini should read"),
+            original_song_ini
+        );
+        assert!(!project.mods_dir.join("song.original.ini").exists());
     }
 
     #[test]
@@ -1303,7 +1485,7 @@ mod tests {
         let store = SongIniStore::default();
 
         let result = validate_song_ini_file_path(
-            &project.mods_dir,
+            &test_scan_settings(&project),
             "../song.ini",
             "[SongInfo]\nTitle=Unsafe\n",
             &store,

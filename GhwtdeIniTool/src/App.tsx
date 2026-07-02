@@ -25,6 +25,7 @@ function App() {
     chooseModsFolder,
     isSettingsOpen,
     loadSettings,
+    setKeepOriginalSongIni,
     setIsSettingsOpen,
     settings,
     settingsError,
@@ -118,6 +119,7 @@ function App() {
               setIsSettingsOpen(false);
             }
           }}
+          onKeepOriginalSongIniChange={setKeepOriginalSongIni}
           settings={settings}
           settingsError={settingsError}
           settingsStatus={settingsStatus}
