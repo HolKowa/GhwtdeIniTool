@@ -32,9 +32,20 @@ export type SongContentIssue = {
   absolute_path: string;
 };
 
+export type ScannedSong = {
+  relative_path: string;
+  folder_absolute_path: string;
+  artist: string;
+  title: string;
+  year: string;
+  genre: string;
+  game_icon: string;
+};
+
 export type SongIniScanResult = {
   songs_found: number;
   songs_parsed: number;
+  songs: ScannedSong[];
   faulty_files: FaultySongIniFile[];
   duplicate_checksum_groups: DuplicateChecksumGroup[];
   disabled_song_conflicts: DisabledSongConflict[];
@@ -46,6 +57,7 @@ export type SongIniValidationResult = {
   relative_path: string;
   contents: string;
   songs_parsed: number;
+  songs: ScannedSong[];
   duplicate_checksum_groups: DuplicateChecksumGroup[];
   disabled_song_conflicts: DisabledSongConflict[];
   content_file_issues: SongContentIssue[];

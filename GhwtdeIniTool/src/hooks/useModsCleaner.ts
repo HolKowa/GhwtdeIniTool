@@ -53,7 +53,7 @@ export function useModsCleaner() {
 
   const confirmClean = useCallback(async () => {
     if (cleanStatus !== "readyDelete") {
-      return;
+      return 0;
     }
 
     setCleanStatus("deleting");
@@ -74,6 +74,7 @@ export function useModsCleaner() {
         message: `${result.files_deleted} files deleted${errorSummary}`,
         tone: result.errors.length ? "error" : "success",
       });
+      return result.files_deleted;
     } catch (err) {
       setCleanError(String(err));
       setCleanStatus("error");
@@ -81,6 +82,7 @@ export function useModsCleaner() {
         message: String(err),
         tone: "error",
       });
+      return 0;
     }
   }, [cleanStatus, deletePreview]);
 

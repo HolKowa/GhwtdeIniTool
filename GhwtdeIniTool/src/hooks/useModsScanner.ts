@@ -38,10 +38,12 @@ export function useModsScanner() {
   const [songIniConflictError, setSongIniConflictError] = useState("");
   const [scanError, setScanError] = useState("");
   const [isScanWizardOpen, setIsScanWizardOpen] = useState(false);
+  const [hasCompletedSongScan, setHasCompletedSongScan] = useState(false);
   const [scanToast, setScanToast] = useState<ScanToast | null>(null);
 
   const scanMods = useCallback(async () => {
     setIsScanWizardOpen(true);
+    setHasCompletedSongScan(false);
     setScanStatus("scanningSongs");
     setScanError("");
     setSongIniScanResult(null);
@@ -72,6 +74,7 @@ export function useModsScanner() {
   const confirmScan = useCallback(async () => {
     if (scanStatus === "readySongRepair") {
       setIsScanWizardOpen(false);
+      setHasCompletedSongScan(true);
       setScanStatus("idle");
     }
   }, [scanStatus]);
@@ -94,20 +97,21 @@ export function useModsScanner() {
             : [...currentPaths, relativePath],
         );
         setSongIniScanResult((currentResult) =>
-          currentResult
-            ? {
+          currentResult === null
+            ? currentResult
+            : {
               ...currentResult,
               songs_parsed: result.songs_parsed,
+              songs: result.songs,
               duplicate_checksum_groups: result.duplicate_checksum_groups,
               disabled_song_conflicts: result.disabled_song_conflicts,
               content_file_issues: result.content_file_issues,
               faulty_files: currentResult.faulty_files.map((file) =>
                 file.relative_path === relativePath
-                    ? { ...file, contents: result.contents, error: "" }
-                    : file,
-                ),
-              }
-            : currentResult,
+                  ? { ...file, contents: result.contents, error: "" }
+                  : file,
+              ),
+            },
         );
         setScanStatus("readySongRepair");
         setScanToast({
@@ -141,11 +145,22 @@ export function useModsScanner() {
     setSongIniConflictError("");
   }, []);
 
+  const clearCompletedSongScan = useCallback(() => {
+    setHasCompletedSongScan(false);
+    setSongIniScanResult(null);
+    setRepairedSongIniPaths([]);
+    setDisabledSongIniPaths([]);
+    setDeletedSongIniConflictPaths([]);
+    setSongIniValidationError("");
+    setSongIniConflictError("");
+    setScanError("");
+  }, []);
+
   const copyContentIssuePath = useCallback(async (absolutePath: string) => {
     try {
       await navigator.clipboard.writeText(absolutePath);
       setScanToast({
-        message: "Path copied to clipboard",
+        message: `${absolutePath} was copied to clipboard`,
         tone: "success",
       });
     } catch (err) {
@@ -177,6 +192,9 @@ export function useModsScanner() {
             ? {
                 ...currentResult,
                 songs_parsed: result.songs_parsed,
+                songs: currentResult.songs.filter(
+                  (song) => song.relative_path !== relativePath,
+                ),
               }
             : currentResult,
         );
@@ -216,6 +234,9 @@ export function useModsScanner() {
             ? {
                 ...currentResult,
                 songs_parsed: result.songs_parsed,
+                songs: currentResult.songs.filter(
+                  (song) => song.relative_path !== relativePath,
+                ),
               }
             : currentResult,
         );
@@ -236,6 +257,7 @@ export function useModsScanner() {
 
   const cancelScan = useCallback(() => {
     setIsScanWizardOpen(false);
+    setHasCompletedSongScan(false);
     setScanStatus("idle");
     setScanError("");
     setSongIniScanResult(null);
@@ -264,6 +286,7 @@ export function useModsScanner() {
 
   return {
     cancelScan,
+    clearCompletedSongScan,
     clearSongIniValidationError,
     confirmScan,
     copyContentIssuePath,
@@ -272,6 +295,7 @@ export function useModsScanner() {
     disableSongIni,
     disabledSongIniPaths,
     dismissScanToast,
+    hasCompletedSongScan,
     isScanWizardOpen,
     repairedSongIniPaths,
     scanError,

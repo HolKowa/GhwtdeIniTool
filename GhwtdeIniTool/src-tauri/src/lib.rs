@@ -92,11 +92,23 @@ struct ParsedIniEntry {
 struct SongIniScanResult {
     songs_found: usize,
     songs_parsed: usize,
+    songs: Vec<ScannedSong>,
     faulty_files: Vec<FaultySongIniFile>,
     duplicate_checksum_groups: Vec<DuplicateChecksumGroup>,
     disabled_song_conflicts: Vec<DisabledSongConflict>,
     content_file_issues: Vec<SongContentIssue>,
     errors: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct ScannedSong {
+    relative_path: String,
+    folder_absolute_path: String,
+    artist: String,
+    title: String,
+    year: String,
+    genre: String,
+    game_icon: String,
 }
 
 #[derive(Clone, Serialize)]
@@ -132,6 +144,7 @@ struct SongIniValidationResult {
     relative_path: String,
     contents: String,
     songs_parsed: usize,
+    songs: Vec<ScannedSong>,
     duplicate_checksum_groups: Vec<DuplicateChecksumGroup>,
     disabled_song_conflicts: Vec<DisabledSongConflict>,
     content_file_issues: Vec<SongContentIssue>,
@@ -394,6 +407,7 @@ fn scan_song_ini_files_paths(
     }
 
     result.songs_parsed = parsed_songs.len();
+    result.songs = scanned_songs(mods_dir, &parsed_songs);
     result.duplicate_checksum_groups = duplicate_checksum_groups(&parsed_songs);
     result.disabled_song_conflicts = disabled_song_conflicts(mods_dir, &song_ini_paths)?;
     result.content_file_issues = song_content_issues(mods_dir, &parsed_songs)?;
@@ -428,6 +442,7 @@ fn validate_song_ini_file_path(
         relative_path: relative_path.to_string(),
         contents: normalized_contents,
         songs_parsed,
+        songs: scanned_songs(mods_dir, &parsed_songs),
         duplicate_checksum_groups: duplicate_checksum_groups(&parsed_songs),
         disabled_song_conflicts: disabled_song_conflicts(mods_dir, &song_ini_paths)?,
         content_file_issues: song_content_issues(mods_dir, &parsed_songs)?,
@@ -692,6 +707,49 @@ fn song_ini_checksum(song: &ParsedSongIni) -> Option<String> {
         .iter()
         .find(|entry| entry.key == "Checksum")
         .map(|entry| entry.value.trim().to_string())
+}
+
+fn scanned_songs(mods_dir: &Path, parsed_songs: &[ParsedSongIni]) -> Vec<ScannedSong> {
+    let mut songs = parsed_songs
+        .iter()
+        .map(|song| scanned_song(mods_dir, song))
+        .collect::<Vec<_>>();
+
+    songs.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+    songs
+}
+
+fn scanned_song(mods_dir: &Path, song: &ParsedSongIni) -> ScannedSong {
+    let song_ini_path = mods_dir.join(Path::new(&song.relative_path));
+    let folder_absolute_path = song_ini_path
+        .parent()
+        .unwrap_or(mods_dir)
+        .display()
+        .to_string();
+
+    ScannedSong {
+        relative_path: song.relative_path.clone(),
+        folder_absolute_path,
+        artist: song_info_value(song, "Artist"),
+        title: song_info_value(song, "Title"),
+        year: song_info_value(song, "Year"),
+        genre: song_info_value(song, "Genre"),
+        game_icon: song_info_value(song, "GameIcon"),
+    }
+}
+
+fn song_info_value(song: &ParsedSongIni, key: &str) -> String {
+    song.sections
+        .iter()
+        .find(|section| section.name.as_deref() == Some("SongInfo"))
+        .and_then(|section| {
+            section
+                .entries
+                .iter()
+                .find(|entry| entry.key == key)
+                .map(|entry| entry.value.trim().to_string())
+        })
+        .unwrap_or_default()
 }
 
 fn duplicate_checksum_groups(parsed_songs: &[ParsedSongIni]) -> Vec<DuplicateChecksumGroup> {
@@ -1755,6 +1813,54 @@ mod tests {
     }
 
     #[test]
+    fn song_scan_returns_display_rows_from_song_info() {
+        let project = TestProject::new("song-scan-display-rows");
+        let song_dir = project.mods_dir.join("Artist").join("Song");
+        fs::create_dir_all(&song_dir).expect("song folder should be created");
+        write_test_file_contents(
+            &song_dir.join("song.ini"),
+            "[ModInfo]\nName=Display Row\n\n[SongInfo]\nChecksum=display_checksum\nArtist=The Artist\nTitle=The Title\nYear=1984\nGenre=Rock\nGameIcon=ghwt\n",
+        );
+        let store = SongIniStore::default();
+
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should complete");
+
+        assert_eq!(result.songs.len(), 1);
+        assert_eq!(result.songs[0].relative_path, "Artist/Song/song.ini");
+        assert_eq!(
+            result.songs[0].folder_absolute_path,
+            song_dir.display().to_string()
+        );
+        assert_eq!(result.songs[0].artist, "The Artist");
+        assert_eq!(result.songs[0].title, "The Title");
+        assert_eq!(result.songs[0].year, "1984");
+        assert_eq!(result.songs[0].genre, "Rock");
+        assert_eq!(result.songs[0].game_icon, "ghwt");
+    }
+
+    #[test]
+    fn song_scan_returns_empty_display_values_for_missing_optional_keys() {
+        let project = TestProject::new("song-scan-display-empty");
+        write_test_file_contents(
+            &project.mods_dir.join("song.ini"),
+            "[ModInfo]\nName=Minimal\n\n[SongInfo]\nChecksum=minimal_checksum\n",
+        );
+        let store = SongIniStore::default();
+
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should complete");
+
+        assert_eq!(result.songs_parsed, 1);
+        assert_eq!(result.songs.len(), 1);
+        assert_eq!(result.songs[0].artist, "");
+        assert_eq!(result.songs[0].title, "");
+        assert_eq!(result.songs[0].year, "");
+        assert_eq!(result.songs[0].genre, "");
+        assert_eq!(result.songs[0].game_icon, "");
+    }
+
+    #[test]
     fn song_scan_accepts_utf8_bom_before_modinfo() {
         let project = TestProject::new("song-scan-bom");
         write_test_file_contents(
@@ -2380,6 +2486,35 @@ mod tests {
         );
         assert_eq!(stored_songs.len(), 1);
         assert_eq!(stored_songs[0].sections[1].entries[1].value, "Repaired");
+    }
+
+    #[test]
+    fn song_validation_returns_refreshed_display_rows_after_repair() {
+        let project = TestProject::new("song-validate-refresh-display");
+        let song_ini_path = project.mods_dir.join("song.ini");
+        write_test_file_contents(
+            &song_ini_path,
+            "[ModInfo]\nName=Original\n\n[SongInfo]\nChecksum=display_checksum\nArtist=Original Artist\nTitle=Original Title\n",
+        );
+        let store = SongIniStore::default();
+
+        scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should populate store");
+
+        let result = validate_song_ini_file_path(
+            &test_scan_settings(&project),
+            "song.ini",
+            "[ModInfo]\nName=Updated\n\n[SongInfo]\nChecksum=display_checksum\nArtist=Updated Artist\nTitle=Updated Title\nYear=1999\nGenre=Metal\nGameIcon=gh3\n",
+            &store,
+        )
+        .expect("validation should pass");
+
+        assert_eq!(result.songs.len(), 1);
+        assert_eq!(result.songs[0].artist, "Updated Artist");
+        assert_eq!(result.songs[0].title, "Updated Title");
+        assert_eq!(result.songs[0].year, "1999");
+        assert_eq!(result.songs[0].genre, "Metal");
+        assert_eq!(result.songs[0].game_icon, "gh3");
     }
 
     #[test]

@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { CleanModsWizard } from "./components/CleanModsWizard";
 import { ScanToast } from "./components/ScanToast";
 import { ScanWizard } from "./components/ScanWizard";
+import { ScannedSongsTable } from "./components/ScannedSongsTable";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { UpdateDialog } from "./components/UpdateDialog";
 import { useAppUpdater } from "./hooks/useAppUpdater";
@@ -46,6 +47,7 @@ function App() {
   } = useModsCleaner();
   const {
     cancelScan,
+    clearCompletedSongScan,
     clearSongIniValidationError,
     confirmScan,
     copyContentIssuePath,
@@ -54,6 +56,7 @@ function App() {
     disableSongIni,
     disabledSongIniPaths,
     dismissScanToast,
+    hasCompletedSongScan,
     isScanWizardOpen,
     repairedSongIniPaths,
     scanError,
@@ -89,6 +92,13 @@ function App() {
   const dismissActiveToast = cleanToast
     ? dismissCleanToast
     : dismissScanToast;
+  const confirmCleanAndClearScan = async () => {
+    const filesDeleted = await confirmClean();
+
+    if (filesDeleted > 0) {
+      clearCompletedSongScan();
+    }
+  };
 
   return (
     <main className="container">
@@ -110,6 +120,13 @@ function App() {
           {isScanBusy ? "Scanning..." : "Scan MODS folder"}
         </button>
       </div>
+
+      {hasCompletedSongScan && songIniScanResult && (
+        <ScannedSongsTable
+          onCopyFolderPath={copyContentIssuePath}
+          songs={songIniScanResult.songs}
+        />
+      )}
 
       <button
         className="settings-button"
@@ -154,7 +171,7 @@ function App() {
           deletePreview={deletePreview}
           onBack={backToCleanPattern}
           onCancel={cancelClean}
-          onConfirmDelete={confirmClean}
+          onConfirmDelete={confirmCleanAndClearScan}
           onPreview={previewClean}
         />
       )}

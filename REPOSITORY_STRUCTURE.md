@@ -45,6 +45,8 @@ Important files:
 - `GhwtdeIniTool/src/components/ScanWizard.tsx` renders the `song.ini` scan,
   repair, duplicate checksum, disabled-file conflict, and content layout
   wizard.
+- `GhwtdeIniTool/src/components/ScannedSongsTable.tsx` renders the compact
+  sortable/filterable parsed-song results table shown after a completed scan.
 - `GhwtdeIniTool/src/components/SettingsDialog.tsx` renders project settings.
 - `GhwtdeIniTool/src/components/UpdateDialog.tsx` renders updater states.
 - `GhwtdeIniTool/src/hooks/useProjectSettings.ts` owns settings state and
@@ -102,6 +104,12 @@ Current frontend behavior:
   absent so local development can omit bulky MUSIC assets. The wizard scales
   with the app window while keeping preview content scrollable. Completion and
   errors are shown as compact toasts.
+- After the Scan MODS folder wizard is finished, the main view shows a compact
+  scanned-song table populated from parsed active `song.ini` files. It displays
+  exact `[SongInfo]` `Artist`, `Title`, `Year`, `Genre`, and `GameIcon` values,
+  shows `<empty>` for missing display values so filters can find them, provides
+  per-column filters, sortable/resizable data columns, a compact folder-copy
+  column, and copies each row's song folder path.
 - The settings dialog lets the user choose a MODS folder and toggle whether
   original `song.ini` files are kept before their first edit.
 - Settings changes are saved immediately through `save_project_settings`; there
@@ -174,7 +182,10 @@ Current backend behavior:
   `Content` layouts against checksum-derived file names case-insensitively,
   reports strict extra files in `Content` and `Content/MUSIC`, accepts
   case-mismatched `Content`/`MUSIC` folders without renaming them, and validates
-  repaired contents before writing them back to disk. Debug builds temporarily
+  repaired contents before writing them back to disk. Scan and validation
+  results include a `songs` array for the frontend table, with each row's
+  MODS-relative `song.ini` path, absolute song folder path, and display values
+  parsed from exact `[SongInfo]` keys. Debug builds temporarily
   suppress missing `Content/MUSIC` folder warnings when that folder is absent so
   local development can omit bulky MUSIC assets. When
   `keep_original_song_ini` is enabled, the backend creates a sibling
