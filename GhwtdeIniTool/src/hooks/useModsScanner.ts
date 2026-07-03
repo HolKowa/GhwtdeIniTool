@@ -54,21 +54,9 @@ export function useModsScanner() {
 
     try {
       const nextSongIniScanResult = await scanSongIniFiles();
-      const hasWizardIssues =
-        nextSongIniScanResult.faulty_files.length > 0 ||
-        nextSongIniScanResult.duplicate_checksum_groups.length > 0 ||
-        nextSongIniScanResult.disabled_song_conflicts.length > 0 ||
-        nextSongIniScanResult.content_file_issues.length > 0;
 
       setSongIniScanResult(nextSongIniScanResult);
       setScanStatus("readySongRepair");
-
-      if (!hasWizardIssues) {
-        setScanToast({
-          message: `${nextSongIniScanResult.songs_parsed} songs parsed with no issues`,
-          tone: nextSongIniScanResult.errors.length ? "error" : "success",
-        });
-      }
     } catch (err) {
       setSongIniScanResult(null);
       setRepairedSongIniPaths([]);

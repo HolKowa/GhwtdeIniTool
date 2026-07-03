@@ -94,14 +94,13 @@ export function ScanWizard({
     unresolvedDisabledSongConflicts.length > 0;
   const shouldShowDuplicateChecksumGroups =
     !hasUnresolvedDisabledSongConflicts && duplicateChecksumGroups.length > 0;
-  const hasConflictStep =
-    duplicateChecksumGroups.length > 0 || disabledSongConflicts.length > 0;
+  const hasConflictStep = songIniScanResult !== null;
   const unresolvedContentFileIssues = contentFileIssues.filter(
     (issue) =>
       !disabledPathSet.has(issue.song_ini_relative_path) &&
       !deletedPathSet.has(issue.song_ini_relative_path),
   );
-  const hasContentStep = contentFileIssues.length > 0;
+  const hasContentStep = songIniScanResult !== null;
   const contentIssuesBySong = useMemo(() => {
     const groups = new Map<string, typeof unresolvedContentFileIssues>();
 

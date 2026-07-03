@@ -61,6 +61,12 @@ pnpm tauri dev
 
 This starts Vite on port `1420` and opens the Tauri window.
 
+Temporary dev scan exception: debug/Tauri dev runs currently suppress missing
+`Content/MUSIC` warnings when the folder is absent, so local development can
+omit bulky MUSIC assets. If `Content/MUSIC` exists, its files are still
+validated. Remove this exception from code and docs when local development no
+longer omits MUSIC assets.
+
 ## Project Settings INI
 
 The app stores the last selected MODS folder in `ghwtdeinitool.ini` next to the

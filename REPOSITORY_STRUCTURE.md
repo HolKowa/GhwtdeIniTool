@@ -94,11 +94,14 @@ Current frontend behavior:
   disabling selected active songs, which renames `song.ini` to
   `song.disabled.ini`; active/disabled sibling conflicts can delete either file.
   The final step validates each active song folder's `Content` and
-  `Content/MUSIC` layout against the parsed checksum, auto-corrects only those
-  folder names when their casing differs, reports missing/misnamed/extra files,
-  lets the user copy the native absolute path to the related song folder, and can
-  disable that `song.ini`. The wizard scales with the app window while keeping
-  preview content scrollable. Completion and errors are shown as compact toasts.
+  `Content/MUSIC` layout against the parsed checksum, accepts those folder and
+  checksum-derived file names case-insensitively without renaming them, reports
+  missing/misnamed/extra files, lets the user copy the native absolute path to
+  the related song folder, and can disable that `song.ini`. Debug/Tauri dev runs
+  temporarily suppress missing `Content/MUSIC` warnings when that folder is
+  absent so local development can omit bulky MUSIC assets. The wizard scales
+  with the app window while keeping preview content scrollable. Completion and
+  errors are shown as compact toasts.
 - The settings dialog lets the user choose a MODS folder and toggle whether
   original `song.ini` files are kept before their first edit.
 - Settings changes are saved immediately through `save_project_settings`; there
@@ -168,10 +171,12 @@ Current backend behavior:
   known `ModInfo`/`SongInfo` keys while allowing extra unknown keys, groups
   duplicate parsed `[SongInfo]` checksum values across valid active songs,
   reports sibling `song.ini`/`song.disabled.ini` conflicts, validates active song
-  `Content` layouts against exact checksum-derived file names, reports strict
-  extra files in `Content` and `Content/MUSIC`, auto-renames only case-mismatched
-  `Content`/`MUSIC` folders, and validates repaired contents before writing them
-  back to disk. When
+  `Content` layouts against checksum-derived file names case-insensitively,
+  reports strict extra files in `Content` and `Content/MUSIC`, accepts
+  case-mismatched `Content`/`MUSIC` folders without renaming them, and validates
+  repaired contents before writing them back to disk. Debug builds temporarily
+  suppress missing `Content/MUSIC` folder warnings when that folder is absent so
+  local development can omit bulky MUSIC assets. When
   `keep_original_song_ini` is enabled, the backend creates a sibling
   `song.original.ini` before the first write to each `song.ini` and before a
   `song.ini` is disabled by rename.
@@ -208,8 +213,10 @@ What was checked:
   rejection, required `song.ini` fields, canonical key casing auto-correction,
   duplicate checksum grouping, disabled-file conflict reporting,
   disable-by-rename behavior, conflict file deletion, content layout validation,
-  content folder case correction, strict extra content file reporting, refreshed
-  content issues after checksum repair, and unsafe repair/action path rejection.
+  content folder and checksum filename case-insensitive matching, debug-only
+  missing `Content/MUSIC` suppression, strict extra content file reporting,
+  refreshed content issues after checksum repair, and unsafe repair/action path
+  rejection.
 - Rust song PAK analyzer tests cover QBKey hashing, hash normalization, minimal
   PAK entry parsing, QB section parsing, instrument/vocal support detection, and
   an optional local parity check against the Sk8er Boi sample in `MODS_medium`

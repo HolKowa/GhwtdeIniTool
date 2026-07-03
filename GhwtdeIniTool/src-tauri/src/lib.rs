@@ -808,13 +808,16 @@ fn song_content_issues(
             &content_dir.join(format!("a{checksum}_song.pak.xen")),
         );
 
-        let Some(music_dir) = normalized_child_dir(
+        // Temporary dev-only shortcut: local debug runs may omit bulky MUSIC assets.
+        let suppress_missing_music_folder = cfg!(debug_assertions);
+        let Some(music_dir) = normalized_child_dir_with_missing_issue(
             &mut issues,
             song,
             &song_ini_absolute_path,
             &checksum,
             &content_dir,
             "MUSIC",
+            !suppress_missing_music_folder,
         )?
         else {
             validate_extra_content_entries(
@@ -880,6 +883,26 @@ fn normalized_child_dir(
     parent: &Path,
     expected_name: &str,
 ) -> Result<Option<PathBuf>, String> {
+    normalized_child_dir_with_missing_issue(
+        issues,
+        song,
+        song_ini_absolute_path,
+        checksum,
+        parent,
+        expected_name,
+        true,
+    )
+}
+
+fn normalized_child_dir_with_missing_issue(
+    issues: &mut Vec<SongContentIssue>,
+    song: &ParsedSongIni,
+    song_ini_absolute_path: &str,
+    checksum: &str,
+    parent: &Path,
+    expected_name: &str,
+    report_missing: bool,
+) -> Result<Option<PathBuf>, String> {
     let entries = match fs::read_dir(parent) {
         Ok(entries) => entries,
         Err(err) => {
@@ -920,15 +943,17 @@ fn normalized_child_dir(
     }
 
     if matches.is_empty() {
-        let expected_path = parent.join(expected_name);
-        push_content_issue(
-            issues,
-            song,
-            song_ini_absolute_path,
-            checksum,
-            format!("Missing required {expected_name} folder."),
-            &expected_path,
-        );
+        if report_missing {
+            let expected_path = parent.join(expected_name);
+            push_content_issue(
+                issues,
+                song,
+                song_ini_absolute_path,
+                checksum,
+                format!("Missing required {expected_name} folder."),
+                &expected_path,
+            );
+        }
         return Ok(None);
     }
 
@@ -972,33 +997,7 @@ fn normalized_child_dir(
         return Ok(None);
     }
 
-    let current_name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("");
-
-    if current_name == expected_name {
-        return Ok(Some(path));
-    }
-
-    let corrected_path = parent.join(expected_name);
-    if let Err(err) = fs::rename(&path, &corrected_path) {
-        push_content_issue(
-            issues,
-            song,
-            song_ini_absolute_path,
-            checksum,
-            format!(
-                "Failed to correct folder casing from {} to {}: {err}",
-                path.display(),
-                corrected_path.display()
-            ),
-            &path,
-        );
-        return Ok(None);
-    }
-
-    Ok(Some(corrected_path))
+    Ok(Some(path))
 }
 
 fn validate_required_content_file(
@@ -1008,7 +1007,44 @@ fn validate_required_content_file(
     checksum: &str,
     path: &Path,
 ) {
-    match fs::metadata(path) {
+    let path = match case_insensitive_child_paths(path) {
+        Ok(matches) if matches.is_empty() => {
+            push_content_issue(
+                issues,
+                song,
+                song_ini_absolute_path,
+                checksum,
+                "Missing required file.".to_string(),
+                path,
+            );
+            return;
+        }
+        Ok(matches) if matches.len() > 1 => {
+            push_content_issue(
+                issues,
+                song,
+                song_ini_absolute_path,
+                checksum,
+                "Multiple files match required file casing.".to_string(),
+                path,
+            );
+            return;
+        }
+        Ok(mut matches) => matches.remove(0),
+        Err(err) => {
+            push_content_issue(
+                issues,
+                song,
+                song_ini_absolute_path,
+                checksum,
+                format!("Failed to inspect file: {err}"),
+                path,
+            );
+            return;
+        }
+    };
+
+    match fs::metadata(&path) {
         Ok(metadata) if metadata.is_file() => {}
         Ok(_) => push_content_issue(
             issues,
@@ -1016,15 +1052,7 @@ fn validate_required_content_file(
             song_ini_absolute_path,
             checksum,
             "Expected file is not a file.".to_string(),
-            path,
-        ),
-        Err(err) if err.kind() == io::ErrorKind::NotFound => push_content_issue(
-            issues,
-            song,
-            song_ini_absolute_path,
-            checksum,
-            "Missing required file.".to_string(),
-            path,
+            &path,
         ),
         Err(err) => push_content_issue(
             issues,
@@ -1032,9 +1060,31 @@ fn validate_required_content_file(
             song_ini_absolute_path,
             checksum,
             format!("Failed to inspect file: {err}"),
-            path,
+            &path,
         ),
     }
+}
+
+fn case_insensitive_child_paths(path: &Path) -> io::Result<Vec<PathBuf>> {
+    let Some(parent) = path.parent() else {
+        return Ok(Vec::new());
+    };
+    let Some(expected_name) = path.file_name().and_then(|name| name.to_str()) else {
+        return Ok(Vec::new());
+    };
+
+    let mut matches = Vec::new();
+    for entry in fs::read_dir(parent)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+
+        if name.eq_ignore_ascii_case(expected_name) {
+            matches.push(entry.path());
+        }
+    }
+
+    Ok(matches)
 }
 
 fn validate_extra_content_entries(
@@ -1079,7 +1129,7 @@ fn validate_extra_content_entries(
 
         if !allowed_names
             .iter()
-            .any(|allowed_name| allowed_name == &name)
+            .any(|allowed_name| name.eq_ignore_ascii_case(allowed_name))
         {
             push_content_issue(
                 issues,
@@ -1949,7 +1999,7 @@ mod tests {
     }
 
     #[test]
-    fn song_scan_corrects_content_and_music_folder_casing() {
+    fn song_scan_accepts_content_and_music_folder_casing_without_renaming() {
         let project = TestProject::new("song-scan-content-folder-case");
         let content_dir = project.mods_dir.join("content");
         let music_dir = content_dir.join("music");
@@ -1969,8 +2019,52 @@ mod tests {
             .expect("scan should complete");
 
         assert!(result.content_file_issues.is_empty());
-        assert!(project.mods_dir.join("Content").join("MUSIC").is_dir());
-        assert!(!project.mods_dir.join("content").exists());
+        assert!(project.mods_dir.join("content").join("music").is_dir());
+        assert!(!project.mods_dir.join("Content").exists());
+    }
+
+    #[test]
+    fn song_scan_accepts_checksum_file_casing_mismatches() {
+        let project = TestProject::new("song-scan-content-file-case");
+        let lower_song_dir = project.mods_dir.join("lower-files");
+        let upper_song_dir = project.mods_dir.join("upper-files");
+        fs::create_dir_all(&lower_song_dir).expect("lower song dir should be created");
+        fs::create_dir_all(&upper_song_dir).expect("upper song dir should be created");
+        write_test_file_contents(
+            &lower_song_dir.join("song.ini"),
+            valid_song_ini("Upper Checksum", "CASE_CHECKSUM").as_str(),
+        );
+        write_valid_content_files(&lower_song_dir, "case_checksum");
+        write_test_file_contents(
+            &upper_song_dir.join("song.ini"),
+            valid_song_ini("Lower Checksum", "reverse_checksum").as_str(),
+        );
+        write_valid_content_files(&upper_song_dir, "REVERSE_CHECKSUM");
+        let store = SongIniStore::default();
+
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should complete");
+
+        assert!(result.content_file_issues.is_empty());
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn song_scan_suppresses_missing_music_folder_in_debug_builds() {
+        let project = TestProject::new("song-scan-debug-missing-music");
+        let content_dir = project.mods_dir.join("Content");
+        write_test_file_contents(
+            &project.mods_dir.join("song.ini"),
+            valid_song_ini("Valid", "debug_checksum").as_str(),
+        );
+        fs::create_dir_all(&content_dir).expect("content dir should be created");
+        write_test_file(&content_dir.join("adebug_checksum_song.pak.xen"));
+        let store = SongIniStore::default();
+
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should complete");
+
+        assert!(result.content_file_issues.is_empty());
     }
 
     #[test]
