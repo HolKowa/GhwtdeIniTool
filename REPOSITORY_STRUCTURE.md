@@ -128,6 +128,9 @@ Important files:
   library entry point.
 - `GhwtdeIniTool/src-tauri/src/lib.rs` configures the Tauri builder, plugins,
   and command handlers.
+- `GhwtdeIniTool/src-tauri/src/song_pak_analyzer.rs` implements the read-only
+  GHWT `*_song.pak.xen` analyzer used to detect playable instrument chart data
+  from PAK/QB contents.
 - `GhwtdeIniTool/src-tauri/Cargo.toml` defines Rust dependencies and crate
   metadata.
 - `GhwtdeIniTool/src-tauri/tauri.conf.json` defines app metadata, windows,
@@ -142,6 +145,10 @@ Current backend behavior:
   `preview_keep_only_files_delete`, `delete_keep_only_files`,
   `scan_song_ini_files`, `validate_song_ini_file`, `disable_song_ini_file`, and
   `delete_song_ini_conflict_file` Tauri commands.
+- Exposes `analyze_song_pak`, which takes a PAK path and song checksum, reads
+  the matching main chart QB from the PAK without extracting files, and returns
+  instrument support details, parser diagnostics, warnings, and errors in a
+  frontend-ready serialized shape.
 - Stores project settings in `ghwtdeinitool.ini` next to the executable under a
   `[project]` section.
 - Reads and writes `mods_dir` and `keep_original_song_ini`. Missing
@@ -203,6 +210,10 @@ What was checked:
   disable-by-rename behavior, conflict file deletion, content layout validation,
   content folder case correction, strict extra content file reporting, refreshed
   content issues after checksum repair, and unsafe repair/action path rejection.
+- Rust song PAK analyzer tests cover QBKey hashing, hash normalization, minimal
+  PAK entry parsing, QB section parsing, instrument/vocal support detection, and
+  an optional local parity check against the Sk8er Boi sample in `MODS_medium`
+  when that folder exists.
 
 Useful current validation commands:
 

@@ -7,6 +7,8 @@ use std::{
     sync::Mutex,
 };
 
+mod song_pak_analyzer;
+
 const SETTINGS_FILE_NAME: &str = "ghwtdeinitool.ini";
 const MOD_INFO_KEYS: &[&str] = &["Key", "Name", "Description", "Author", "Version"];
 const SONG_INFO_KEYS: &[&str] = &[
@@ -227,6 +229,14 @@ fn delete_song_ini_conflict_file(
 ) -> Result<SongIniDeleteResult, String> {
     let settings = scan_settings()?;
     delete_song_ini_conflict_file_path(&settings, &relative_path, &store)
+}
+
+#[tauri::command]
+fn analyze_song_pak(
+    pak_path: String,
+    checksum: String,
+) -> Result<song_pak_analyzer::SongPakAnalysis, String> {
+    song_pak_analyzer::analyze_song_pak(&pak_path, &checksum)
 }
 
 struct ScanSettings {
@@ -2645,7 +2655,8 @@ pub fn run() {
             scan_song_ini_files,
             validate_song_ini_file,
             disable_song_ini_file,
-            delete_song_ini_conflict_file
+            delete_song_ini_conflict_file,
+            analyze_song_pak
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
