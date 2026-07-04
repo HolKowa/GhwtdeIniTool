@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 
 import { CleanModsWizard } from "./components/CleanModsWizard";
+import { InstrumentAnalyzeWizard } from "./components/InstrumentAnalyzeWizard";
 import { ScanToast } from "./components/ScanToast";
 import { ScanWizard } from "./components/ScanWizard";
 import { ScannedSongsTable } from "./components/ScannedSongsTable";
@@ -46,9 +47,12 @@ function App() {
     previewClean,
   } = useModsCleaner();
   const {
+    analyzeInstruments,
+    cancelInstrumentAnalyzer,
     cancelScan,
     clearCompletedSongScan,
     clearSongIniValidationError,
+    closeInstrumentAnalyzer,
     confirmScan,
     copyContentIssuePath,
     deleteSongIniConflict,
@@ -57,7 +61,13 @@ function App() {
     disabledSongIniPaths,
     dismissScanToast,
     hasCompletedSongScan,
+    instrumentAnalyzeError,
+    instrumentAnalyzeProgress,
+    instrumentAnalyzeResult,
+    instrumentAnalyzeStatus,
+    isInstrumentWizardOpen,
     isScanWizardOpen,
+    openInstrumentAnalyzer,
     repairedSongIniPaths,
     scanError,
     scanMods,
@@ -65,6 +75,7 @@ function App() {
     scanToast,
     songIniConflictError,
     songIniScanResult,
+    songScanProgress,
     songIniValidationError,
     validateSongIni,
   } = useModsScanner();
@@ -87,7 +98,12 @@ function App() {
     scanStatus === "deletingSongConflict";
   const isCleanBusy =
     cleanStatus === "previewing" || cleanStatus === "deleting";
-  const isWorkflowOpen = isCleanWizardOpen || isScanWizardOpen;
+  const isInstrumentAnalyzeBusy = instrumentAnalyzeStatus === "analyzing";
+  const isWorkflowOpen =
+    isCleanWizardOpen || isScanWizardOpen || isInstrumentWizardOpen;
+  const hasScannedSongs = hasCompletedSongScan && Boolean(songIniScanResult);
+  const canAnalyzeInstruments =
+    hasScannedSongs && !isWorkflowOpen;
   const activeToast = cleanToast ?? scanToast;
   const dismissActiveToast = cleanToast
     ? dismissCleanToast
@@ -119,9 +135,24 @@ function App() {
         >
           {isScanBusy ? "Scanning..." : "Scan MODS folder"}
         </button>
+        {hasScannedSongs && (
+          <button
+            className="instrument-button"
+            type="button"
+            onClick={openInstrumentAnalyzer}
+            disabled={
+              !canAnalyzeInstruments ||
+              isScanBusy ||
+              isCleanBusy ||
+              isInstrumentAnalyzeBusy
+            }
+          >
+            {isInstrumentAnalyzeBusy ? "Analyzing..." : "Analyze instruments"}
+          </button>
+        )}
       </div>
 
-      {hasCompletedSongScan && songIniScanResult && (
+      {hasScannedSongs && songIniScanResult && (
         <ScannedSongsTable
           onCopyFolderPath={copyContentIssuePath}
           songs={songIniScanResult.songs}
@@ -192,7 +223,20 @@ function App() {
           scanStatus={scanStatus}
           songIniConflictError={songIniConflictError}
           songIniScanResult={songIniScanResult}
+          songScanProgress={songScanProgress}
           songIniValidationError={songIniValidationError}
+        />
+      )}
+
+      {isInstrumentWizardOpen && (
+        <InstrumentAnalyzeWizard
+          error={instrumentAnalyzeError}
+          onAnalyze={analyzeInstruments}
+          onCancel={cancelInstrumentAnalyzer}
+          onClose={closeInstrumentAnalyzer}
+          progress={instrumentAnalyzeProgress}
+          result={instrumentAnalyzeResult}
+          status={instrumentAnalyzeStatus}
         />
       )}
 

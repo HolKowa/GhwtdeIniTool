@@ -3,6 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   DeleteFilesPreview,
   DeleteFilesResult,
+  InstrumentAnalyzeMode,
+  InstrumentAnalyzeResult,
   SongIniDeleteResult,
   SongIniDisableResult,
   SongIniScanResult,
@@ -41,5 +43,11 @@ export function disableSongIniFile(relativePath: string) {
 export function deleteSongIniConflictFile(relativePath: string) {
   return invoke<SongIniDeleteResult>("delete_song_ini_conflict_file", {
     relativePath,
+  });
+}
+
+export function analyzeScannedSongInstruments(mode: InstrumentAnalyzeMode) {
+  return invoke<InstrumentAnalyzeResult>("analyze_scanned_song_instruments", {
+    mode,
   });
 }

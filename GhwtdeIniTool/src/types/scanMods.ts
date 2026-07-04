@@ -32,6 +32,34 @@ export type SongContentIssue = {
   absolute_path: string;
 };
 
+export type InstrumentValue =
+  | "Unknown"
+  | "No"
+  | "Easy"
+  | "Medium"
+  | "Hard"
+  | "Expert"
+  | "Error";
+
+export type InstrumentColumnSummary = {
+  value: InstrumentValue;
+  tooltip: string;
+  easy: boolean;
+  medium: boolean;
+  hard: boolean;
+  expert: boolean;
+  errors: string[];
+};
+
+export type ScannedSongInstruments = {
+  guitar: InstrumentColumnSummary;
+  bass: InstrumentColumnSummary;
+  drums: InstrumentColumnSummary;
+  vocals: InstrumentColumnSummary;
+  coop_guitar: InstrumentColumnSummary;
+  coop_bass: InstrumentColumnSummary;
+};
+
 export type ScannedSong = {
   relative_path: string;
   folder_absolute_path: string;
@@ -40,6 +68,7 @@ export type ScannedSong = {
   year: string;
   genre: string;
   game_icon: string;
+  instruments: ScannedSongInstruments;
 };
 
 export type SongIniScanResult = {
@@ -72,4 +101,33 @@ export type SongIniDisableResult = {
 export type SongIniDeleteResult = {
   relative_path: string;
   songs_parsed: number;
+};
+
+export type InstrumentAnalyzeMode = "missing" | "errors" | "all";
+
+export type InstrumentAnalyzeProgress = {
+  current: number;
+  total: number;
+  relative_path: string;
+  mode: InstrumentAnalyzeMode;
+};
+
+export type SongScanProgressPhase =
+  | "findingSongs"
+  | "readingSongs"
+  | "checkingContent"
+  | "finishing";
+
+export type SongScanProgress = {
+  phase: SongScanProgressPhase;
+  current: number;
+  total: number;
+  relative_path?: string;
+};
+
+export type InstrumentAnalyzeResult = {
+  songs: ScannedSong[];
+  analyzed: number;
+  skipped: number;
+  errors: number;
 };

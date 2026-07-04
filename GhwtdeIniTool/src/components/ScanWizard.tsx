@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import type { ScanModsStatus } from "../hooks/useModsScanner";
-import type { SongIniScanResult } from "../types/scanMods";
+import type { SongIniScanResult, SongScanProgress } from "../types/scanMods";
 
 type ScanWizardProps = {
   onCancel: () => void;
@@ -18,8 +18,25 @@ type ScanWizardProps = {
   scanStatus: ScanModsStatus;
   songIniConflictError: string;
   songIniScanResult: SongIniScanResult | null;
+  songScanProgress: SongScanProgress | null;
   songIniValidationError: string;
 };
+
+function scanProgressLabel(progress: SongScanProgress) {
+  if (progress.phase === "findingSongs") {
+    return "Finding song.ini files...";
+  }
+
+  if (progress.phase === "readingSongs") {
+    return `Reading song ${progress.current} of ${progress.total}`;
+  }
+
+  if (progress.phase === "checkingContent") {
+    return `Checking content ${progress.current} of ${progress.total}`;
+  }
+
+  return "Finishing scan...";
+}
 
 export function ScanWizard({
   onCancel,
@@ -36,6 +53,7 @@ export function ScanWizard({
   scanStatus,
   songIniConflictError,
   songIniScanResult,
+  songScanProgress,
   songIniValidationError,
 }: ScanWizardProps) {
   const [activeStep, setActiveStep] = useState<1 | 2 | 3>(1);
@@ -139,6 +157,9 @@ export function ScanWizard({
         ? "Resolve song conflicts"
         : "Check content files";
   const stepLabel = `Step ${activeStep} of 3`;
+  const scanProgressText = songScanProgress
+    ? scanProgressLabel(songScanProgress)
+    : "Checking song.ini format...";
   const hasNextStep =
     (activeStep === 1 && (hasConflictStep || hasContentStep)) ||
     (activeStep === 2 && hasContentStep);
@@ -471,7 +492,14 @@ export function ScanWizard({
 
         <div className="scan-wizard-body">
           {isScanningSongs && (
-            <p className="scan-wizard-muted">Checking song.ini format...</p>
+            <>
+              <p className="scan-wizard-summary">{scanProgressText}</p>
+              {songScanProgress?.relative_path && (
+                <p className="scan-wizard-muted">
+                  {songScanProgress.relative_path}
+                </p>
+              )}
+            </>
           )}
 
           {scanStatus === "error" && (

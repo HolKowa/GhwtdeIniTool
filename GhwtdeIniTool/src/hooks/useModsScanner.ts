@@ -1,12 +1,20 @@
 import { useCallback, useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 
 import {
+  analyzeScannedSongInstruments,
   deleteSongIniConflictFile,
   disableSongIniFile,
   scanSongIniFiles,
   validateSongIniFile,
 } from "../services/scanModsApi";
-import type { SongIniScanResult } from "../types/scanMods";
+import type {
+  InstrumentAnalyzeMode,
+  InstrumentAnalyzeProgress,
+  InstrumentAnalyzeResult,
+  SongScanProgress,
+  SongIniScanResult,
+} from "../types/scanMods";
 
 export type ScanModsStatus =
   | "idle"
@@ -21,6 +29,19 @@ export type ScanToast = {
   message: string;
   tone: "success" | "error";
 };
+
+export type InstrumentAnalyzeStatus =
+  | "idle"
+  | "selecting"
+  | "analyzing"
+  | "complete"
+  | "error";
+
+function waitForNextFrame() {
+  return new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => resolve());
+  });
+}
 
 export function useModsScanner() {
   const [scanStatus, setScanStatus] = useState<ScanModsStatus>("idle");
@@ -37,15 +58,26 @@ export function useModsScanner() {
   const [songIniValidationError, setSongIniValidationError] = useState("");
   const [songIniConflictError, setSongIniConflictError] = useState("");
   const [scanError, setScanError] = useState("");
+  const [songScanProgress, setSongScanProgress] =
+    useState<SongScanProgress | null>(null);
   const [isScanWizardOpen, setIsScanWizardOpen] = useState(false);
   const [hasCompletedSongScan, setHasCompletedSongScan] = useState(false);
   const [scanToast, setScanToast] = useState<ScanToast | null>(null);
+  const [isInstrumentWizardOpen, setIsInstrumentWizardOpen] = useState(false);
+  const [instrumentAnalyzeStatus, setInstrumentAnalyzeStatus] =
+    useState<InstrumentAnalyzeStatus>("idle");
+  const [instrumentAnalyzeProgress, setInstrumentAnalyzeProgress] =
+    useState<InstrumentAnalyzeProgress | null>(null);
+  const [instrumentAnalyzeResult, setInstrumentAnalyzeResult] =
+    useState<InstrumentAnalyzeResult | null>(null);
+  const [instrumentAnalyzeError, setInstrumentAnalyzeError] = useState("");
 
   const scanMods = useCallback(async () => {
     setIsScanWizardOpen(true);
     setHasCompletedSongScan(false);
     setScanStatus("scanningSongs");
     setScanError("");
+    setSongScanProgress(null);
     setSongIniScanResult(null);
     setRepairedSongIniPaths([]);
     setDisabledSongIniPaths([]);
@@ -53,11 +85,17 @@ export function useModsScanner() {
     setSongIniValidationError("");
     setSongIniConflictError("");
     setScanToast(null);
+    setIsInstrumentWizardOpen(false);
+    setInstrumentAnalyzeStatus("idle");
+    setInstrumentAnalyzeProgress(null);
+    setInstrumentAnalyzeResult(null);
+    setInstrumentAnalyzeError("");
 
     try {
       const nextSongIniScanResult = await scanSongIniFiles();
 
       setSongIniScanResult(nextSongIniScanResult);
+      setSongScanProgress(null);
       setScanStatus("readySongRepair");
     } catch (err) {
       setSongIniScanResult(null);
@@ -67,6 +105,7 @@ export function useModsScanner() {
       setSongIniValidationError("");
       setSongIniConflictError("");
       setScanError(String(err));
+      setSongScanProgress(null);
       setScanStatus("error");
     }
   }, []);
@@ -154,6 +193,12 @@ export function useModsScanner() {
     setSongIniValidationError("");
     setSongIniConflictError("");
     setScanError("");
+    setSongScanProgress(null);
+    setIsInstrumentWizardOpen(false);
+    setInstrumentAnalyzeStatus("idle");
+    setInstrumentAnalyzeProgress(null);
+    setInstrumentAnalyzeResult(null);
+    setInstrumentAnalyzeError("");
   }, []);
 
   const copyContentIssuePath = useCallback(async (absolutePath: string) => {
@@ -260,6 +305,7 @@ export function useModsScanner() {
     setHasCompletedSongScan(false);
     setScanStatus("idle");
     setScanError("");
+    setSongScanProgress(null);
     setSongIniScanResult(null);
     setRepairedSongIniPaths([]);
     setDisabledSongIniPaths([]);
@@ -268,8 +314,104 @@ export function useModsScanner() {
     setSongIniConflictError("");
   }, []);
 
+  const openInstrumentAnalyzer = useCallback(() => {
+    setIsInstrumentWizardOpen(true);
+    setInstrumentAnalyzeStatus("selecting");
+    setInstrumentAnalyzeProgress(null);
+    setInstrumentAnalyzeResult(null);
+    setInstrumentAnalyzeError("");
+  }, []);
+
+  const cancelInstrumentAnalyzer = useCallback(() => {
+    setIsInstrumentWizardOpen(false);
+    setInstrumentAnalyzeStatus("idle");
+    setInstrumentAnalyzeProgress(null);
+    setInstrumentAnalyzeError("");
+  }, []);
+
+  const closeInstrumentAnalyzer = useCallback(() => {
+    setIsInstrumentWizardOpen(false);
+    setInstrumentAnalyzeStatus("idle");
+    setInstrumentAnalyzeProgress(null);
+    setInstrumentAnalyzeResult(null);
+    setInstrumentAnalyzeError("");
+  }, []);
+
+  const analyzeInstruments = useCallback(async (mode: InstrumentAnalyzeMode) => {
+    setInstrumentAnalyzeStatus("analyzing");
+    setInstrumentAnalyzeProgress(null);
+    setInstrumentAnalyzeResult(null);
+    setInstrumentAnalyzeError("");
+
+    try {
+      await waitForNextFrame();
+      const result = await analyzeScannedSongInstruments(mode);
+
+      setInstrumentAnalyzeResult(result);
+      setSongIniScanResult((currentResult) =>
+        currentResult
+          ? {
+              ...currentResult,
+              songs: result.songs,
+            }
+          : currentResult,
+      );
+      setInstrumentAnalyzeStatus("complete");
+    } catch (err) {
+      setInstrumentAnalyzeError(String(err));
+      setInstrumentAnalyzeStatus("error");
+    }
+  }, []);
+
   const dismissScanToast = useCallback(() => {
     setScanToast(null);
+  }, []);
+
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let isMounted = true;
+
+    listen<InstrumentAnalyzeProgress>(
+      "instrument_scan_progress",
+      (event) => {
+        if (isMounted) {
+          setInstrumentAnalyzeProgress(event.payload);
+        }
+      },
+    ).then((nextUnlisten) => {
+      if (isMounted) {
+        unlisten = nextUnlisten;
+      } else {
+        nextUnlisten();
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let isMounted = true;
+
+    listen<SongScanProgress>("song_scan_progress", (event) => {
+      if (isMounted) {
+        setSongScanProgress(event.payload);
+      }
+    }).then((nextUnlisten) => {
+      if (isMounted) {
+        unlisten = nextUnlisten;
+      } else {
+        nextUnlisten();
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      unlisten?.();
+    };
   }, []);
 
   useEffect(() => {
@@ -285,9 +427,12 @@ export function useModsScanner() {
   }, [scanToast]);
 
   return {
+    analyzeInstruments,
     cancelScan,
+    cancelInstrumentAnalyzer,
     clearCompletedSongScan,
     clearSongIniValidationError,
+    closeInstrumentAnalyzer,
     confirmScan,
     copyContentIssuePath,
     deleteSongIniConflict,
@@ -296,7 +441,13 @@ export function useModsScanner() {
     disabledSongIniPaths,
     dismissScanToast,
     hasCompletedSongScan,
+    instrumentAnalyzeError,
+    instrumentAnalyzeProgress,
+    instrumentAnalyzeResult,
+    instrumentAnalyzeStatus,
+    isInstrumentWizardOpen,
     isScanWizardOpen,
+    openInstrumentAnalyzer,
     repairedSongIniPaths,
     scanError,
     scanMods,
@@ -304,6 +455,7 @@ export function useModsScanner() {
     scanToast,
     songIniConflictError,
     songIniScanResult,
+    songScanProgress,
     songIniValidationError,
     validateSongIni,
   };

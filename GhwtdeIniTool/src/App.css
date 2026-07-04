@@ -60,12 +60,13 @@ button {
   z-index: 5;
   display: flex;
   gap: 0.5rem;
-  width: min(34rem, calc(100vw - 10rem));
+  width: min(46rem, calc(100vw - 10rem));
   text-align: left;
 }
 
 .clean-button,
-.scan-button {
+.scan-button,
+.instrument-button {
   padding: 0.5rem 1rem;
   border: none;
   border-radius: 6px;
@@ -89,8 +90,17 @@ button {
   background: #1b5e20;
 }
 
+.instrument-button {
+  background: #1565c0;
+}
+
+.instrument-button:hover:not(:disabled) {
+  background: #0d47a1;
+}
+
 .clean-button:disabled,
-.scan-button:disabled {
+.scan-button:disabled,
+.instrument-button:disabled {
   cursor: wait;
   opacity: 0.75;
 }
@@ -584,6 +594,48 @@ td.scanned-songs-folder-column {
   margin-top: 0.5rem;
   color: #b71c1c;
   overflow-wrap: anywhere;
+}
+
+.instrument-analyze-panel {
+  width: min(34rem, calc(100vw - 3rem));
+  height: auto;
+  max-height: min(80vh, calc(100vh - 3rem));
+}
+
+.instrument-mode-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.instrument-mode-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.instrument-mode-option:has(input:checked) {
+  border-color: #396cd8;
+  background: #f7f9ff;
+}
+
+.instrument-mode-option input {
+  margin-top: 0.15rem;
+}
+
+.instrument-mode-option span {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.instrument-mode-option small {
+  color: #565656;
+  font-size: 0.78rem;
+  line-height: 1.35;
 }
 
 .scan-file-list {
@@ -1263,7 +1315,8 @@ td.scanned-songs-folder-column {
   }
 
   .clean-button,
-  .scan-button {
+  .scan-button,
+  .instrument-button {
     width: 100%;
   }
 

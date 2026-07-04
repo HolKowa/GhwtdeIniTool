@@ -5,11 +5,15 @@ use std::{
     env, fs, io,
     path::{Path, PathBuf},
     sync::Mutex,
+    time::{Duration, Instant, UNIX_EPOCH},
 };
+use tauri::Emitter;
 
 mod song_pak_analyzer;
 
 const SETTINGS_FILE_NAME: &str = "ghwtdeinitool.ini";
+const INSTRUMENT_SIDECAR_FILE_NAME: &str = "song.instruments.ini";
+const INSTRUMENT_ANALYZER_VERSION: &str = "1";
 const MOD_INFO_KEYS: &[&str] = &["Key", "Name", "Description", "Author", "Version"];
 const SONG_INFO_KEYS: &[&str] = &[
     "Key",
@@ -109,6 +113,43 @@ struct ScannedSong {
     year: String,
     genre: String,
     game_icon: String,
+    instruments: ScannedSongInstruments,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct ScannedSongInstruments {
+    guitar: InstrumentColumnSummary,
+    bass: InstrumentColumnSummary,
+    drums: InstrumentColumnSummary,
+    vocals: InstrumentColumnSummary,
+    coop_guitar: InstrumentColumnSummary,
+    coop_bass: InstrumentColumnSummary,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct InstrumentColumnSummary {
+    value: String,
+    tooltip: String,
+    easy: bool,
+    medium: bool,
+    hard: bool,
+    expert: bool,
+    errors: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+struct PakIdentity {
+    status: String,
+    relative_path: String,
+    size: Option<u64>,
+    modified_millis: Option<u128>,
+    error: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+struct SidecarReadResult {
+    instruments: Option<ScannedSongInstruments>,
+    has_fresh_error: bool,
 }
 
 #[derive(Clone, Serialize)]
@@ -163,6 +204,39 @@ struct SongIniDeleteResult {
     songs_parsed: usize,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+enum InstrumentAnalyzeMode {
+    Missing,
+    Errors,
+    All,
+}
+
+#[derive(Debug, Serialize)]
+struct InstrumentAnalyzeResult {
+    songs: Vec<ScannedSong>,
+    analyzed: usize,
+    skipped: usize,
+    errors: usize,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct InstrumentAnalyzeProgress {
+    current: usize,
+    total: usize,
+    relative_path: String,
+    mode: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct SongScanProgress {
+    phase: String,
+    current: usize,
+    total: usize,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    relative_path: String,
+}
+
 struct StoredProjectSettings {
     mods_dir: Option<String>,
     keep_original_song_ini: bool,
@@ -211,9 +285,14 @@ fn delete_keep_only_files(files_to_delete: Vec<String>) -> Result<DeleteFilesRes
 }
 
 #[tauri::command]
-fn scan_song_ini_files(store: tauri::State<'_, SongIniStore>) -> Result<SongIniScanResult, String> {
+fn scan_song_ini_files(
+    app: tauri::AppHandle,
+    store: tauri::State<'_, SongIniStore>,
+) -> Result<SongIniScanResult, String> {
     let settings = scan_settings()?;
-    scan_song_ini_files_paths(&settings, &store)
+    scan_song_ini_files_paths_with_progress(&settings, &store, |progress| {
+        let _ = app.emit("song_scan_progress", progress);
+    })
 }
 
 #[tauri::command]
@@ -242,6 +321,25 @@ fn delete_song_ini_conflict_file(
 ) -> Result<SongIniDeleteResult, String> {
     let settings = scan_settings()?;
     delete_song_ini_conflict_file_path(&settings, &relative_path, &store)
+}
+
+#[tauri::command]
+async fn analyze_scanned_song_instruments(
+    app: tauri::AppHandle,
+    mode: InstrumentAnalyzeMode,
+    store: tauri::State<'_, SongIniStore>,
+) -> Result<InstrumentAnalyzeResult, String> {
+    let settings = scan_settings()?;
+    let parsed_songs = stored_parsed_songs(&store)?;
+    drop(store);
+
+    tauri::async_runtime::spawn_blocking(move || {
+        analyze_scanned_song_instruments_for_songs(&settings, mode, parsed_songs, |progress| {
+            let _ = app.emit("instrument_scan_progress", progress);
+        })
+    })
+    .await
+    .map_err(|err| format!("Instrument analysis task failed: {err}"))?
 }
 
 #[tauri::command]
@@ -357,11 +455,16 @@ fn delete_keep_only_files_paths(
     Ok(result)
 }
 
-fn scan_song_ini_files_paths(
+fn scan_song_ini_files_paths_with_progress<F>(
     settings: &ScanSettings,
     store: &SongIniStore,
-) -> Result<SongIniScanResult, String> {
+    mut emit_progress: F,
+) -> Result<SongIniScanResult, String>
+where
+    F: FnMut(SongScanProgress),
+{
     let mods_dir = &settings.mods_dir;
+    emit_progress(song_scan_progress("findingSongs", 0, 0, ""));
     let song_ini_paths = find_song_ini_files(mods_dir)?;
     let mut result = SongIniScanResult {
         songs_found: song_ini_paths.len(),
@@ -369,8 +472,14 @@ fn scan_song_ini_files_paths(
     };
     let mut parsed_songs = Vec::new();
 
-    for song_ini_path in &song_ini_paths {
+    for (index, song_ini_path) in song_ini_paths.iter().enumerate() {
         let relative_path = mods_relative_path(mods_dir, &song_ini_path)?;
+        emit_progress(song_scan_progress(
+            "readingSongs",
+            index + 1,
+            song_ini_paths.len(),
+            &relative_path,
+        ));
         let contents = match fs::read_to_string(&song_ini_path) {
             Ok(contents) => contents,
             Err(err) => {
@@ -410,9 +519,29 @@ fn scan_song_ini_files_paths(
     result.songs = scanned_songs(mods_dir, &parsed_songs);
     result.duplicate_checksum_groups = duplicate_checksum_groups(&parsed_songs);
     result.disabled_song_conflicts = disabled_song_conflicts(mods_dir, &song_ini_paths)?;
-    result.content_file_issues = song_content_issues(mods_dir, &parsed_songs)?;
+    result.content_file_issues = song_content_issues_with_progress(
+        mods_dir,
+        &parsed_songs,
+        |current, total, relative_path| {
+            emit_progress(song_scan_progress(
+                "checkingContent",
+                current,
+                total,
+                relative_path,
+            ));
+        },
+    )?;
+    emit_progress(song_scan_progress("finishing", 0, 0, ""));
     replace_song_ini_store(store, parsed_songs)?;
     Ok(result)
+}
+
+#[cfg(test)]
+fn scan_song_ini_files_paths(
+    settings: &ScanSettings,
+    store: &SongIniStore,
+) -> Result<SongIniScanResult, String> {
+    scan_song_ini_files_paths_with_progress(settings, store, |_| {})
 }
 
 fn validate_song_ini_file_path(
@@ -726,6 +855,7 @@ fn scanned_song(mods_dir: &Path, song: &ParsedSongIni) -> ScannedSong {
         .unwrap_or(mods_dir)
         .display()
         .to_string();
+    let instruments = scanned_song_instruments(&song_ini_path, song);
 
     ScannedSong {
         relative_path: song.relative_path.clone(),
@@ -735,6 +865,697 @@ fn scanned_song(mods_dir: &Path, song: &ParsedSongIni) -> ScannedSong {
         year: song_info_value(song, "Year"),
         genre: song_info_value(song, "Genre"),
         game_icon: song_info_value(song, "GameIcon"),
+        instruments,
+    }
+}
+
+fn scanned_song_instruments(song_ini_path: &Path, song: &ParsedSongIni) -> ScannedSongInstruments {
+    read_instrument_sidecar(song_ini_path, song)
+        .instruments
+        .unwrap_or_else(unknown_instruments)
+}
+
+fn case_insensitive_child_dir(parent: &Path, expected_name: &str) -> Result<PathBuf, String> {
+    let entries = fs::read_dir(parent)
+        .map_err(|err| format!("Failed to read folder {}: {err}", parent.display()))?;
+    let mut matches = Vec::new();
+
+    for entry in entries {
+        let entry =
+            entry.map_err(|err| format!("Failed to read entry in {}: {err}", parent.display()))?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+
+        if name.eq_ignore_ascii_case(expected_name) {
+            matches.push(entry.path());
+        }
+    }
+
+    if matches.is_empty() {
+        return Err(format!(
+            "Missing required {expected_name} folder in {}.",
+            parent.display()
+        ));
+    }
+
+    if matches.len() > 1 {
+        return Err(format!(
+            "Multiple folders match required {expected_name} folder casing in {}.",
+            parent.display()
+        ));
+    }
+
+    let path = matches.remove(0);
+    match fs::metadata(&path) {
+        Ok(metadata) if metadata.is_dir() => Ok(path),
+        Ok(_) => Err(format!("{expected_name} exists but is not a folder.")),
+        Err(err) => Err(format!("Failed to inspect {}: {err}", path.display())),
+    }
+}
+
+#[cfg(test)]
+fn analyze_scanned_song_instruments_paths<F>(
+    settings: &ScanSettings,
+    mode: InstrumentAnalyzeMode,
+    store: &SongIniStore,
+    emit_progress: F,
+) -> Result<InstrumentAnalyzeResult, String>
+where
+    F: FnMut(InstrumentAnalyzeProgress),
+{
+    let parsed_songs = stored_parsed_songs(store)?;
+    analyze_scanned_song_instruments_for_songs(settings, mode, parsed_songs, emit_progress)
+}
+
+fn stored_parsed_songs(store: &SongIniStore) -> Result<Vec<ParsedSongIni>, String> {
+    let songs = store
+        .0
+        .lock()
+        .map_err(|_| "Failed to lock song.ini store.".to_string())?;
+
+    Ok(songs.clone())
+}
+
+fn analyze_scanned_song_instruments_for_songs<F>(
+    settings: &ScanSettings,
+    mode: InstrumentAnalyzeMode,
+    parsed_songs: Vec<ParsedSongIni>,
+    mut emit_progress: F,
+) -> Result<InstrumentAnalyzeResult, String>
+where
+    F: FnMut(InstrumentAnalyzeProgress),
+{
+    if parsed_songs.is_empty() {
+        return Err("Scan MODS folder before analyzing instruments.".to_string());
+    }
+
+    let candidates = parsed_songs
+        .iter()
+        .filter(|song| should_analyze_song_instruments(&settings.mods_dir, song, mode))
+        .collect::<Vec<_>>();
+    let total = candidates.len();
+    let mut analyzed = 0;
+    let mut errors = 0;
+    let mode_value = instrument_analyze_mode_value(mode).to_string();
+    let mut last_progress_emit = None;
+
+    emit_instrument_analyze_progress(
+        &mut emit_progress,
+        0,
+        total,
+        "",
+        &mode_value,
+        &mut last_progress_emit,
+        true,
+    );
+
+    for song in candidates {
+        analyzed += 1;
+
+        emit_instrument_analyze_progress(
+            &mut emit_progress,
+            analyzed,
+            total,
+            &song.relative_path,
+            &mode_value,
+            &mut last_progress_emit,
+            false,
+        );
+
+        let song_ini_path = settings.mods_dir.join(Path::new(&song.relative_path));
+        let instruments = analyze_and_write_instrument_sidecar(&song_ini_path, song)?;
+
+        if instruments_have_error(&instruments) {
+            errors += 1;
+        }
+    }
+
+    emit_instrument_analyze_progress(
+        &mut emit_progress,
+        analyzed,
+        total,
+        "",
+        &mode_value,
+        &mut last_progress_emit,
+        true,
+    );
+
+    Ok(InstrumentAnalyzeResult {
+        songs: scanned_songs(&settings.mods_dir, &parsed_songs),
+        analyzed,
+        skipped: parsed_songs.len().saturating_sub(analyzed),
+        errors,
+    })
+}
+
+fn emit_instrument_analyze_progress<F>(
+    emit_progress: &mut F,
+    current: usize,
+    total: usize,
+    relative_path: &str,
+    mode: &str,
+    last_progress_emit: &mut Option<Instant>,
+    force: bool,
+) where
+    F: FnMut(InstrumentAnalyzeProgress),
+{
+    if !force
+        && last_progress_emit
+            .map(|last_emit| last_emit.elapsed() < Duration::from_secs(1))
+            .unwrap_or(false)
+    {
+        return;
+    }
+
+    emit_progress(InstrumentAnalyzeProgress {
+        current,
+        total,
+        relative_path: relative_path.to_string(),
+        mode: mode.to_string(),
+    });
+    *last_progress_emit = Some(Instant::now());
+}
+
+fn should_analyze_song_instruments(
+    mods_dir: &Path,
+    song: &ParsedSongIni,
+    mode: InstrumentAnalyzeMode,
+) -> bool {
+    if mode == InstrumentAnalyzeMode::All {
+        return true;
+    }
+
+    let song_ini_path = mods_dir.join(Path::new(&song.relative_path));
+    let sidecar = read_instrument_sidecar(&song_ini_path, song);
+
+    match mode {
+        InstrumentAnalyzeMode::Missing => sidecar.instruments.is_none(),
+        InstrumentAnalyzeMode::Errors => sidecar.has_fresh_error,
+        InstrumentAnalyzeMode::All => true,
+    }
+}
+
+fn analyze_and_write_instrument_sidecar(
+    song_ini_path: &Path,
+    song: &ParsedSongIni,
+) -> Result<ScannedSongInstruments, String> {
+    let Some(checksum) = song_ini_checksum(song) else {
+        let instruments = error_instruments(vec!["Missing checksum.".to_string()]);
+        write_instrument_sidecar(
+            song_ini_path,
+            "",
+            &PakIdentity::error("", "Missing checksum.".to_string()),
+            &instruments,
+        )?;
+        return Ok(instruments);
+    };
+    let identity = current_pak_identity(song_ini_path, &checksum);
+    let instruments = if identity.status == "present" {
+        match resolved_pak_path(song_ini_path, &identity.relative_path) {
+            Some(pak_path) => match song_pak_analyzer::analyze_song_pak_instruments(
+                &pak_path.to_string_lossy(),
+                &checksum,
+            ) {
+                Ok(availability) => instruments_from_availability(availability),
+                Err(err) => error_instruments(vec![err]),
+            },
+            None => error_instruments(vec!["Song folder could not be determined.".to_string()]),
+        }
+    } else {
+        error_instruments(vec![identity
+            .error
+            .clone()
+            .unwrap_or_else(|| "Pak file could not be resolved.".to_string())])
+    };
+
+    write_instrument_sidecar(song_ini_path, &checksum, &identity, &instruments)?;
+    Ok(instruments)
+}
+
+fn read_instrument_sidecar(song_ini_path: &Path, song: &ParsedSongIni) -> SidecarReadResult {
+    let Some(checksum) = song_ini_checksum(song) else {
+        return SidecarReadResult {
+            instruments: None,
+            has_fresh_error: false,
+        };
+    };
+    let sidecar_path = instrument_sidecar_path(song_ini_path);
+    let contents = match fs::read_to_string(&sidecar_path) {
+        Ok(contents) => contents,
+        Err(_) => {
+            return SidecarReadResult {
+                instruments: None,
+                has_fresh_error: false,
+            };
+        }
+    };
+    let ini = match Ini::load_from_str(&contents) {
+        Ok(ini) => ini,
+        Err(_) => {
+            return SidecarReadResult {
+                instruments: None,
+                has_fresh_error: false,
+            };
+        }
+    };
+    let identity = current_pak_identity(song_ini_path, &checksum);
+
+    if ini_string(&ini, "Cache", "AnalyzerVersion").as_deref() != Some(INSTRUMENT_ANALYZER_VERSION)
+        || ini_string(&ini, "Cache", "Checksum").as_deref() != Some(checksum.as_str())
+        || ini_string(&ini, "Cache", "PakStatus").as_deref() != Some(identity.status.as_str())
+        || ini_string(&ini, "Cache", "PakRelativePath").as_deref()
+            != Some(identity.relative_path.as_str())
+        || ini_string(&ini, "Cache", "PakSize").as_deref()
+            != Some(identity.size_string().as_deref().unwrap_or(""))
+        || ini_string(&ini, "Cache", "PakModifiedMillis").as_deref()
+            != Some(identity.modified_string().as_deref().unwrap_or(""))
+        || ini_string(&ini, "Cache", "PakError").as_deref()
+            != Some(identity.error.as_deref().unwrap_or(""))
+    {
+        return SidecarReadResult {
+            instruments: None,
+            has_fresh_error: false,
+        };
+    }
+
+    let Some(instruments) = instruments_from_sidecar(&ini) else {
+        return SidecarReadResult {
+            instruments: None,
+            has_fresh_error: false,
+        };
+    };
+    let has_fresh_error = instruments_have_error(&instruments);
+
+    SidecarReadResult {
+        instruments: Some(instruments),
+        has_fresh_error,
+    }
+}
+
+fn write_instrument_sidecar(
+    song_ini_path: &Path,
+    checksum: &str,
+    identity: &PakIdentity,
+    instruments: &ScannedSongInstruments,
+) -> Result<(), String> {
+    let sidecar_path = instrument_sidecar_path(song_ini_path);
+    let contents = write_instrument_sidecar_contents(checksum, identity, instruments);
+
+    fs::write(&sidecar_path, contents)
+        .map_err(|err| format!("Failed to write {}: {err}", sidecar_path.display()))
+}
+
+fn write_instrument_sidecar_contents(
+    checksum: &str,
+    identity: &PakIdentity,
+    instruments: &ScannedSongInstruments,
+) -> String {
+    let mut contents = String::new();
+
+    contents.push_str("[Cache]\n");
+    push_ini_entry(
+        &mut contents,
+        "AnalyzerVersion",
+        INSTRUMENT_ANALYZER_VERSION,
+    );
+    push_ini_entry(&mut contents, "Checksum", checksum);
+    push_ini_entry(&mut contents, "PakStatus", &identity.status);
+    push_ini_entry(&mut contents, "PakRelativePath", &identity.relative_path);
+    push_ini_entry(
+        &mut contents,
+        "PakSize",
+        identity.size_string().as_deref().unwrap_or(""),
+    );
+    push_ini_entry(
+        &mut contents,
+        "PakModifiedMillis",
+        identity.modified_string().as_deref().unwrap_or(""),
+    );
+    push_ini_entry(
+        &mut contents,
+        "PakError",
+        identity.error.as_deref().unwrap_or(""),
+    );
+
+    push_instrument_sidecar_section(&mut contents, "Guitar", &instruments.guitar);
+    push_instrument_sidecar_section(&mut contents, "Bass", &instruments.bass);
+    push_instrument_sidecar_section(&mut contents, "Drums", &instruments.drums);
+    push_instrument_sidecar_section(&mut contents, "Vocals", &instruments.vocals);
+    push_instrument_sidecar_section(&mut contents, "CoopGuitar", &instruments.coop_guitar);
+    push_instrument_sidecar_section(&mut contents, "CoopBass", &instruments.coop_bass);
+
+    contents
+}
+
+fn push_instrument_sidecar_section(
+    contents: &mut String,
+    section: &str,
+    instrument: &InstrumentColumnSummary,
+) {
+    contents.push('\n');
+    contents.push('[');
+    contents.push_str(section);
+    contents.push_str("]\n");
+    push_ini_entry(contents, "Value", &instrument.value);
+    push_ini_entry(contents, "Easy", bool_ini_value(instrument.easy));
+    push_ini_entry(contents, "Medium", bool_ini_value(instrument.medium));
+    push_ini_entry(contents, "Hard", bool_ini_value(instrument.hard));
+    push_ini_entry(contents, "Expert", bool_ini_value(instrument.expert));
+    push_ini_entry(contents, "Tooltip", &json_string(&instrument.tooltip));
+    push_ini_entry(contents, "Errors", &json_string(&instrument.errors));
+}
+
+fn push_ini_entry(contents: &mut String, key: &str, value: &str) {
+    contents.push_str(key);
+    contents.push('=');
+    contents.push_str(value);
+    contents.push('\n');
+}
+
+fn instruments_from_sidecar(ini: &Ini) -> Option<ScannedSongInstruments> {
+    Some(ScannedSongInstruments {
+        guitar: instrument_column_from_sidecar(ini, "Guitar")?,
+        bass: instrument_column_from_sidecar(ini, "Bass")?,
+        drums: instrument_column_from_sidecar(ini, "Drums")?,
+        vocals: instrument_column_from_sidecar(ini, "Vocals")?,
+        coop_guitar: instrument_column_from_sidecar(ini, "CoopGuitar")?,
+        coop_bass: instrument_column_from_sidecar(ini, "CoopBass")?,
+    })
+}
+
+fn instrument_column_from_sidecar(ini: &Ini, section: &str) -> Option<InstrumentColumnSummary> {
+    let value = ini_string(ini, section, "Value")?;
+
+    if !is_known_instrument_value(&value) || value == "Unknown" {
+        return None;
+    }
+
+    let tooltip = ini_string(ini, section, "Tooltip")
+        .and_then(|value| json_value::<String>(&value).or(Some(value)))?;
+    let errors = json_value::<Vec<String>>(&ini_string(ini, section, "Errors")?)?;
+
+    Some(InstrumentColumnSummary {
+        value,
+        tooltip,
+        easy: ini_bool(ini, section, "Easy")?,
+        medium: ini_bool(ini, section, "Medium")?,
+        hard: ini_bool(ini, section, "Hard")?,
+        expert: ini_bool(ini, section, "Expert")?,
+        errors,
+    })
+}
+
+fn current_pak_identity(song_ini_path: &Path, checksum: &str) -> PakIdentity {
+    let Some(song_dir) = song_ini_path.parent() else {
+        return PakIdentity::error("", "Song folder could not be determined.".to_string());
+    };
+    let content_dir = match case_insensitive_child_dir(song_dir, "Content") {
+        Ok(content_dir) => content_dir,
+        Err(err) => {
+            return PakIdentity::error(&format!("Content/a{checksum}_song.pak.xen"), err);
+        }
+    };
+    let expected_pak_path = content_dir.join(format!("a{checksum}_song.pak.xen"));
+
+    match case_insensitive_child_paths(&expected_pak_path) {
+        Ok(matches) if matches.is_empty() => PakIdentity::error(
+            &relative_path_string(song_dir, &expected_pak_path),
+            format!("Missing required pak file {}.", expected_pak_path.display()),
+        ),
+        Ok(matches) if matches.len() > 1 => PakIdentity::error(
+            &relative_path_string(song_dir, &expected_pak_path),
+            format!(
+                "Multiple files match required pak file {}.",
+                expected_pak_path.display()
+            ),
+        ),
+        Ok(mut matches) => {
+            let path = matches.remove(0);
+            match fs::metadata(&path) {
+                Ok(metadata) if metadata.is_file() => PakIdentity {
+                    status: "present".to_string(),
+                    relative_path: relative_path_string(song_dir, &path),
+                    size: Some(metadata.len()),
+                    modified_millis: metadata
+                        .modified()
+                        .ok()
+                        .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
+                        .map(|duration| duration.as_millis()),
+                    error: None,
+                },
+                Ok(_) => PakIdentity::error(
+                    &relative_path_string(song_dir, &path),
+                    format!("Expected pak path is not a file: {}", path.display()),
+                ),
+                Err(err) => PakIdentity::error(
+                    &relative_path_string(song_dir, &path),
+                    format!("Failed to inspect {}: {err}", path.display()),
+                ),
+            }
+        }
+        Err(err) => PakIdentity::error(
+            &relative_path_string(song_dir, &expected_pak_path),
+            format!(
+                "Failed to inspect pak file {}: {err}",
+                expected_pak_path.display()
+            ),
+        ),
+    }
+}
+
+fn resolved_pak_path(song_ini_path: &Path, relative_path: &str) -> Option<PathBuf> {
+    song_ini_path
+        .parent()
+        .map(|song_dir| song_dir.join(Path::new(relative_path)))
+}
+
+fn instrument_sidecar_path(song_ini_path: &Path) -> PathBuf {
+    song_ini_path.with_file_name(INSTRUMENT_SIDECAR_FILE_NAME)
+}
+
+fn unknown_instruments() -> ScannedSongInstruments {
+    ScannedSongInstruments {
+        guitar: unknown_column("Guitar"),
+        bass: unknown_column("Bass"),
+        drums: unknown_column("Drums"),
+        vocals: unknown_column("Vocals"),
+        coop_guitar: unknown_column("CoopGuitar"),
+        coop_bass: unknown_column("CoopBass"),
+    }
+}
+
+fn unknown_column(label: &str) -> InstrumentColumnSummary {
+    InstrumentColumnSummary {
+        value: "Unknown".to_string(),
+        tooltip: format!("{label}: instrument data has not been analyzed."),
+        easy: false,
+        medium: false,
+        hard: false,
+        expert: false,
+        errors: Vec::new(),
+    }
+}
+
+fn instruments_have_error(instruments: &ScannedSongInstruments) -> bool {
+    [
+        &instruments.guitar,
+        &instruments.bass,
+        &instruments.drums,
+        &instruments.vocals,
+        &instruments.coop_guitar,
+        &instruments.coop_bass,
+    ]
+    .iter()
+    .any(|instrument| instrument.value == "Error")
+}
+
+fn instrument_analyze_mode_value(mode: InstrumentAnalyzeMode) -> &'static str {
+    match mode {
+        InstrumentAnalyzeMode::Missing => "missing",
+        InstrumentAnalyzeMode::Errors => "errors",
+        InstrumentAnalyzeMode::All => "all",
+    }
+}
+
+fn is_known_instrument_value(value: &str) -> bool {
+    matches!(
+        value,
+        "Unknown" | "No" | "Easy" | "Medium" | "Hard" | "Expert" | "Error"
+    )
+}
+
+fn bool_ini_value(value: bool) -> &'static str {
+    if value {
+        "true"
+    } else {
+        "false"
+    }
+}
+
+fn ini_bool(ini: &Ini, section: &str, key: &str) -> Option<bool> {
+    match ini_string(ini, section, key)?.as_str() {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
+    }
+}
+
+fn ini_string(ini: &Ini, section: &str, key: &str) -> Option<String> {
+    ini.section(Some(section))?
+        .get(key)
+        .map(|value| value.trim().to_string())
+}
+
+fn json_string<T: Serialize>(value: &T) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| "null".to_string())
+}
+
+fn json_value<T>(value: &str) -> Option<T>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    serde_json::from_str(value).ok()
+}
+
+fn relative_path_string(base: &Path, path: &Path) -> String {
+    path.strip_prefix(base)
+        .ok()
+        .map(|relative_path| {
+            relative_path
+                .components()
+                .map(|component| component.as_os_str().to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+                .join("/")
+        })
+        .unwrap_or_else(|| path.display().to_string())
+}
+
+impl PakIdentity {
+    fn error(relative_path: &str, error: String) -> Self {
+        Self {
+            status: "error".to_string(),
+            relative_path: relative_path.to_string(),
+            size: None,
+            modified_millis: None,
+            error: Some(error),
+        }
+    }
+
+    fn size_string(&self) -> Option<String> {
+        self.size.map(|size| size.to_string())
+    }
+
+    fn modified_string(&self) -> Option<String> {
+        self.modified_millis
+            .map(|modified_millis| modified_millis.to_string())
+    }
+}
+
+fn instruments_from_availability(
+    availability: song_pak_analyzer::SongPakInstrumentAvailability,
+) -> ScannedSongInstruments {
+    let errors = availability.errors;
+
+    ScannedSongInstruments {
+        guitar: difficulty_column("Guitar", availability.guitar, &errors),
+        bass: difficulty_column("Bass", availability.bass, &errors),
+        drums: difficulty_column("Drums", availability.drums, &errors),
+        vocals: vocals_column(availability.vocals.supported, &errors),
+        coop_guitar: difficulty_column("CoopGuitar", availability.coop_guitar, &errors),
+        coop_bass: difficulty_column("CoopBass", availability.coop_bass, &errors),
+    }
+}
+
+fn error_instruments(errors: Vec<String>) -> ScannedSongInstruments {
+    ScannedSongInstruments {
+        guitar: empty_column("Guitar", &errors),
+        bass: empty_column("Bass", &errors),
+        drums: empty_column("Drums", &errors),
+        vocals: empty_column("Vocals", &errors),
+        coop_guitar: empty_column("CoopGuitar", &errors),
+        coop_bass: empty_column("CoopBass", &errors),
+    }
+}
+
+fn difficulty_column(
+    label: &str,
+    availability: song_pak_analyzer::DifficultyAvailability,
+    errors: &[String],
+) -> InstrumentColumnSummary {
+    instrument_column(
+        label,
+        availability.easy,
+        availability.medium,
+        availability.hard,
+        availability.expert,
+        errors,
+    )
+}
+
+fn vocals_column(supported: bool, errors: &[String]) -> InstrumentColumnSummary {
+    instrument_column("Vocals", false, false, false, supported, errors)
+}
+
+fn empty_column(label: &str, errors: &[String]) -> InstrumentColumnSummary {
+    instrument_column(label, false, false, false, false, errors)
+}
+
+fn instrument_column(
+    label: &str,
+    easy: bool,
+    medium: bool,
+    hard: bool,
+    expert: bool,
+    errors: &[String],
+) -> InstrumentColumnSummary {
+    let max_level = max_instrument_level(easy, medium, hard, expert);
+    let value = if max_level == "No" && !errors.is_empty() {
+        "Error".to_string()
+    } else {
+        max_level.to_string()
+    };
+    let tooltip = if value == "Error" {
+        errors.join("\n")
+    } else {
+        format!(
+            "{label}: Easy {}, Medium {}, Hard {}, Expert {}",
+            level_state(easy),
+            level_state(medium),
+            level_state(hard),
+            level_state(expert)
+        )
+    };
+
+    InstrumentColumnSummary {
+        value,
+        tooltip,
+        easy,
+        medium,
+        hard,
+        expert,
+        errors: errors.to_vec(),
+    }
+}
+
+fn max_instrument_level(easy: bool, medium: bool, hard: bool, expert: bool) -> &'static str {
+    if expert {
+        "Expert"
+    } else if hard {
+        "Hard"
+    } else if medium {
+        "Medium"
+    } else if easy {
+        "Easy"
+    } else {
+        "No"
+    }
+}
+
+fn level_state(supported: bool) -> &'static str {
+    if supported {
+        "Yes"
+    } else {
+        "No"
     }
 }
 
@@ -834,9 +1655,21 @@ fn song_content_issues(
     mods_dir: &Path,
     parsed_songs: &[ParsedSongIni],
 ) -> Result<Vec<SongContentIssue>, String> {
+    song_content_issues_with_progress(mods_dir, parsed_songs, |_, _, _| {})
+}
+
+fn song_content_issues_with_progress<F>(
+    mods_dir: &Path,
+    parsed_songs: &[ParsedSongIni],
+    mut emit_progress: F,
+) -> Result<Vec<SongContentIssue>, String>
+where
+    F: FnMut(usize, usize, &str),
+{
     let mut issues = Vec::new();
 
-    for song in parsed_songs {
+    for (index, song) in parsed_songs.iter().enumerate() {
+        emit_progress(index + 1, parsed_songs.len(), &song.relative_path);
         let Some(checksum) = song_ini_checksum(song) else {
             continue;
         };
@@ -931,6 +1764,20 @@ fn song_content_issues(
             .then(left.message.cmp(&right.message))
     });
     Ok(issues)
+}
+
+fn song_scan_progress(
+    phase: &str,
+    current: usize,
+    total: usize,
+    relative_path: &str,
+) -> SongScanProgress {
+    SongScanProgress {
+        phase: phase.to_string(),
+        current,
+        total,
+        relative_path: relative_path.to_string(),
+    }
 }
 
 fn normalized_child_dir(
@@ -1691,6 +2538,350 @@ mod tests {
             write_project_settings_to_ini(&settings),
             "[project]\nmods_dir=/tmp/MODS\nkeep_original_song_ini=false\n"
         );
+    }
+
+    #[test]
+    fn instrument_column_uses_highest_available_level() {
+        let column = instrument_column("Guitar", true, true, false, true, &[]);
+
+        assert_eq!(column.value, "Expert");
+        assert!(column.easy);
+        assert!(column.medium);
+        assert!(!column.hard);
+        assert!(column.expert);
+        assert!(column.tooltip.contains("Easy Yes"));
+        assert!(column.tooltip.contains("Hard No"));
+    }
+
+    #[test]
+    fn instrument_column_only_displays_error_when_no_level_is_available() {
+        let errors = vec!["Pak could not be parsed.".to_string()];
+        let playable_column = instrument_column("Bass", false, true, false, false, &errors);
+        let empty_column = instrument_column("Drums", false, false, false, false, &errors);
+
+        assert_eq!(playable_column.value, "Medium");
+        assert_eq!(empty_column.value, "Error");
+        assert_eq!(empty_column.tooltip, "Pak could not be parsed.");
+    }
+
+    #[test]
+    fn vocals_column_maps_supported_vocals_to_expert() {
+        let supported = vocals_column(true, &[]);
+        let unsupported = vocals_column(false, &[]);
+        let error = vocals_column(false, &["Missing vocals data.".to_string()]);
+
+        assert_eq!(supported.value, "Expert");
+        assert!(supported.expert);
+        assert_eq!(unsupported.value, "No");
+        assert_eq!(error.value, "Error");
+        assert_eq!(error.tooltip, "Missing vocals data.");
+    }
+
+    #[test]
+    fn song_pak_path_matches_content_and_checksum_case_insensitively() {
+        let project = TestProject::new("song-pak-case-insensitive");
+        let song_dir = project.mods_dir.join("Artist - Song");
+        let content_dir = song_dir.join("content");
+        let song_ini_path = song_dir.join("song.ini");
+        fs::create_dir_all(&content_dir).expect("content dir should be created");
+        let pak_path = content_dir.join("aSAMPLE_song.PAK.XEN");
+        write_test_file_contents(&song_ini_path, valid_song_ini("Sample", "sample").as_str());
+        write_test_file(&pak_path);
+
+        let identity = current_pak_identity(&song_ini_path, "sample");
+
+        assert_eq!(identity.status, "present");
+        assert_eq!(identity.relative_path, "content/aSAMPLE_song.PAK.XEN");
+        assert_eq!(identity.size, Some(4));
+    }
+
+    #[test]
+    fn song_scan_returns_unknown_instruments_when_sidecar_is_missing() {
+        let project = TestProject::new("instrument-sidecar-missing");
+        write_test_file_contents(
+            &project.mods_dir.join("song.ini"),
+            valid_song_ini("Unknown", "unknown_checksum").as_str(),
+        );
+        let store = SongIniStore::default();
+
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should succeed");
+
+        assert_eq!(result.songs[0].instruments.guitar.value, "Unknown");
+        assert_eq!(result.songs[0].instruments.vocals.value, "Unknown");
+    }
+
+    #[test]
+    fn song_scan_reads_fresh_instrument_sidecar() {
+        let project = TestProject::new("instrument-sidecar-fresh");
+        let song_ini_path = project.mods_dir.join("song.ini");
+        write_test_file_contents(
+            &song_ini_path,
+            valid_song_ini("Cached", "cached_checksum").as_str(),
+        );
+        let identity = current_pak_identity(&song_ini_path, "cached_checksum");
+        let instruments = ScannedSongInstruments {
+            guitar: instrument_column("Guitar", true, true, false, true, &[]),
+            bass: empty_column("Bass", &[]),
+            drums: empty_column("Drums", &[]),
+            vocals: vocals_column(true, &[]),
+            coop_guitar: empty_column("CoopGuitar", &[]),
+            coop_bass: empty_column("CoopBass", &[]),
+        };
+        write_instrument_sidecar(&song_ini_path, "cached_checksum", &identity, &instruments)
+            .expect("sidecar should write");
+        let store = SongIniStore::default();
+
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should succeed");
+
+        assert_eq!(result.songs[0].instruments.guitar.value, "Expert");
+        assert_eq!(result.songs[0].instruments.vocals.value, "Expert");
+    }
+
+    #[test]
+    fn song_scan_ignores_stale_instrument_sidecar() {
+        let project = TestProject::new("instrument-sidecar-stale");
+        let song_ini_path = project.mods_dir.join("song.ini");
+        write_test_file_contents(
+            &song_ini_path,
+            valid_song_ini("Stale", "current_checksum").as_str(),
+        );
+        let identity = current_pak_identity(&song_ini_path, "old_checksum");
+        let instruments = ScannedSongInstruments {
+            guitar: instrument_column("Guitar", false, false, false, true, &[]),
+            bass: empty_column("Bass", &[]),
+            drums: empty_column("Drums", &[]),
+            vocals: empty_column("Vocals", &[]),
+            coop_guitar: empty_column("CoopGuitar", &[]),
+            coop_bass: empty_column("CoopBass", &[]),
+        };
+        write_instrument_sidecar(&song_ini_path, "old_checksum", &identity, &instruments)
+            .expect("sidecar should write");
+        let store = SongIniStore::default();
+
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should succeed");
+
+        assert_eq!(result.songs[0].instruments.guitar.value, "Unknown");
+    }
+
+    #[test]
+    fn instrument_analyze_modes_select_expected_songs() {
+        let project = TestProject::new("instrument-analyze-modes");
+        fs::create_dir_all(project.mods_dir.join("missing")).expect("missing dir should exist");
+        fs::create_dir_all(project.mods_dir.join("error")).expect("error dir should exist");
+        fs::create_dir_all(project.mods_dir.join("cached")).expect("cached dir should exist");
+        write_test_file_contents(
+            &project.mods_dir.join("missing").join("song.ini"),
+            valid_song_ini("Missing", "missing_checksum").as_str(),
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("error").join("song.ini"),
+            valid_song_ini("Error", "error_checksum").as_str(),
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("cached").join("song.ini"),
+            valid_song_ini("Cached", "cached_checksum").as_str(),
+        );
+        let error_song_ini = project.mods_dir.join("error").join("song.ini");
+        let cached_song_ini = project.mods_dir.join("cached").join("song.ini");
+        let error_identity = current_pak_identity(&error_song_ini, "error_checksum");
+        let error_instruments = error_instruments(vec!["Cached analyzer error.".to_string()]);
+        write_instrument_sidecar(
+            &error_song_ini,
+            "error_checksum",
+            &error_identity,
+            &error_instruments,
+        )
+        .expect("error sidecar should write");
+        let cached_identity = current_pak_identity(&cached_song_ini, "cached_checksum");
+        let cached_instruments = ScannedSongInstruments {
+            guitar: instrument_column("Guitar", false, false, false, true, &[]),
+            bass: empty_column("Bass", &[]),
+            drums: empty_column("Drums", &[]),
+            vocals: empty_column("Vocals", &[]),
+            coop_guitar: empty_column("CoopGuitar", &[]),
+            coop_bass: empty_column("CoopBass", &[]),
+        };
+        write_instrument_sidecar(
+            &cached_song_ini,
+            "cached_checksum",
+            &cached_identity,
+            &cached_instruments,
+        )
+        .expect("cached sidecar should write");
+        let store = SongIniStore::default();
+        scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should populate store");
+
+        let errors_result = analyze_scanned_song_instruments_paths(
+            &test_scan_settings(&project),
+            InstrumentAnalyzeMode::Errors,
+            &store,
+            |_| {},
+        )
+        .expect("error analysis should succeed");
+        assert_eq!(errors_result.analyzed, 1);
+        assert_eq!(errors_result.skipped, 2);
+
+        let missing_result = analyze_scanned_song_instruments_paths(
+            &test_scan_settings(&project),
+            InstrumentAnalyzeMode::Missing,
+            &store,
+            |_| {},
+        )
+        .expect("missing analysis should succeed");
+        assert_eq!(missing_result.analyzed, 1);
+        assert_eq!(missing_result.skipped, 2);
+
+        let all_result = analyze_scanned_song_instruments_paths(
+            &test_scan_settings(&project),
+            InstrumentAnalyzeMode::All,
+            &store,
+            |_| {},
+        )
+        .expect("all analysis should succeed");
+        assert_eq!(all_result.analyzed, 3);
+        assert_eq!(all_result.skipped, 0);
+    }
+
+    #[test]
+    fn instrument_analysis_writes_sidecar() {
+        let project = TestProject::new("instrument-analysis-writes");
+        let song_ini_path = project.mods_dir.join("song.ini");
+        write_test_file_contents(
+            &song_ini_path,
+            valid_song_ini("Write", "write_checksum").as_str(),
+        );
+        let store = SongIniStore::default();
+        scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should populate store");
+
+        let result = analyze_scanned_song_instruments_paths(
+            &test_scan_settings(&project),
+            InstrumentAnalyzeMode::Missing,
+            &store,
+            |_| {},
+        )
+        .expect("analysis should succeed");
+
+        assert_eq!(result.analyzed, 1);
+        assert!(instrument_sidecar_path(&song_ini_path).is_file());
+    }
+
+    #[test]
+    fn instrument_analysis_emits_initial_and_final_progress() {
+        let project = TestProject::new("instrument-analysis-progress");
+        write_test_file_contents(
+            &project.mods_dir.join("song.ini"),
+            valid_song_ini("Progress", "progress_checksum").as_str(),
+        );
+        let store = SongIniStore::default();
+        scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should populate store");
+        let mut progress_events = Vec::new();
+
+        analyze_scanned_song_instruments_paths(
+            &test_scan_settings(&project),
+            InstrumentAnalyzeMode::Missing,
+            &store,
+            |progress| progress_events.push(progress),
+        )
+        .expect("analysis should succeed");
+
+        let first = progress_events
+            .first()
+            .expect("initial progress should be emitted");
+        assert_eq!(first.current, 0);
+        assert_eq!(first.total, 1);
+        let last = progress_events
+            .last()
+            .expect("final progress should be emitted");
+        assert_eq!(last.current, 1);
+        assert_eq!(last.total, 1);
+    }
+
+    #[test]
+    fn instrument_sidecar_is_not_scanned_as_active_song_ini() {
+        let project = TestProject::new("instrument-sidecar-not-active");
+        write_test_file_contents(
+            &project.mods_dir.join("song.ini"),
+            valid_song_ini("Active", "active_checksum").as_str(),
+        );
+        write_test_file_contents(
+            &project.mods_dir.join(INSTRUMENT_SIDECAR_FILE_NAME),
+            "[Cache]\nChecksum=active_checksum\n",
+        );
+
+        let song_ini_paths =
+            find_song_ini_files(&project.mods_dir).expect("song files should scan");
+
+        assert_eq!(song_ini_paths, vec![project.mods_dir.join("song.ini")]);
+    }
+
+    #[test]
+    fn song_scan_emits_reading_progress() {
+        let project = TestProject::new("song-scan-reading-progress");
+        fs::create_dir_all(project.mods_dir.join("first")).expect("first dir should exist");
+        fs::create_dir_all(project.mods_dir.join("second")).expect("second dir should exist");
+        write_test_file_contents(
+            &project.mods_dir.join("first").join("song.ini"),
+            valid_song_ini("First", "first_checksum").as_str(),
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("second").join("song.ini"),
+            valid_song_ini("Second", "second_checksum").as_str(),
+        );
+        let store = SongIniStore::default();
+        let mut progress = Vec::new();
+
+        scan_song_ini_files_paths_with_progress(&test_scan_settings(&project), &store, |event| {
+            progress.push(event);
+        })
+        .expect("scan should succeed");
+
+        let reading_events = progress
+            .iter()
+            .filter(|event| event.phase == "readingSongs")
+            .collect::<Vec<_>>();
+        assert_eq!(reading_events.len(), 2);
+        assert_eq!(reading_events[0].current, 1);
+        assert_eq!(reading_events[0].total, 2);
+        assert_eq!(reading_events[1].current, 2);
+        assert_eq!(reading_events[1].total, 2);
+    }
+
+    #[test]
+    fn song_scan_emits_content_progress() {
+        let project = TestProject::new("song-scan-content-progress");
+        fs::create_dir_all(project.mods_dir.join("first")).expect("first dir should exist");
+        fs::create_dir_all(project.mods_dir.join("second")).expect("second dir should exist");
+        write_test_file_contents(
+            &project.mods_dir.join("first").join("song.ini"),
+            valid_song_ini("First", "first_checksum").as_str(),
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("second").join("song.ini"),
+            valid_song_ini("Second", "second_checksum").as_str(),
+        );
+        let store = SongIniStore::default();
+        let mut progress = Vec::new();
+
+        scan_song_ini_files_paths_with_progress(&test_scan_settings(&project), &store, |event| {
+            progress.push(event);
+        })
+        .expect("scan should succeed");
+
+        let content_events = progress
+            .iter()
+            .filter(|event| event.phase == "checkingContent")
+            .collect::<Vec<_>>();
+        assert_eq!(content_events.len(), 2);
+        assert_eq!(content_events[0].current, 1);
+        assert_eq!(content_events[0].total, 2);
+        assert_eq!(content_events[1].current, 2);
+        assert_eq!(content_events[1].total, 2);
     }
 
     #[test]
@@ -2885,6 +4076,7 @@ pub fn run() {
             validate_song_ini_file,
             disable_song_ini_file,
             delete_song_ini_conflict_file,
+            analyze_scanned_song_instruments,
             analyze_song_pak
         ])
         .run(tauri::generate_context!())

@@ -193,6 +193,58 @@ pub fn analyze_song_pak(pak_path: &str, checksum: &str) -> Result<SongPakAnalysi
     ))
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct SongPakInstrumentAvailability {
+    pub(crate) guitar: DifficultyAvailability,
+    pub(crate) bass: DifficultyAvailability,
+    pub(crate) drums: DifficultyAvailability,
+    pub(crate) coop_guitar: DifficultyAvailability,
+    pub(crate) coop_bass: DifficultyAvailability,
+    pub(crate) vocals: VocalAvailability,
+    pub(crate) errors: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct DifficultyAvailability {
+    pub(crate) easy: bool,
+    pub(crate) medium: bool,
+    pub(crate) hard: bool,
+    pub(crate) expert: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct VocalAvailability {
+    pub(crate) supported: bool,
+}
+
+pub(crate) fn analyze_song_pak_instruments(
+    pak_path: &str,
+    checksum: &str,
+) -> Result<SongPakInstrumentAvailability, String> {
+    let analysis = analyze_song_pak(pak_path, checksum)?;
+
+    Ok(SongPakInstrumentAvailability {
+        guitar: difficulty_availability(&analysis.instruments.guitar),
+        bass: difficulty_availability(&analysis.instruments.bass),
+        drums: difficulty_availability(&analysis.instruments.drums),
+        coop_guitar: difficulty_availability(&analysis.instruments.coop.guitar),
+        coop_bass: difficulty_availability(&analysis.instruments.coop.rhythm),
+        vocals: VocalAvailability {
+            supported: analysis.instruments.vocals.supported,
+        },
+        errors: analysis.errors,
+    })
+}
+
+fn difficulty_availability(summary: &DifficultySummary) -> DifficultyAvailability {
+    DifficultyAvailability {
+        easy: summary.easy,
+        medium: summary.medium,
+        hard: summary.hard,
+        expert: summary.expert,
+    }
+}
+
 fn analyze_existing_song_pak(pak_path: &Path, checksum: &str) -> SongPakAnalysis {
     let main_qb_name = format!("songs/{checksum}.mid.qb");
     let script_qb_name = format!("songs/{checksum}_song_scripts.qb");

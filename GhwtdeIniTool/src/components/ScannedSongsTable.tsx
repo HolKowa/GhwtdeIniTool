@@ -8,17 +8,28 @@ type ScannedSongsTableProps = {
   songs: ScannedSong[];
 };
 
-type SortKey = "artist" | "title" | "year" | "genre" | "game_icon";
+type MetadataColumnKey = "artist" | "title" | "year" | "genre" | "game_icon";
+type InstrumentColumnKey = keyof ScannedSong["instruments"];
+type SortKey = MetadataColumnKey | InstrumentColumnKey;
 type SortDirection = "asc" | "desc";
+type Column =
+  | { key: MetadataColumnKey; label: string; type: "metadata" }
+  | { key: InstrumentColumnKey; label: string; type: "instrument" };
 
 const emptyFieldLabel = "<empty>";
 
-const columns: Array<{ key: SortKey; label: string }> = [
-  { key: "artist", label: "Artist" },
-  { key: "title", label: "Title" },
-  { key: "year", label: "Year" },
-  { key: "genre", label: "Genre" },
-  { key: "game_icon", label: "GameIcon" },
+const columns: Column[] = [
+  { key: "artist", label: "Artist", type: "metadata" },
+  { key: "title", label: "Title", type: "metadata" },
+  { key: "year", label: "Year", type: "metadata" },
+  { key: "genre", label: "Genre", type: "metadata" },
+  { key: "game_icon", label: "GameIcon", type: "metadata" },
+  { key: "guitar", label: "Guitar", type: "instrument" },
+  { key: "bass", label: "Bass", type: "instrument" },
+  { key: "drums", label: "Drums", type: "instrument" },
+  { key: "vocals", label: "Vocals", type: "instrument" },
+  { key: "coop_guitar", label: "CoopGuitar", type: "instrument" },
+  { key: "coop_bass", label: "CoopBass", type: "instrument" },
 ];
 
 const defaultColumnWidths: Record<SortKey, number> = {
@@ -27,6 +38,12 @@ const defaultColumnWidths: Record<SortKey, number> = {
   year: 110,
   genre: 180,
   game_icon: 166,
+  guitar: 96,
+  bass: 96,
+  drums: 96,
+  vocals: 96,
+  coop_guitar: 118,
+  coop_bass: 108,
 };
 const minColumnWidth = 70;
 const folderColumnWidth = 96;
@@ -37,6 +54,22 @@ const emptyFilters: Record<SortKey, string> = {
   year: "",
   genre: "",
   game_icon: "",
+  guitar: "",
+  bass: "",
+  drums: "",
+  vocals: "",
+  coop_guitar: "",
+  coop_bass: "",
+};
+
+const instrumentValueRanks: Record<string, number> = {
+  Error: 0,
+  Unknown: 1,
+  No: 2,
+  Easy: 3,
+  Medium: 4,
+  Hard: 5,
+  Expert: 6,
 };
 
 export function ScannedSongsTable({
@@ -55,6 +88,7 @@ export function ScannedSongsTable({
   const filteredSongs = useMemo(() => {
     const activeFilters = columns
       .map((column) => ({
+        column,
         key: column.key,
         value: filters[column.key].trim().toLocaleLowerCase(),
       }))
@@ -62,20 +96,13 @@ export function ScannedSongsTable({
 
     const nextSongs = songs.filter((song) =>
       activeFilters.every((filter) =>
-        displayValue(song[filter.key])
-          .toLocaleLowerCase()
-          .includes(filter.value),
+        matchesFilter(song, filter.column, filter.value),
       ),
     );
 
     nextSongs.sort((left, right) => {
       const direction = sortDirection === "asc" ? 1 : -1;
-      const leftValue = left[sortKey].toLocaleLowerCase();
-      const rightValue = right[sortKey].toLocaleLowerCase();
-      const comparison = leftValue.localeCompare(rightValue, undefined, {
-        numeric: true,
-        sensitivity: "base",
-      });
+      const comparison = compareColumnValues(left, right, sortKey);
 
       if (comparison !== 0) {
         return comparison * direction;
@@ -153,6 +180,53 @@ export function ScannedSongsTable({
     );
   }
 
+  function columnValue(song: ScannedSong, column: Column) {
+    if (column.type === "instrument") {
+      return song.instruments[column.key].value;
+    }
+
+    return displayValue(song[column.key]);
+  }
+
+  function columnTitle(song: ScannedSong, column: Column) {
+    if (column.type === "instrument") {
+      return song.instruments[column.key].tooltip;
+    }
+
+    return song[column.key];
+  }
+
+  function matchesFilter(song: ScannedSong, column: Column, filter: string) {
+    if (column.type === "instrument") {
+      const value = song.instruments[column.key].value.toLocaleLowerCase();
+
+      return value.includes(filter);
+    }
+
+    return displayValue(song[column.key]).toLocaleLowerCase().includes(filter);
+  }
+
+  function compareColumnValues(left: ScannedSong, right: ScannedSong, key: SortKey) {
+    const column = columns.find((candidate) => candidate.key === key);
+
+    if (column?.type === "instrument") {
+      const leftRank =
+        instrumentValueRanks[left.instruments[key as InstrumentColumnKey].value] ?? 0;
+      const rightRank =
+        instrumentValueRanks[right.instruments[key as InstrumentColumnKey].value] ?? 0;
+
+      return leftRank - rightRank;
+    }
+
+    const leftValue = left[key as MetadataColumnKey].toLocaleLowerCase();
+    const rightValue = right[key as MetadataColumnKey].toLocaleLowerCase();
+
+    return leftValue.localeCompare(rightValue, undefined, {
+      numeric: true,
+      sensitivity: "base",
+    });
+  }
+
   return (
     <section className="scanned-songs" aria-labelledby="scanned-songs-title">
       <div className="scanned-songs-header">
@@ -225,11 +299,11 @@ export function ScannedSongsTable({
             <tbody>
               {filteredSongs.map((song) => (
                 <tr key={song.relative_path}>
-                  <td title={song.artist}>{displayCell(song.artist)}</td>
-                  <td title={song.title}>{displayCell(song.title)}</td>
-                  <td title={song.year}>{displayCell(song.year)}</td>
-                  <td title={song.genre}>{displayCell(song.genre)}</td>
-                  <td title={song.game_icon}>{displayCell(song.game_icon)}</td>
+                  {columns.map((column) => (
+                    <td key={column.key} title={columnTitle(song, column)}>
+                      {displayCell(columnValue(song, column))}
+                    </td>
+                  ))}
                   <td className="scanned-songs-folder-column">
                     <button
                       className="scanned-songs-folder-btn"

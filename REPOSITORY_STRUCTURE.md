@@ -40,6 +40,8 @@ Important files:
 - `GhwtdeIniTool/src/App.css` contains the current app styling.
 - `GhwtdeIniTool/src/components/CleanModsWizard.tsx` renders the two-step MODS
   cleanup wizard for keep-pattern entry and delete confirmation.
+- `GhwtdeIniTool/src/components/InstrumentAnalyzeWizard.tsx` renders the
+  separate instrument sidecar analysis wizard and progress state.
 - `GhwtdeIniTool/src/components/ScanToast.tsx` renders compact scan completion
   and error toasts.
 - `GhwtdeIniTool/src/components/ScanWizard.tsx` renders the `song.ini` scan,
@@ -52,12 +54,14 @@ Important files:
 - `GhwtdeIniTool/src/hooks/useProjectSettings.ts` owns settings state and
   persistence calls.
 - `GhwtdeIniTool/src/hooks/useModsCleaner.ts` owns keep-pattern cleanup state.
-- `GhwtdeIniTool/src/hooks/useModsScanner.ts` owns `song.ini` scan action state.
+- `GhwtdeIniTool/src/hooks/useModsScanner.ts` owns `song.ini` scan and
+  instrument analysis action state.
 - `GhwtdeIniTool/src/hooks/useAppUpdater.ts` owns updater state and actions.
 - `GhwtdeIniTool/src/services/projectSettingsApi.ts` wraps the Tauri settings
   commands.
 - `GhwtdeIniTool/src/services/scanModsApi.ts` wraps the Tauri keep-pattern
-  delete and `song.ini` scan/validation/disable/conflict delete commands.
+  delete, `song.ini` scan/validation/disable/conflict delete, and instrument
+  analysis commands.
 - `GhwtdeIniTool/src/services/modsFolderDialog.ts` wraps Tauri folder pickers.
 - `GhwtdeIniTool/src/types/projectSettings.ts` defines the frontend settings
   shape returned by Rust.
@@ -104,12 +108,24 @@ Current frontend behavior:
   the related song folder, and can disable that `song.ini`. Debug/Tauri dev runs
   temporarily suppress missing `Content/MUSIC` warnings when that folder is
   absent so local development can omit bulky MUSIC assets. The wizard scales
-  with the app window while keeping preview content scrollable. Completion and
-  errors are shown as compact toasts.
+  with the app window while keeping preview content scrollable, and shows
+  progress while finding `song.ini` files, reading songs, checking content, and
+  finishing. Completion and errors are shown as compact toasts.
+- The Analyze instruments top-bar button is enabled after a completed song scan
+  and opens a separate wizard with `Read only missing`, `Reread only songs with
+  errors`, and `Reread all` modes. It switches immediately to a progress step
+  while PAK chart data is analyzed, writes `song.instruments.ini` sidecars next
+  to active `song.ini` files, then updates the scanned-song table.
 - After the Scan MODS folder wizard is finished, the main view shows a compact
   scanned-song table populated from parsed active `song.ini` files. It displays
   exact `[SongInfo]` `Artist`, `Title`, `Year`, `Genre`, and `GameIcon` values,
-  shows `<empty>` for missing display values so filters can find them, provides
+  plus Guitar, Bass, Drums, Vocals, CoopGuitar, and CoopBass availability read
+  from each song's `song.instruments.ini` sidecar when that sidecar is fresh.
+  Missing, stale, or invalid instrument sidecars display `Unknown`. Instrument
+  cells show the highest available difficulty, expose all levels or analyzer
+  errors through native hover tooltips, and participate in table sort/filter
+  behavior. The table shows `<empty>` for missing display values so filters can
+  find them, provides
   per-column filters, sortable/resizable data columns, a compact folder-copy
   column, and copies each row's song folder path.
 - The settings dialog lets the user choose a MODS folder and toggle whether
@@ -158,6 +174,13 @@ Current backend behavior:
   `preview_keep_only_files_delete`, `delete_keep_only_files`,
   `scan_song_ini_files`, `validate_song_ini_file`, `disable_song_ini_file`, and
   `delete_song_ini_conflict_file` Tauri commands.
+- `scan_song_ini_files` emits `song_scan_progress` events while finding songs,
+  reading `song.ini` files, checking content, and finishing.
+- Exposes `analyze_scanned_song_instruments`, which analyzes instrument support
+  for the current scanned song store in `missing`, `errors`, or `all` mode,
+  runs the expensive PAK work on a blocking worker while emitting throttled
+  progress events, writes `song.instruments.ini` sidecars beside active
+  `song.ini` files, and returns refreshed table rows.
 - Exposes `analyze_song_pak`, which takes a PAK path and song checksum, reads
   the matching main chart QB from the PAK without extracting files, and returns
   instrument support details, parser diagnostics, warnings, and errors in a
@@ -187,7 +210,10 @@ Current backend behavior:
   repaired contents before writing them back to disk. Scan and validation
   results include a `songs` array for the frontend table, with each row's
   MODS-relative `song.ini` path, absolute song folder path, and display values
-  parsed from exact `[SongInfo]` keys. Debug builds temporarily
+  parsed from exact `[SongInfo]` keys. Each scanned-song row also reads a fresh
+  sibling `song.instruments.ini` sidecar for instrument availability, or returns
+  `Unknown` instrument values when that sidecar is missing, stale, or invalid.
+  Debug builds temporarily
   suppress missing `Content/MUSIC` folder warnings when that folder is absent so
   local development can omit bulky MUSIC assets. When
   `keep_original_song_ini` is enabled, the backend creates a sibling
@@ -229,8 +255,10 @@ What was checked:
   disable-by-rename behavior, conflict file deletion, content layout validation,
   content folder and checksum filename case-insensitive matching, debug-only
   missing `Content/MUSIC` suppression, strict extra content file reporting,
-  refreshed content issues after checksum repair, and unsafe repair/action path
-  rejection.
+  refreshed content issues after checksum repair, song scan progress events,
+  instrument summary display policy, instrument sidecar loading/staleness,
+  strict instrument analysis mode selection, sidecar writes, case-insensitive
+  song PAK resolution, and unsafe repair/action path rejection.
 - Rust song PAK analyzer tests cover QBKey hashing, hash normalization, minimal
   PAK entry parsing, QB section parsing, instrument/vocal support detection, and
   an optional local parity check against the Sk8er Boi sample in `MODS_medium`
