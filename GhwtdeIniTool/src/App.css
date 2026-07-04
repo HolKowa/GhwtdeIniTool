@@ -96,7 +96,7 @@ button {
 }
 
 .scanned-songs {
-  width: min(100%, 1180px);
+  width: 100%;
   text-align: left;
 }
 
@@ -135,6 +135,7 @@ button {
 }
 
 .scanned-songs-table {
+  width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
 }

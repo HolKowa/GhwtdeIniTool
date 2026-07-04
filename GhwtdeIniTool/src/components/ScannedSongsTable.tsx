@@ -168,7 +168,7 @@ export function ScannedSongsTable({
         <div className="scanned-songs-table-wrap">
           <table
             className="scanned-songs-table"
-            style={{ width: tableWidth }}
+            style={{ minWidth: tableWidth }}
           >
             <colgroup>
               {columns.map((column) => (

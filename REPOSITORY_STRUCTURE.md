@@ -68,6 +68,8 @@ Important files:
   keep-pattern and frontend validation helper.
 - `GhwtdeIniTool/vite.config.ts` configures Vite for Tauri development on port
   `1420`.
+- `GhwtdeIniTool/src-tauri/tauri.conf.json` configures the desktop shell,
+  including the main window, bundling, and updater artifacts.
 
 Current frontend behavior:
 
@@ -191,7 +193,8 @@ Current backend behavior:
   `keep_original_song_ini` is enabled, the backend creates a sibling
   `song.original.ini` before the first write to each `song.ini` and before a
   `song.ini` is disabled by rename.
-- Uses `tauri.conf.json` to configure bundling and updater artifacts.
+- Uses `tauri.conf.json` to open the main window maximized, restore it to
+  1920x1080 when un-maximized, and configure bundling and updater artifacts.
 
 ## Build And Release
 
