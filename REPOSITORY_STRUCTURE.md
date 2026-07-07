@@ -100,8 +100,9 @@ Current frontend behavior:
   faulty files, then resolves duplicate checksum groups and folders containing
   both `song.ini` and `song.disabled.ini`. Faulty step-one entries can be
   disabled to rename `song.ini` to `song.disabled.ini`, then enabled again if
-  needed. Duplicate checksums are resolved by disabling selected active songs;
-  active/disabled sibling conflicts can delete either file.
+  needed. Duplicate checksums are resolved by excluding selected songs from the
+  frontend include state without renaming files; active/disabled sibling
+  conflicts can delete either file.
   The final step validates each active song folder's `Content` and
   `Content/MUSIC` layout against the parsed checksum, accepts those folder and
   checksum-derived file names case-insensitively without renaming them, reports
@@ -129,14 +130,17 @@ Current frontend behavior:
   errors through native hover tooltips, and participate in table sort/filter
   behavior. The table shows `<empty>` for missing display values so filters can
   find them, provides per-column filters, sortable/resizable data columns, an
-  Include checkbox column for choosing which songs remain eligible for later
-  processing, file-like row selection with a right-click include/exclude
-  selection menu, editable metadata cells for the displayed `[SongInfo]` values,
+  Include checkbox column with `All`, `Included`, and `Excluded` filtering for
+  choosing which songs remain eligible for later processing, file-like row
+  selection with a right-click include/exclude selection menu, editable metadata
+  cells for the displayed `[SongInfo]` values,
   fixed-width row actions for copying the song folder, saving metadata edits,
   and restoring from `song.original.ini` when present. The table header shows
-  included, visible, and total row counts, while the top action row includes a
-  disabled Categorize button alongside Analyze instruments until backend
-  categorization is implemented.
+  included, visible, and total row counts, duplicate checksum rows are faintly
+  highlighted, and re-including multiple songs from the same duplicate group
+  reopens the duplicate resolver directly on the conflict step. The top action
+  row includes a disabled Categorize button alongside Analyze instruments until
+  backend categorization is implemented.
 - The settings dialog lets the user choose a MODS folder and toggle whether
   original `song.ini` files are kept before their first edit.
 - Settings changes are saved immediately through `save_project_settings`; there

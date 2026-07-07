@@ -1,15 +1,23 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 
-import type { ScannedSong, ScannedSongMetadata } from "../types/scanMods";
+import type {
+  DuplicateChecksumGroup,
+  ScannedSong,
+  ScannedSongMetadata,
+} from "../types/scanMods";
 
 type ScannedSongsTableProps = {
+  duplicateChecksumGroups: DuplicateChecksumGroup[];
+  includedSongPaths: string[];
   onCopyFolderPath: (absolutePath: string) => void;
   onRestoreOriginal: (relativePath: string) => Promise<void>;
   onSaveMetadata: (
     relativePath: string,
     metadata: ScannedSongMetadata,
   ) => Promise<void>;
+  onSetSongIncluded: (relativePath: string, isIncluded: boolean) => void;
+  onSetSongsIncluded: (relativePaths: string[], isIncluded: boolean) => void;
   restoringSongPaths: string[];
   savingSongPaths: string[];
   songs: ScannedSong[];
@@ -19,6 +27,7 @@ type MetadataColumnKey = "artist" | "title" | "year" | "genre" | "game_icon";
 type InstrumentColumnKey = keyof ScannedSong["instruments"];
 type SortKey = MetadataColumnKey | InstrumentColumnKey;
 type SortDirection = "asc" | "desc";
+type IncludeFilter = "all" | "included" | "excluded";
 type ContextMenuState = {
   x: number;
   y: number;
@@ -57,7 +66,7 @@ const defaultColumnWidths: Record<SortKey, number> = {
   coop_bass: 98,
 };
 const minColumnWidth = 70;
-const includeColumnWidth = 84;
+const includeColumnWidth = 104;
 const actionsColumnWidth = 184;
 
 const emptyFilters: Record<SortKey, string> = {
@@ -85,32 +94,46 @@ const instrumentValueRanks: Record<string, number> = {
 };
 
 export function ScannedSongsTable({
+  duplicateChecksumGroups,
+  includedSongPaths,
   onCopyFolderPath,
   onRestoreOriginal,
   onSaveMetadata,
+  onSetSongIncluded,
+  onSetSongsIncluded,
   restoringSongPaths,
   savingSongPaths,
   songs,
 }: ScannedSongsTableProps) {
   const [sortKey, setSortKey] = useState<SortKey>("artist");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
+  const [includeFilter, setIncludeFilter] = useState<IncludeFilter>("all");
   const [filters, setFilters] = useState<Record<SortKey, string>>(emptyFilters);
   const [columnWidths, setColumnWidths] =
     useState<Record<SortKey, number>>(defaultColumnWidths);
   const [editedRows, setEditedRows] = useState<
     Record<string, ScannedSongMetadata>
   >({});
-  const [includedSongPaths, setIncludedSongPaths] = useState<Set<string>>(
-    () => new Set(songs.map((song) => song.relative_path)),
-  );
   const [selectedSongPaths, setSelectedSongPaths] = useState<Set<string>>(
     () => new Set(),
   );
   const [lastSelectedSongPath, setLastSelectedSongPath] = useState("");
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
-  const knownSongPathSetRef = useRef(
-    new Set(songs.map((song) => song.relative_path)),
+  const includedSongPathSet = useMemo(
+    () => new Set(includedSongPaths),
+    [includedSongPaths],
   );
+  const duplicateSongPathSet = useMemo(() => {
+    const pathSet = new Set<string>();
+
+    for (const group of duplicateChecksumGroups) {
+      for (const relativePath of group.relative_paths) {
+        pathSet.add(relativePath);
+      }
+    }
+
+    return pathSet;
+  }, [duplicateChecksumGroups]);
   const savingSongPathSet = useMemo(
     () => new Set(savingSongPaths),
     [savingSongPaths],
@@ -133,11 +156,21 @@ export function ScannedSongsTable({
       }))
       .filter((filter) => filter.value.length > 0);
 
-    const nextSongs = songs.filter((song) =>
-      activeFilters.every((filter) =>
+    const nextSongs = songs.filter((song) => {
+      const isIncluded = includedSongPathSet.has(song.relative_path);
+
+      if (includeFilter === "included" && !isIncluded) {
+        return false;
+      }
+
+      if (includeFilter === "excluded" && isIncluded) {
+        return false;
+      }
+
+      return activeFilters.every((filter) =>
         matchesFilter(song, filter.column, filter.value),
-      ),
-    );
+      );
+    });
 
     nextSongs.sort((left, right) => {
       const direction = sortDirection === "asc" ? 1 : -1;
@@ -151,7 +184,7 @@ export function ScannedSongsTable({
     });
 
     return nextSongs;
-  }, [filters, songs, sortDirection, sortKey]);
+  }, [filters, includeFilter, includedSongPathSet, songs, sortDirection, sortKey]);
   const filteredSongPathSet = useMemo(
     () => new Set(filteredSongs.map((song) => song.relative_path)),
     [filteredSongs],
@@ -160,29 +193,14 @@ export function ScannedSongsTable({
     () =>
       songs.reduce(
         (total, song) =>
-          includedSongPaths.has(song.relative_path) ? total + 1 : total,
+          includedSongPathSet.has(song.relative_path) ? total + 1 : total,
         0,
       ),
-    [includedSongPaths, songs],
+    [includedSongPathSet, songs],
   );
 
   useEffect(() => {
     const currentSongPathSet = new Set(songs.map((song) => song.relative_path));
-    const previousSongPathSet = knownSongPathSetRef.current;
-
-    setIncludedSongPaths((currentIncludedSongPaths) => {
-      const nextIncludedSongPaths = new Set<string>();
-
-      for (const song of songs) {
-        if (currentIncludedSongPaths.has(song.relative_path)) {
-          nextIncludedSongPaths.add(song.relative_path);
-        } else if (!previousSongPathSet.has(song.relative_path)) {
-          nextIncludedSongPaths.add(song.relative_path);
-        }
-      }
-
-      return nextIncludedSongPaths;
-    });
 
     setSelectedSongPaths((currentSelectedSongPaths) => {
       const nextSelectedSongPaths = new Set<string>();
@@ -202,7 +220,6 @@ export function ScannedSongsTable({
         ? currentLastSelectedSongPath
         : "",
     );
-    knownSongPathSetRef.current = currentSongPathSet;
   }, [filteredSongPathSet, songs]);
 
   useEffect(() => {
@@ -236,6 +253,11 @@ export function ScannedSongsTable({
       ...currentFilters,
       [key]: value,
     }));
+    setContextMenu(null);
+  }
+
+  function updateIncludeFilter(value: IncludeFilter) {
+    setIncludeFilter(value);
     setContextMenu(null);
   }
 
@@ -402,17 +424,10 @@ export function ScannedSongsTable({
   }
 
   function toggleIncludedSong(song: ScannedSong) {
-    setIncludedSongPaths((currentIncludedSongPaths) => {
-      const nextIncludedSongPaths = new Set(currentIncludedSongPaths);
-
-      if (nextIncludedSongPaths.has(song.relative_path)) {
-        nextIncludedSongPaths.delete(song.relative_path);
-      } else {
-        nextIncludedSongPaths.add(song.relative_path);
-      }
-
-      return nextIncludedSongPaths;
-    });
+    onSetSongIncluded(
+      song.relative_path,
+      !includedSongPathSet.has(song.relative_path),
+    );
   }
 
   function selectSong(song: ScannedSong, event: ReactMouseEvent) {
@@ -480,21 +495,12 @@ export function ScannedSongsTable({
   }
 
   function updateSelectedIncludedState(isIncluded: boolean) {
-    setIncludedSongPaths((currentIncludedSongPaths) => {
-      const nextIncludedSongPaths = new Set(currentIncludedSongPaths);
-
-      selectedSongPaths.forEach((path) => {
-        if (filteredSongPathSet.has(path)) {
-          if (isIncluded) {
-            nextIncludedSongPaths.add(path);
-          } else {
-            nextIncludedSongPaths.delete(path);
-          }
-        }
-      });
-
-      return nextIncludedSongPaths;
-    });
+    onSetSongsIncluded(
+      Array.from(selectedSongPaths).filter((path) =>
+        filteredSongPathSet.has(path),
+      ),
+      isIncluded,
+    );
     setContextMenu(null);
   }
 
@@ -603,7 +609,19 @@ export function ScannedSongsTable({
                 </th>
               </tr>
               <tr className="scanned-songs-filters">
-                <th className="scanned-songs-include-column" />
+                <th className="scanned-songs-include-column">
+                  <select
+                    aria-label="Filter Include"
+                    value={includeFilter}
+                    onChange={(event) =>
+                      updateIncludeFilter(event.target.value as IncludeFilter)
+                    }
+                  >
+                    <option value="all">All</option>
+                    <option value="included">Included</option>
+                    <option value="excluded">Excluded</option>
+                  </select>
+                </th>
                 {columns.map((column) => (
                   <th key={column.key}>
                     <input
@@ -624,13 +642,20 @@ export function ScannedSongsTable({
                 const isRestoring = restoringSongPathSet.has(song.relative_path);
                 const isRowBusy = isSaving || isRestoring;
                 const isDirty = isRowDirty(song);
-                const isIncluded = includedSongPaths.has(song.relative_path);
+                const isDuplicate = duplicateSongPathSet.has(song.relative_path);
+                const isIncluded = includedSongPathSet.has(song.relative_path);
                 const isSelected = selectedSongPaths.has(song.relative_path);
+                const rowClassName = [
+                  isSelected ? "selected" : "",
+                  isDuplicate ? "duplicate-checksum" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ");
 
                 return (
                   <tr
                     aria-selected={isSelected}
-                    className={isSelected ? "selected" : undefined}
+                    className={rowClassName || undefined}
                     key={song.relative_path}
                     onClick={(event) => selectSong(song, event)}
                     onContextMenu={(event) => openSelectionMenu(song, event)}

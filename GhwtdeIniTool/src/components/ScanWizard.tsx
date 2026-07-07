@@ -10,11 +10,14 @@ type ScanWizardProps = {
   onDeleteSongIniConflict: (relativePath: string) => void;
   onDisableSongIni: (relativePath: string) => void;
   onEnableSongIni: (relativePath: string) => void;
+  onExcludeScannedSong: (relativePath: string) => void;
   onSelectSongIni: () => void;
   onValidateSongIni: (relativePath: string, contents: string) => void;
   onVerifyContentIssueSong: (relativePath: string) => void;
   deletedSongIniConflictPaths: string[];
   disabledSongIniPaths: string[];
+  includedSongPaths: string[];
+  isConflictsOnly: boolean;
   repairedSongIniPaths: string[];
   scanError: string;
   scanStatus: ScanModsStatus;
@@ -49,11 +52,14 @@ export function ScanWizard({
   onDeleteSongIniConflict,
   onDisableSongIni,
   onEnableSongIni,
+  onExcludeScannedSong,
   onSelectSongIni,
   onValidateSongIni,
   onVerifyContentIssueSong,
   deletedSongIniConflictPaths,
   disabledSongIniPaths,
+  includedSongPaths,
+  isConflictsOnly,
   repairedSongIniPaths,
   scanError,
   scanStatus,
@@ -64,7 +70,9 @@ export function ScanWizard({
   verifiedContentIssueSongPaths,
   verifyingContentIssueSongPath,
 }: ScanWizardProps) {
-  const [activeStep, setActiveStep] = useState<1 | 2 | 3>(1);
+  const [activeStep, setActiveStep] = useState<1 | 2 | 3>(() =>
+    isConflictsOnly ? 2 : 1,
+  );
   const [selectedSongIniPath, setSelectedSongIniPath] = useState("");
   const [editedSongIniContents, setEditedSongIniContents] = useState<
     Record<string, string>
@@ -98,6 +106,10 @@ export function ScanWizard({
     () => new Set(disabledSongIniPaths),
     [disabledSongIniPaths],
   );
+  const includedPathSet = useMemo(
+    () => new Set(includedSongPaths),
+    [includedSongPaths],
+  );
   const deletedPathSet = useMemo(
     () => new Set(deletedSongIniConflictPaths),
     [deletedSongIniConflictPaths],
@@ -126,7 +138,10 @@ export function ScanWizard({
   const unresolvedDuplicateChecksumGroups = duplicateChecksumGroups.filter(
     (group) =>
       group.relative_paths.filter(
-        (path) => !disabledPathSet.has(path) && !deletedPathSet.has(path),
+        (path) =>
+          includedPathSet.has(path) &&
+          !disabledPathSet.has(path) &&
+          !deletedPathSet.has(path),
       ).length > 1,
   );
   const unresolvedDisabledSongConflicts = disabledSongConflicts.filter(
@@ -220,8 +235,9 @@ export function ScanWizard({
     ? scanProgressLabel(songScanProgress)
     : "Checking song.ini format...";
   const hasNextStep =
-    (activeStep === 1 && (hasConflictStep || hasContentStep)) ||
-    (activeStep === 2 && hasContentStep);
+    !isConflictsOnly &&
+    ((activeStep === 1 && (hasConflictStep || hasContentStep)) ||
+      (activeStep === 2 && hasContentStep));
 
   function isSongIniStep() {
     return activeStep === 1 && isScanWorkflow;
@@ -258,6 +274,10 @@ export function ScanWizard({
   }
 
   function goBack() {
+    if (isConflictsOnly) {
+      return;
+    }
+
     if (activeStep === 3 && hasConflictStep) {
       setActiveStep(2);
       return;
@@ -267,6 +287,11 @@ export function ScanWizard({
   }
 
   function continueOrFinish() {
+    if (isConflictsOnly) {
+      onConfirm();
+      return;
+    }
+
     if (activeStep === 1 && hasConflictStep) {
       setActiveStep(2);
       return;
@@ -293,6 +318,10 @@ export function ScanWizard({
       return;
     }
 
+    if (isConflictsOnly) {
+      setActiveStep(2);
+    }
+
     setEditedSongIniContents((currentContents) => {
       const nextContents = { ...currentContents };
 
@@ -304,7 +333,7 @@ export function ScanWizard({
 
       return nextContents;
     });
-  }, [songIniScanResult]);
+  }, [isConflictsOnly, songIniScanResult]);
 
   useEffect(() => {
     if (!faultySongIniFiles.length) {
@@ -349,7 +378,10 @@ export function ScanWizard({
           <h3>Duplicate checksums</h3>
           {duplicateChecksumGroups.map((group) => {
             const activePaths = group.relative_paths.filter(
-              (path) => !disabledPathSet.has(path) && !deletedPathSet.has(path),
+              (path) =>
+                includedPathSet.has(path) &&
+                !disabledPathSet.has(path) &&
+                !deletedPathSet.has(path),
             );
             const isResolved = activePaths.length <= 1;
 
@@ -365,6 +397,8 @@ export function ScanWizard({
                   {group.relative_paths.map((path) => {
                     const isDisabled = disabledPathSet.has(path);
                     const isDeleted = deletedPathSet.has(path);
+                    const isIncluded = includedPathSet.has(path);
+                    const isUnavailable = isDisabled || isDeleted;
 
                     return (
                       <li key={path}>
@@ -372,10 +406,14 @@ export function ScanWizard({
                         <button
                           className="secondary-btn"
                           type="button"
-                          onClick={() => onDisableSongIni(path)}
-                          disabled={isBusy || isDisabled || isDeleted}
+                          onClick={() => onExcludeScannedSong(path)}
+                          disabled={isBusy || !isIncluded || isUnavailable}
                         >
-                          {isDisabled ? "Disabled" : "Disable"}
+                          {!isIncluded
+                            ? "Excluded"
+                            : isUnavailable
+                              ? "Unavailable"
+                              : "Exclude"}
                         </button>
                       </li>
                     );
@@ -558,7 +596,9 @@ export function ScanWizard({
       >
         <div className="scan-wizard-header">
           <div>
-            <p className="scan-wizard-step">{stepLabel}</p>
+            <p className="scan-wizard-step">
+              {isConflictsOnly ? "Duplicate resolver" : stepLabel}
+            </p>
             <h2 id="scan-wizard-title">{title}</h2>
           </div>
           <button
@@ -566,7 +606,7 @@ export function ScanWizard({
             type="button"
             onClick={onCancel}
             aria-label="Cancel scan"
-            disabled={isBusy}
+            disabled={isBusy || (isConflictsOnly && !canFinishConflictStep)}
           >
             &times;
           </button>
@@ -746,7 +786,7 @@ export function ScanWizard({
         </div>
 
         <div className="scan-wizard-actions">
-          {activeStep !== 1 && (
+          {activeStep !== 1 && !isConflictsOnly && (
             <button
               className="secondary-btn"
               type="button"

@@ -62,11 +62,13 @@ function App() {
     enableSongIni,
     dismissScanToast,
     hasCompletedSongScan,
+    includedSongPaths,
     instrumentAnalyzeError,
     instrumentAnalyzeProgress,
     instrumentAnalyzeResult,
     instrumentAnalyzeStatus,
     isInstrumentWizardOpen,
+    isScanWizardConflictsOnly,
     isScanWizardOpen,
     openInstrumentAnalyzer,
     repairedSongIniPaths,
@@ -82,6 +84,8 @@ function App() {
     songIniScanResult,
     songScanProgress,
     songIniValidationError,
+    setSongIncluded,
+    setSongsIncluded,
     validateSongIni,
     verifiedContentIssueSongPaths,
     verifyingContentIssueSongPath,
@@ -173,9 +177,13 @@ function App() {
 
       {hasScannedSongs && songIniScanResult && (
         <ScannedSongsTable
+          duplicateChecksumGroups={songIniScanResult.duplicate_checksum_groups}
+          includedSongPaths={includedSongPaths}
           onCopyFolderPath={copyContentIssuePath}
           onRestoreOriginal={restoreScannedSongOriginal}
           onSaveMetadata={saveScannedSongMetadata}
+          onSetSongIncluded={setSongIncluded}
+          onSetSongsIncluded={setSongsIncluded}
           restoringSongPaths={restoringScannedSongPaths}
           savingSongPaths={savingScannedSongPaths}
           songs={songIniScanResult.songs}
@@ -238,11 +246,16 @@ function App() {
           onDeleteSongIniConflict={deleteSongIniConflict}
           onDisableSongIni={disableSongIni}
           onEnableSongIni={enableSongIni}
+          onExcludeScannedSong={(relativePath) =>
+            setSongIncluded(relativePath, false)
+          }
           onSelectSongIni={clearSongIniValidationError}
           onValidateSongIni={validateSongIni}
           onVerifyContentIssueSong={verifyContentIssueSong}
           deletedSongIniConflictPaths={deletedSongIniConflictPaths}
           disabledSongIniPaths={disabledSongIniPaths}
+          includedSongPaths={includedSongPaths}
+          isConflictsOnly={isScanWizardConflictsOnly}
           repairedSongIniPaths={repairedSongIniPaths}
           scanError={scanError}
           scanStatus={scanStatus}

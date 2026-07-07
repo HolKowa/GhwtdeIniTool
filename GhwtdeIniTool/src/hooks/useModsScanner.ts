@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 
 import {
@@ -59,6 +59,23 @@ function removePath(paths: string[], pathToRemove: string) {
   return paths.filter((path) => path !== pathToRemove);
 }
 
+function hasIncludedDuplicateChecksumConflict(
+  result: SongIniScanResult,
+  includedPathSet: Set<string>,
+  disabledPathSet: Set<string>,
+  deletedPathSet: Set<string>,
+) {
+  return result.duplicate_checksum_groups.some(
+    (group) =>
+      group.relative_paths.filter(
+        (path) =>
+          includedPathSet.has(path) &&
+          !disabledPathSet.has(path) &&
+          !deletedPathSet.has(path),
+      ).length > 1,
+  );
+}
+
 export function useModsScanner() {
   const [scanStatus, setScanStatus] = useState<ScanModsStatus>("idle");
   const [songIniScanResult, setSongIniScanResult] =
@@ -71,6 +88,7 @@ export function useModsScanner() {
   );
   const [deletedSongIniConflictPaths, setDeletedSongIniConflictPaths] =
     useState<string[]>([]);
+  const [includedSongPaths, setIncludedSongPaths] = useState<string[]>([]);
   const [verifiedContentIssueSongPaths, setVerifiedContentIssueSongPaths] =
     useState<string[]>([]);
   const [verifyingContentIssueSongPath, setVerifyingContentIssueSongPath] =
@@ -87,6 +105,8 @@ export function useModsScanner() {
   const [songScanProgress, setSongScanProgress] =
     useState<SongScanProgress | null>(null);
   const [isScanWizardOpen, setIsScanWizardOpen] = useState(false);
+  const [isScanWizardConflictsOnly, setIsScanWizardConflictsOnly] =
+    useState(false);
   const [hasCompletedSongScan, setHasCompletedSongScan] = useState(false);
   const [scanToast, setScanToast] = useState<ScanToast | null>(null);
   const [isInstrumentWizardOpen, setIsInstrumentWizardOpen] = useState(false);
@@ -97,6 +117,7 @@ export function useModsScanner() {
   const [instrumentAnalyzeResult, setInstrumentAnalyzeResult] =
     useState<InstrumentAnalyzeResult | null>(null);
   const [instrumentAnalyzeError, setInstrumentAnalyzeError] = useState("");
+  const knownIncludedSongPathSetRef = useRef(new Set<string>());
 
   const scanMods = useCallback(async () => {
     setIsScanWizardOpen(true);
@@ -108,6 +129,7 @@ export function useModsScanner() {
     setRepairedSongIniPaths([]);
     setDisabledSongIniPaths([]);
     setDeletedSongIniConflictPaths([]);
+    setIncludedSongPaths([]);
     setVerifiedContentIssueSongPaths([]);
     setVerifyingContentIssueSongPath("");
     setSavingScannedSongPaths([]);
@@ -120,10 +142,14 @@ export function useModsScanner() {
     setInstrumentAnalyzeProgress(null);
     setInstrumentAnalyzeResult(null);
     setInstrumentAnalyzeError("");
+    setIsScanWizardConflictsOnly(false);
 
     try {
       const nextSongIniScanResult = await scanSongIniFiles();
 
+      setIncludedSongPaths(
+        nextSongIniScanResult.songs.map((song) => song.relative_path),
+      );
       setSongIniScanResult(nextSongIniScanResult);
       setSongScanProgress(null);
       setScanStatus("readySongRepair");
@@ -132,6 +158,7 @@ export function useModsScanner() {
       setRepairedSongIniPaths([]);
       setDisabledSongIniPaths([]);
       setDeletedSongIniConflictPaths([]);
+      setIncludedSongPaths([]);
       setVerifiedContentIssueSongPaths([]);
       setVerifyingContentIssueSongPath("");
       setSavingScannedSongPaths([]);
@@ -147,6 +174,7 @@ export function useModsScanner() {
   const confirmScan = useCallback(async () => {
     if (scanStatus === "readySongRepair") {
       setIsScanWizardOpen(false);
+      setIsScanWizardConflictsOnly(false);
       setHasCompletedSongScan(true);
       setScanStatus("idle");
     }
@@ -335,6 +363,7 @@ export function useModsScanner() {
     setRepairedSongIniPaths([]);
     setDisabledSongIniPaths([]);
     setDeletedSongIniConflictPaths([]);
+    setIncludedSongPaths([]);
     setVerifiedContentIssueSongPaths([]);
     setVerifyingContentIssueSongPath("");
     setSavingScannedSongPaths([]);
@@ -348,6 +377,7 @@ export function useModsScanner() {
     setInstrumentAnalyzeProgress(null);
     setInstrumentAnalyzeResult(null);
     setInstrumentAnalyzeError("");
+    setIsScanWizardConflictsOnly(false);
   }, []);
 
   const copyContentIssuePath = useCallback(async (absolutePath: string) => {
@@ -365,6 +395,42 @@ export function useModsScanner() {
     }
   }, []);
 
+  const setSongIncluded = useCallback(
+    (relativePath: string, isIncluded: boolean) => {
+      setIncludedSongPaths((currentPaths) => {
+        const nextPathSet = new Set(currentPaths);
+
+        if (isIncluded) {
+          nextPathSet.add(relativePath);
+        } else {
+          nextPathSet.delete(relativePath);
+        }
+
+        return Array.from(nextPathSet);
+      });
+    },
+    [],
+  );
+
+  const setSongsIncluded = useCallback(
+    (relativePaths: string[], isIncluded: boolean) => {
+      setIncludedSongPaths((currentPaths) => {
+        const nextPathSet = new Set(currentPaths);
+
+        for (const relativePath of relativePaths) {
+          if (isIncluded) {
+            nextPathSet.add(relativePath);
+          } else {
+            nextPathSet.delete(relativePath);
+          }
+        }
+
+        return Array.from(nextPathSet);
+      });
+    },
+    [],
+  );
+
   const disableSongIni = useCallback(
     async (relativePath: string) => {
       if (scanStatus !== "readySongRepair") {
@@ -379,6 +445,9 @@ export function useModsScanner() {
         const result = await disableSongIniFile(relativePath);
         setDisabledSongIniPaths((currentPaths) =>
           addPath(currentPaths, relativePath),
+        );
+        setIncludedSongPaths((currentPaths) =>
+          removePath(currentPaths, relativePath),
         );
         setVerifiedContentIssueSongPaths((currentPaths) =>
           removePath(currentPaths, relativePath),
@@ -461,6 +530,9 @@ export function useModsScanner() {
         setDeletedSongIniConflictPaths((currentPaths) =>
           addPath(currentPaths, relativePath),
         );
+        setIncludedSongPaths((currentPaths) =>
+          removePath(currentPaths, relativePath),
+        );
         setVerifiedContentIssueSongPaths((currentPaths) =>
           removePath(currentPaths, relativePath),
         );
@@ -491,6 +563,15 @@ export function useModsScanner() {
   );
 
   const cancelScan = useCallback(() => {
+    if (isScanWizardConflictsOnly) {
+      setIsScanWizardOpen(false);
+      setIsScanWizardConflictsOnly(false);
+      setScanStatus("idle");
+      setSongIniValidationError("");
+      setSongIniConflictError("");
+      return;
+    }
+
     setIsScanWizardOpen(false);
     setHasCompletedSongScan(false);
     setScanStatus("idle");
@@ -500,13 +581,15 @@ export function useModsScanner() {
     setRepairedSongIniPaths([]);
     setDisabledSongIniPaths([]);
     setDeletedSongIniConflictPaths([]);
+    setIncludedSongPaths([]);
     setVerifiedContentIssueSongPaths([]);
     setVerifyingContentIssueSongPath("");
     setSavingScannedSongPaths([]);
     setRestoringScannedSongPaths([]);
     setSongIniValidationError("");
     setSongIniConflictError("");
-  }, []);
+    setIsScanWizardConflictsOnly(false);
+  }, [isScanWizardConflictsOnly]);
 
   const openInstrumentAnalyzer = useCallback(() => {
     setIsInstrumentWizardOpen(true);
@@ -560,6 +643,66 @@ export function useModsScanner() {
   const dismissScanToast = useCallback(() => {
     setScanToast(null);
   }, []);
+
+  useEffect(() => {
+    if (!songIniScanResult) {
+      knownIncludedSongPathSetRef.current = new Set();
+      setIncludedSongPaths([]);
+      return;
+    }
+
+    const currentSongPathSet = new Set(
+      songIniScanResult.songs.map((song) => song.relative_path),
+    );
+    const previousSongPathSet = knownIncludedSongPathSetRef.current;
+
+    setIncludedSongPaths((currentPaths) => {
+      const currentPathSet = new Set(currentPaths);
+      const nextPathSet = new Set<string>();
+
+      for (const song of songIniScanResult.songs) {
+        if (
+          currentPathSet.has(song.relative_path) ||
+          !previousSongPathSet.has(song.relative_path)
+        ) {
+          nextPathSet.add(song.relative_path);
+        }
+      }
+
+      return Array.from(nextPathSet);
+    });
+
+    knownIncludedSongPathSetRef.current = currentSongPathSet;
+  }, [songIniScanResult]);
+
+  useEffect(() => {
+    if (
+      !hasCompletedSongScan ||
+      !songIniScanResult ||
+      isScanWizardOpen ||
+      !hasIncludedDuplicateChecksumConflict(
+        songIniScanResult,
+        new Set(includedSongPaths),
+        new Set(disabledSongIniPaths),
+        new Set(deletedSongIniConflictPaths),
+      )
+    ) {
+      return;
+    }
+
+    setIsScanWizardOpen(true);
+    setIsScanWizardConflictsOnly(true);
+    setIsInstrumentWizardOpen(false);
+    setScanStatus("readySongRepair");
+    setSongIniConflictError("");
+  }, [
+    deletedSongIniConflictPaths,
+    disabledSongIniPaths,
+    hasCompletedSongScan,
+    includedSongPaths,
+    isScanWizardOpen,
+    songIniScanResult,
+  ]);
 
   useEffect(() => {
     let unlisten: (() => void) | null = null;
@@ -636,11 +779,13 @@ export function useModsScanner() {
     enableSongIni,
     dismissScanToast,
     hasCompletedSongScan,
+    includedSongPaths,
     instrumentAnalyzeError,
     instrumentAnalyzeProgress,
     instrumentAnalyzeResult,
     instrumentAnalyzeStatus,
     isInstrumentWizardOpen,
+    isScanWizardConflictsOnly,
     isScanWizardOpen,
     openInstrumentAnalyzer,
     repairedSongIniPaths,
@@ -656,6 +801,8 @@ export function useModsScanner() {
     songIniScanResult,
     songScanProgress,
     songIniValidationError,
+    setSongIncluded,
+    setSongsIncluded,
     validateSongIni,
     verifiedContentIssueSongPaths,
     verifyingContentIssueSongPath,

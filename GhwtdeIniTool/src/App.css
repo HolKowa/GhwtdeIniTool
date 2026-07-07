@@ -265,7 +265,8 @@ td.scanned-songs-action-column {
   text-transform: uppercase;
 }
 
-.scanned-songs-table input {
+.scanned-songs-table input,
+.scanned-songs-table select {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
@@ -293,6 +294,14 @@ td.scanned-songs-action-column {
   background: #f7f9ff;
 }
 
+.scanned-songs-table tbody tr.duplicate-checksum td {
+  background: #fff8dc;
+}
+
+.scanned-songs-table tbody tr.duplicate-checksum:hover td {
+  background: #fff2b8;
+}
+
 .scanned-songs-table tbody tr,
 .scanned-songs-table tbody td {
   user-select: none;
@@ -308,6 +317,14 @@ td.scanned-songs-action-column {
 
 .scanned-songs-table tbody tr.selected:hover td {
   background: #dfe8ff;
+}
+
+.scanned-songs-table tbody tr.selected.duplicate-checksum td {
+  background: #f4edcf;
+}
+
+.scanned-songs-table tbody tr.selected.duplicate-checksum:hover td {
+  background: #ede3bd;
 }
 
 .scanned-songs-empty-value {
@@ -1239,8 +1256,24 @@ td.scanned-songs-action-column {
     background: #303030;
   }
 
+  .scanned-songs-table tbody tr.duplicate-checksum td {
+    background: #3a341c;
+  }
+
+  .scanned-songs-table tbody tr.duplicate-checksum:hover td {
+    background: #443c20;
+  }
+
   .scanned-songs-table tbody tr.selected td {
     background: #263657;
+  }
+
+  .scanned-songs-table tbody tr.selected.duplicate-checksum td {
+    background: #3d3b34;
+  }
+
+  .scanned-songs-table tbody tr.selected.duplicate-checksum:hover td {
+    background: #474338;
   }
 
   .scanned-songs-table tbody tr.selected:hover td {
