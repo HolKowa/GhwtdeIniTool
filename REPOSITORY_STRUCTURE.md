@@ -99,8 +99,10 @@ Current frontend behavior:
   files, stores valid parsed results in backend memory, lets the user repair
   faulty files, then resolves duplicate checksum groups and folders containing
   both `song.ini` and `song.disabled.ini`. Faulty step-one entries can be
-  disabled to rename `song.ini` to `song.disabled.ini`, then enabled again if
-  needed. Duplicate checksums are resolved by excluding selected songs from the
+  repaired with their pre-repair contents preserved as
+  `song.original.faulty.ini`, or disabled to rename `song.ini` to
+  `song.disabled.ini`, then enabled again if needed. Duplicate checksums are
+  resolved by excluding selected songs from the
   frontend include state without renaming files; active/disabled sibling
   conflicts can delete either file.
   The final step validates each active song folder's `Content` and
@@ -136,12 +138,13 @@ Current frontend behavior:
   selection with a right-click include/exclude selection menu, editable metadata
   cells for the displayed `[SongInfo]` values,
   fixed-width row actions for copying the song folder, saving metadata edits,
-  and restoring from `song.original.ini` when present. The table header shows
-  included, visible, and total row counts, duplicate checksum rows are faintly
-  highlighted, and re-including multiple songs from the same duplicate group
-  reopens the duplicate resolver directly on the conflict step. The top action
-  row includes a disabled Categorize button alongside Analyze instruments until
-  backend categorization is implemented.
+  and restoring from a proper `song.original.ini` when present. Faulty
+  `song.original.faulty.ini` backups are not restorable from the table. The
+  table header shows included, visible, and total row counts, duplicate checksum
+  rows are faintly highlighted, and re-including multiple songs from the same
+  duplicate group reopens the duplicate resolver directly on the conflict step.
+  The top action row includes a disabled Categorize button alongside Analyze
+  instruments until backend categorization is implemented.
 - The settings dialog lets the user choose a MODS folder and toggle whether
   original `song.ini` files are kept before their first edit.
 - Settings changes are saved immediately through `save_project_settings`; there
@@ -237,8 +240,10 @@ Current backend behavior:
   suppress missing `Content/MUSIC` folder warnings when that folder is absent so
   local development can omit bulky MUSIC assets. When
   `keep_original_song_ini` is enabled, the backend creates a sibling
-  `song.original.ini` before the first write to each `song.ini` and before a
-  `song.ini` is disabled by rename.
+  `song.original.faulty.ini` before writing repaired wizard step-one files, and
+  creates a sibling `song.original.ini` before scanned-table metadata edits or
+  before a `song.ini` is disabled by rename. Only `song.original.ini` marks a
+  row as restorable and can be consumed by restore.
 - Uses `tauri.conf.json` to open the main window maximized, restore it to
   1920x1080 when un-maximized, and configure bundling and updater artifacts.
 

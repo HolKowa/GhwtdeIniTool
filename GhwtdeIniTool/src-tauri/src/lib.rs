@@ -614,7 +614,7 @@ fn validate_song_ini_file_path(
     let normalized_contents = normalize_song_ini_key_case(contents);
     let parsed_song = parse_song_ini(relative_path, &normalized_contents)?;
 
-    write_song_ini_file(&path, &normalized_contents, settings.keep_original_song_ini)
+    write_repaired_song_ini_file(&path, &normalized_contents, settings.keep_original_song_ini)
         .map_err(|err| format!("Failed to write {}: {err}", path.display()))?;
 
     let parsed_songs = upsert_song_ini_store(store, parsed_song)?;
@@ -886,6 +886,18 @@ fn write_song_ini_file(
     fs::write(path, contents)
 }
 
+fn write_repaired_song_ini_file(
+    path: &Path,
+    contents: &str,
+    keep_original_song_ini: bool,
+) -> io::Result<()> {
+    if keep_original_song_ini {
+        backup_faulty_original_song_ini(path)?;
+    }
+
+    fs::write(path, contents)
+}
+
 fn backup_original_song_ini(path: &Path) -> io::Result<()> {
     let backup_path = original_song_ini_path(path);
 
@@ -896,8 +908,22 @@ fn backup_original_song_ini(path: &Path) -> io::Result<()> {
     fs::copy(path, backup_path).map(|_| ())
 }
 
+fn backup_faulty_original_song_ini(path: &Path) -> io::Result<()> {
+    let backup_path = faulty_original_song_ini_path(path);
+
+    if backup_path.exists() {
+        return Ok(());
+    }
+
+    fs::copy(path, backup_path).map(|_| ())
+}
+
 fn original_song_ini_path(path: &Path) -> PathBuf {
     path.with_file_name("song.original.ini")
+}
+
+fn faulty_original_song_ini_path(path: &Path) -> PathBuf {
+    path.with_file_name("song.original.faulty.ini")
 }
 
 fn parse_song_ini(relative_path: &str, contents: &str) -> Result<ParsedSongIni, String> {
@@ -3424,6 +3450,26 @@ mod tests {
     }
 
     #[test]
+    fn song_scan_ignores_faulty_original_backup_for_restore_state() {
+        let project = TestProject::new("song-scan-faulty-original-backup");
+        write_test_file_contents(
+            &project.mods_dir.join("song.ini"),
+            valid_song_ini("Current", "current_checksum").as_str(),
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("song.original.faulty.ini"),
+            "[SongInfo\nTitle=Broken\n",
+        );
+        let store = SongIniStore::default();
+
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should complete");
+
+        assert_eq!(result.songs.len(), 1);
+        assert!(!result.songs[0].has_original_song_ini);
+    }
+
+    #[test]
     fn song_scan_returns_empty_display_values_for_missing_optional_keys() {
         let project = TestProject::new("song-scan-display-empty");
         write_test_file_contents(
@@ -4040,7 +4086,7 @@ mod tests {
     }
 
     #[test]
-    fn song_validation_writes_valid_contents_and_updates_store() {
+    fn song_validation_writes_valid_contents_with_faulty_backup_and_updates_store() {
         let project = TestProject::new("song-validate-valid");
         let song_ini_path = project.mods_dir.join("song.ini");
         let original_song_ini = valid_song_ini("Original", "original_checksum");
@@ -4063,9 +4109,10 @@ mod tests {
             fs::read_to_string(song_ini_path).expect("song.ini should read"),
             repaired_song_ini
         );
+        assert!(!project.mods_dir.join("song.original.ini").exists());
         assert_eq!(
-            fs::read_to_string(project.mods_dir.join("song.original.ini"))
-                .expect("song.original.ini should read"),
+            fs::read_to_string(project.mods_dir.join("song.original.faulty.ini"))
+                .expect("song.original.faulty.ini should read"),
             original_song_ini
         );
         assert_eq!(stored_songs.len(), 1);
@@ -4289,6 +4336,48 @@ mod tests {
     }
 
     #[test]
+    fn song_metadata_update_creates_original_backup_when_faulty_backup_exists() {
+        let project = TestProject::new("song-metadata-faulty-backup");
+        let song_ini_path = project.mods_dir.join("song.ini");
+        let original_song_ini = valid_song_ini("Original", "metadata_checksum");
+        let faulty_backup = "[SongInfo\nTitle=Broken\n";
+        write_test_file_contents(&song_ini_path, &original_song_ini);
+        write_test_file_contents(
+            &project.mods_dir.join("song.original.faulty.ini"),
+            faulty_backup,
+        );
+        let store = SongIniStore::default();
+        scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should populate store");
+
+        let result = update_scanned_song_metadata_path(
+            &test_scan_settings(&project),
+            "song.ini",
+            ScannedSongMetadataInput {
+                artist: "New Artist".to_string(),
+                title: "New Title".to_string(),
+                year: "2001".to_string(),
+                genre: "Metal".to_string(),
+                game_icon: "gh3".to_string(),
+            },
+            &store,
+        )
+        .expect("metadata update should pass");
+
+        assert!(result.songs[0].has_original_song_ini);
+        assert_eq!(
+            fs::read_to_string(project.mods_dir.join("song.original.ini"))
+                .expect("proper backup should read"),
+            original_song_ini
+        );
+        assert_eq!(
+            fs::read_to_string(project.mods_dir.join("song.original.faulty.ini"))
+                .expect("faulty backup should read"),
+            faulty_backup
+        );
+    }
+
+    #[test]
     fn song_metadata_update_rejects_unsafe_path() {
         let project = TestProject::new("song-metadata-unsafe");
         let outside_file = project.root.join("song.ini");
@@ -4374,6 +4463,30 @@ mod tests {
     }
 
     #[test]
+    fn song_restore_original_rejects_faulty_backup_only() {
+        let project = TestProject::new("song-restore-faulty-only");
+        write_test_file_contents(
+            &project.mods_dir.join("song.ini"),
+            valid_song_ini("Current", "current_checksum").as_str(),
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("song.original.faulty.ini"),
+            "[SongInfo\nTitle=Broken\n",
+        );
+        let store = SongIniStore::default();
+
+        let result =
+            restore_original_song_ini_path(&test_scan_settings(&project), "song.ini", &store)
+                .expect_err("restore without proper backup should fail");
+
+        assert_eq!(
+            result,
+            "song.ini has no original song.ini backup to restore."
+        );
+        assert!(project.mods_dir.join("song.original.faulty.ini").exists());
+    }
+
+    #[test]
     fn song_validation_preserves_existing_original_backup() {
         let project = TestProject::new("song-validate-existing-backup");
         let song_ini_path = project.mods_dir.join("song.ini");
@@ -4419,6 +4532,7 @@ mod tests {
         .expect("validation should pass");
 
         assert!(!project.mods_dir.join("song.original.ini").exists());
+        assert!(!project.mods_dir.join("song.original.faulty.ini").exists());
     }
 
     #[cfg(unix)]
@@ -4449,6 +4563,7 @@ mod tests {
             original_song_ini
         );
         assert!(!project.mods_dir.join("song.original.ini").exists());
+        assert!(!project.mods_dir.join("song.original.faulty.ini").exists());
     }
 
     #[test]
