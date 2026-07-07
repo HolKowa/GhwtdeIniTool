@@ -641,8 +641,13 @@ export function ScannedSongsTable({
                 {columns.map((column, index) => (
                   <th className="scanned-songs-resizable" key={column.key}>
                     <button type="button" onClick={() => changeSort(column.key)}>
-                      {column.label}
-                      <span aria-hidden="true">
+                      <span className="scanned-songs-column-label">
+                        {column.label}
+                      </span>
+                      <span
+                        aria-hidden="true"
+                        className="scanned-songs-sort-indicator"
+                      >
                         {sortKey === column.key
                           ? sortDirection === "asc"
                             ? "asc"

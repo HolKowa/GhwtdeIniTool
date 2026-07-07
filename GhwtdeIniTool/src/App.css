@@ -181,6 +181,7 @@ button {
   z-index: 1;
   background: #f4f4f4;
   font-weight: 700;
+  overflow: visible;
 }
 
 .scanned-songs-resizable {
@@ -190,7 +191,7 @@ button {
 .scanned-songs-resize-handle {
   position: absolute;
   top: 0;
-  right: -0.2rem;
+  right: 0;
   bottom: 0;
   z-index: 2;
   width: 0.4rem;
@@ -201,7 +202,7 @@ button {
 .scanned-songs-resize-handle::after {
   position: absolute;
   top: 0.3rem;
-  right: 0.18rem;
+  right: 0;
   bottom: 0.3rem;
   width: 1px;
   background: #d0d0d0;
@@ -255,10 +256,19 @@ td.scanned-songs-action-column {
   color: inherit;
   font: inherit;
   cursor: pointer;
+  overflow: hidden;
   text-align: left;
 }
 
-.scanned-songs-table th button span {
+.scanned-songs-column-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scanned-songs-sort-indicator {
+  flex: 0 0 auto;
   color: #565656;
   font-size: 0.64rem;
   font-weight: 600;
@@ -1191,7 +1201,7 @@ td.scanned-songs-action-column {
 
   .scanned-songs-header span,
   .scanned-songs-empty,
-  .scanned-songs-table th button span {
+  .scanned-songs-sort-indicator {
     color: #c8c8c8;
   }
 
