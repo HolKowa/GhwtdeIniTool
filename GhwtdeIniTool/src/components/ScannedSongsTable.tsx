@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 
 import type {
@@ -61,19 +61,23 @@ const columns: Column[] = [
 const defaultColumnWidths: Record<SortKey, number> = {
   artist: 240,
   title: 315,
-  year: 100,
-  genre: 150,
+  year: 80,
+  genre: 110,
   game_icon: 138,
-  guitar: 90,
-  bass: 90,
-  drums: 90,
-  vocals: 90,
-  coop_guitar: 104,
-  coop_bass: 98,
+  guitar: 80,
+  bass: 80,
+  drums: 80,
+  vocals: 80,
+  coop_guitar: 90,
+  coop_bass: 90,
 };
 const minColumnWidth = 70;
-const includeColumnWidth = 104;
+const includeColumnWidth = 80;
 const actionsColumnWidth = 184;
+const defaultTableWidth =
+  columns.reduce((total, column) => total + defaultColumnWidths[column.key], 0) +
+  includeColumnWidth +
+  actionsColumnWidth;
 
 const emptyFilters: Record<SortKey, string> = {
   artist: "",
@@ -117,6 +121,8 @@ export function ScannedSongsTable({
   const [filters, setFilters] = useState<Record<SortKey, string>>(emptyFilters);
   const [columnWidths, setColumnWidths] =
     useState<Record<SortKey, number>>(defaultColumnWidths);
+  const tableWrapRef = useRef<HTMLDivElement | null>(null);
+  const hasUserResizedColumnsRef = useRef(false);
   const [editedRows, setEditedRows] = useState<
     Record<string, ScannedSongMetadata>
   >({});
@@ -250,6 +256,56 @@ export function ScannedSongsTable({
       ),
     [includedSongPathSet, songs],
   );
+
+  useEffect(() => {
+    const tableWrap = tableWrapRef.current;
+
+    if (!tableWrap || hasUserResizedColumnsRef.current) {
+      return;
+    }
+
+    const tableWrapElement = tableWrap;
+
+    function updateDefaultTitleWidth() {
+      if (hasUserResizedColumnsRef.current) {
+        return;
+      }
+
+      const extraWidth = Math.max(
+        0,
+        tableWrapElement.clientWidth - defaultTableWidth,
+      );
+      const nextTitleWidth = defaultColumnWidths.title + extraWidth;
+
+      setColumnWidths((currentWidths) => {
+        if (currentWidths.title === nextTitleWidth) {
+          return currentWidths;
+        }
+
+        return {
+          ...defaultColumnWidths,
+          title: nextTitleWidth,
+        };
+      });
+    }
+
+    updateDefaultTitleWidth();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", updateDefaultTitleWidth);
+
+      return () => {
+        window.removeEventListener("resize", updateDefaultTitleWidth);
+      };
+    }
+
+    const resizeObserver = new ResizeObserver(updateDefaultTitleWidth);
+    resizeObserver.observe(tableWrapElement);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [songs.length]);
 
   useEffect(() => {
     const currentSongPathSet = new Set(songs.map((song) => song.relative_path));
@@ -415,6 +471,7 @@ export function ScannedSongsTable({
 
   function resizeColumn(columnIndex: number, event: ReactMouseEvent) {
     event.preventDefault();
+    hasUserResizedColumnsRef.current = true;
     const startX = event.clientX;
     const leftKey = columns[columnIndex].key;
     const rightKey = columns[columnIndex + 1].key;
@@ -620,7 +677,7 @@ export function ScannedSongsTable({
       {songs.length === 0 ? (
         <p className="scanned-songs-empty">No parsed songs found.</p>
       ) : (
-        <div className="scanned-songs-table-wrap">
+        <div className="scanned-songs-table-wrap" ref={tableWrapRef}>
           <table
             className="scanned-songs-table"
             style={{ minWidth: tableWidth }}
