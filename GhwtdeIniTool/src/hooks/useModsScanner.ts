@@ -5,6 +5,7 @@ import {
   analyzeScannedSongInstruments,
   deleteSongIniConflictFile,
   disableSongIniFile,
+  enableSongIniFile,
   restoreOriginalSongIni,
   scanSongIniFiles,
   updateScannedSongMetadata,
@@ -26,6 +27,7 @@ export type ScanModsStatus =
   | "readySongRepair"
   | "validatingSong"
   | "disablingSong"
+  | "enablingSong"
   | "deletingSongConflict"
   | "error";
 
@@ -321,6 +323,7 @@ export function useModsScanner() {
       }
 
       setScanStatus("disablingSong");
+      setSongIniValidationError("");
       setSongIniConflictError("");
 
       try {
@@ -342,6 +345,44 @@ export function useModsScanner() {
         setScanStatus("readySongRepair");
         setScanToast({
           message: `${relativePath} disabled as ${result.disabled_path}`,
+          tone: "success",
+        });
+      } catch (err) {
+        const error = String(err);
+
+        setSongIniConflictError(error);
+        setScanStatus("readySongRepair");
+      }
+    },
+    [scanStatus],
+  );
+
+  const enableSongIni = useCallback(
+    async (relativePath: string) => {
+      if (scanStatus !== "readySongRepair") {
+        return;
+      }
+
+      setScanStatus("enablingSong");
+      setSongIniValidationError("");
+      setSongIniConflictError("");
+
+      try {
+        const result = await enableSongIniFile(relativePath);
+        setDisabledSongIniPaths((currentPaths) =>
+          removePath(currentPaths, relativePath),
+        );
+        setSongIniScanResult((currentResult) =>
+          currentResult
+            ? {
+                ...currentResult,
+                songs_parsed: result.songs_parsed,
+              }
+            : currentResult,
+        );
+        setScanStatus("readySongRepair");
+        setScanToast({
+          message: `${relativePath} enabled as ${result.enabled_path}`,
           tone: "success",
         });
       } catch (err) {
@@ -535,6 +576,7 @@ export function useModsScanner() {
     deletedSongIniConflictPaths,
     disableSongIni,
     disabledSongIniPaths,
+    enableSongIni,
     dismissScanToast,
     hasCompletedSongScan,
     instrumentAnalyzeError,

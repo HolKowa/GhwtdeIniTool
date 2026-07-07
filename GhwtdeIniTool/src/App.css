@@ -755,8 +755,11 @@ td.scanned-songs-action-column {
   flex-direction: column;
 }
 
-.song-ini-editor .primary-btn {
-  align-self: flex-end;
+.song-ini-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
   margin-top: 0.75rem;
 }
 

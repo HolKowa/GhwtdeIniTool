@@ -8,6 +8,7 @@ import type {
   ScannedSongMetadata,
   SongIniDeleteResult,
   SongIniDisableResult,
+  SongIniEnableResult,
   SongIniScanResult,
   SongIniValidationResult,
 } from "../types/scanMods";
@@ -37,6 +38,12 @@ export function validateSongIniFile(relativePath: string, contents: string) {
 
 export function disableSongIniFile(relativePath: string) {
   return invoke<SongIniDisableResult>("disable_song_ini_file", {
+    relativePath,
+  });
+}
+
+export function enableSongIniFile(relativePath: string) {
+  return invoke<SongIniEnableResult>("enable_song_ini_file", {
     relativePath,
   });
 }

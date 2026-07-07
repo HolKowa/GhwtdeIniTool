@@ -9,6 +9,7 @@ type ScanWizardProps = {
   onCopyContentIssuePath: (absolutePath: string) => void;
   onDeleteSongIniConflict: (relativePath: string) => void;
   onDisableSongIni: (relativePath: string) => void;
+  onEnableSongIni: (relativePath: string) => void;
   onSelectSongIni: () => void;
   onValidateSongIni: (relativePath: string, contents: string) => void;
   deletedSongIniConflictPaths: string[];
@@ -44,6 +45,7 @@ export function ScanWizard({
   onCopyContentIssuePath,
   onDeleteSongIniConflict,
   onDisableSongIni,
+  onEnableSongIni,
   onSelectSongIni,
   onValidateSongIni,
   deletedSongIniConflictPaths,
@@ -64,17 +66,20 @@ export function ScanWizard({
   const isScanningSongs = scanStatus === "scanningSongs";
   const isValidatingSong = scanStatus === "validatingSong";
   const isDisablingSong = scanStatus === "disablingSong";
+  const isEnablingSong = scanStatus === "enablingSong";
   const isDeletingSongConflict = scanStatus === "deletingSongConflict";
   const isBusy =
     isScanningSongs ||
     isValidatingSong ||
     isDisablingSong ||
+    isEnablingSong ||
     isDeletingSongConflict;
   const isScanWorkflow =
     scanStatus === "scanningSongs" ||
     scanStatus === "readySongRepair" ||
     scanStatus === "validatingSong" ||
     scanStatus === "disablingSong" ||
+    scanStatus === "enablingSong" ||
     scanStatus === "deletingSongConflict";
   const repairedPathSet = useMemo(
     () => new Set(repairedSongIniPaths),
@@ -90,7 +95,9 @@ export function ScanWizard({
   );
   const faultySongIniFiles = songIniScanResult?.faulty_files ?? [];
   const unresolvedSongIniCount = faultySongIniFiles.filter(
-    (file) => !repairedPathSet.has(file.relative_path),
+    (file) =>
+      !repairedPathSet.has(file.relative_path) &&
+      !disabledPathSet.has(file.relative_path),
   ).length;
   const duplicateChecksumGroups =
     songIniScanResult?.duplicate_checksum_groups ?? [];
@@ -141,6 +148,7 @@ export function ScanWizard({
   const selectedSongIniFile = faultySongIniFiles.find(
     (file) => file.relative_path === selectedSongIniPath,
   );
+  const isSelectedSongIniDisabled = disabledPathSet.has(selectedSongIniPath);
   const selectedSongIniContents =
     selectedSongIniPath in editedSongIniContents
       ? editedSongIniContents[selectedSongIniPath]
@@ -433,7 +441,7 @@ export function ScanWizard({
                   onClick={() => onDisableSongIni(relativePath)}
                   disabled={isBusy || isDisabled || isDeleted}
                 >
-                  {isDisabled ? "Disabled" : "Disable song.ini"}
+                  {isDisabled ? "Disabled" : "Disable"}
                 </button>
               </div>
             </div>
@@ -527,6 +535,12 @@ export function ScanWizard({
                       const isSelected =
                         selectedSongIniPath === file.relative_path;
                       const isRepaired = repairedPathSet.has(file.relative_path);
+                      const isDisabled = disabledPathSet.has(file.relative_path);
+                      const statusLabel = isDisabled
+                        ? "Disabled"
+                        : isRepaired
+                          ? "Fine"
+                          : "Error";
 
                       return (
                         <li key={file.relative_path}>
@@ -534,7 +548,7 @@ export function ScanWizard({
                             className={[
                               "song-ini-file-button",
                               isSelected ? "selected" : "",
-                              isRepaired ? "repaired" : "",
+                              isRepaired || isDisabled ? "repaired" : "",
                             ]
                               .filter(Boolean)
                               .join(" ")}
@@ -545,7 +559,7 @@ export function ScanWizard({
                             }}
                           >
                             <span>{file.relative_path}</span>
-                            <span>{isRepaired ? "Fine" : "Error"}</span>
+                            <span>{statusLabel}</span>
                           </button>
                         </li>
                       );
@@ -555,7 +569,11 @@ export function ScanWizard({
                   <div className="song-ini-editor">
                     {selectedSongIniFile ? (
                       <>
-                        {selectedSongIniFile.error ? (
+                        {isSelectedSongIniDisabled ? (
+                          <p className="scan-wizard-muted">
+                            This song.ini has been disabled.
+                          </p>
+                        ) : selectedSongIniFile.error ? (
                           <p className="scan-wizard-error">
                             {selectedSongIniFile.error}
                           </p>
@@ -569,6 +587,11 @@ export function ScanWizard({
                             {songIniValidationError}
                           </p>
                         )}
+                        {songIniConflictError && (
+                          <p className="scan-wizard-error">
+                            {songIniConflictError}
+                          </p>
+                        )}
                         <textarea
                           className="song-ini-textarea"
                           spellCheck={false}
@@ -580,19 +603,43 @@ export function ScanWizard({
                             }))
                           }
                         />
-                        <button
-                          className="primary-btn"
-                          type="button"
-                          onClick={() =>
-                            onValidateSongIni(
-                              selectedSongIniPath,
-                              selectedSongIniContents,
-                            )
-                          }
-                          disabled={isBusy || !selectedSongIniPath}
-                        >
-                          {isValidatingSong ? "Validating..." : "Validate"}
-                        </button>
+                        <div className="song-ini-editor-actions">
+                          <button
+                            className="secondary-btn"
+                            type="button"
+                            onClick={() =>
+                              isSelectedSongIniDisabled
+                                ? onEnableSongIni(selectedSongIniPath)
+                                : onDisableSongIni(selectedSongIniPath)
+                            }
+                            disabled={isBusy || !selectedSongIniPath}
+                          >
+                            {isDisablingSong
+                              ? "Disabling..."
+                              : isEnablingSong
+                                ? "Enabling..."
+                              : isSelectedSongIniDisabled
+                                ? "Enable"
+                                : "Disable"}
+                          </button>
+                          <button
+                            className="primary-btn"
+                            type="button"
+                            onClick={() =>
+                              onValidateSongIni(
+                                selectedSongIniPath,
+                                selectedSongIniContents,
+                              )
+                            }
+                            disabled={
+                              isBusy ||
+                              !selectedSongIniPath ||
+                              isSelectedSongIniDisabled
+                            }
+                          >
+                            {isValidatingSong ? "Validating..." : "Validate"}
+                          </button>
+                        </div>
                       </>
                     ) : (
                       <p className="scan-wizard-muted">

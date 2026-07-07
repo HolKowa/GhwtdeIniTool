@@ -60,8 +60,8 @@ Important files:
 - `GhwtdeIniTool/src/services/projectSettingsApi.ts` wraps the Tauri settings
   commands.
 - `GhwtdeIniTool/src/services/scanModsApi.ts` wraps the Tauri keep-pattern
-  delete, `song.ini` scan/validation/disable/conflict delete, and instrument
-  analysis commands.
+  delete, `song.ini` scan/validation/disable/enable/conflict delete, and
+  instrument analysis commands.
 - `GhwtdeIniTool/src/services/modsFolderDialog.ts` wraps Tauri folder pickers.
 - `GhwtdeIniTool/src/types/projectSettings.ts` defines the frontend settings
   shape returned by Rust.
@@ -98,9 +98,10 @@ Current frontend behavior:
 - The Scan MODS folder button opens a three-step wizard that parses `song.ini`
   files, stores valid parsed results in backend memory, lets the user repair
   faulty files, then resolves duplicate checksum groups and folders containing
-  both `song.ini` and `song.disabled.ini`. Duplicate checksums are resolved by
-  disabling selected active songs, which renames `song.ini` to
-  `song.disabled.ini`; active/disabled sibling conflicts can delete either file.
+  both `song.ini` and `song.disabled.ini`. Faulty step-one entries can be
+  disabled to rename `song.ini` to `song.disabled.ini`, then enabled again if
+  needed. Duplicate checksums are resolved by disabling selected active songs;
+  active/disabled sibling conflicts can delete either file.
   The final step validates each active song folder's `Content` and
   `Content/MUSIC` layout against the parsed checksum, accepts those folder and
   checksum-derived file names case-insensitively without renaming them, reports
@@ -174,9 +175,9 @@ Current backend behavior:
 - Registers the Tauri opener, updater, process, and dialog plugins.
 - Exposes `load_project_settings`, `save_project_settings`,
   `preview_keep_only_files_delete`, `delete_keep_only_files`,
-  `scan_song_ini_files`, `validate_song_ini_file`, `disable_song_ini_file`, and
-  `delete_song_ini_conflict_file` Tauri commands. It also exposes
-  `update_scanned_song_metadata` for row-level scanned-table edits and
+  `scan_song_ini_files`, `validate_song_ini_file`, `disable_song_ini_file`,
+  `enable_song_ini_file`, and `delete_song_ini_conflict_file` Tauri commands.
+  It also exposes `update_scanned_song_metadata` for row-level scanned-table edits and
   `restore_original_song_ini` for consuming a sibling `song.original.ini` back
   into the active `song.ini`.
 - `scan_song_ini_files` emits `song_scan_progress` events while finding songs,
@@ -259,7 +260,8 @@ What was checked:
   validation writes, original backup behavior, store updates, duplicate key
   rejection, required `song.ini` fields, canonical key casing auto-correction,
   duplicate checksum grouping, disabled-file conflict reporting,
-  disable-by-rename behavior, conflict file deletion, content layout validation,
+  disable/enable-by-rename behavior, conflict file deletion, content layout
+  validation,
   content folder and checksum filename case-insensitive matching, debug-only
   missing `Content/MUSIC` suppression, strict extra content file reporting,
   refreshed content issues after checksum repair, song scan progress events,

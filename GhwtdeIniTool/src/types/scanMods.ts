@@ -107,6 +107,12 @@ export type SongIniDisableResult = {
   songs_parsed: number;
 };
 
+export type SongIniEnableResult = {
+  relative_path: string;
+  enabled_path: string;
+  songs_parsed: number;
+};
+
 export type SongIniDeleteResult = {
   relative_path: string;
   songs_parsed: number;

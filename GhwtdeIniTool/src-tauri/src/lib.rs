@@ -209,6 +209,13 @@ struct SongIniDisableResult {
 }
 
 #[derive(Debug, Serialize)]
+struct SongIniEnableResult {
+    relative_path: String,
+    enabled_path: String,
+    songs_parsed: usize,
+}
+
+#[derive(Debug, Serialize)]
 struct SongIniDeleteResult {
     relative_path: String,
     songs_parsed: usize,
@@ -322,6 +329,15 @@ fn disable_song_ini_file(
 ) -> Result<SongIniDisableResult, String> {
     let settings = scan_settings()?;
     disable_song_ini_file_path(&settings, &relative_path, &store)
+}
+
+#[tauri::command]
+fn enable_song_ini_file(
+    relative_path: String,
+    store: tauri::State<'_, SongIniStore>,
+) -> Result<SongIniEnableResult, String> {
+    let settings = scan_settings()?;
+    enable_song_ini_file_path(&settings, &relative_path, &store)
 }
 
 #[tauri::command]
@@ -645,6 +661,56 @@ fn disable_song_ini_file_path(
     Ok(SongIniDisableResult {
         relative_path: relative_path.to_string(),
         disabled_path: mods_relative_path(mods_dir, &disabled_path)?,
+        songs_parsed,
+    })
+}
+
+fn enable_song_ini_file_path(
+    settings: &ScanSettings,
+    relative_path: &str,
+    store: &SongIniStore,
+) -> Result<SongIniEnableResult, String> {
+    let mods_dir = &settings.mods_dir;
+    let path = checked_mods_relative_path_allow_missing(mods_dir, relative_path)?;
+
+    if !is_song_ini(&path) {
+        return Err(format!("{relative_path} is not a song.ini file."));
+    }
+
+    if path.exists() {
+        return Err(format!("{relative_path} is already enabled."));
+    }
+
+    let disabled_path = path.with_file_name("song.disabled.ini");
+
+    if !disabled_path.is_file() {
+        return Err(format!(
+            "{} has no disabled song.ini file to enable.",
+            relative_path
+        ));
+    }
+
+    let disabled_contents = fs::read_to_string(&disabled_path)
+        .map_err(|err| format!("Failed to read {}: {err}", disabled_path.display()))?;
+    let parsed_song =
+        parse_song_ini(relative_path, &normalize_song_ini_key_case(&disabled_contents)).ok();
+
+    fs::rename(&disabled_path, &path).map_err(|err| {
+        format!(
+            "Failed to enable {} as {}: {err}",
+            disabled_path.display(),
+            path.display()
+        )
+    })?;
+
+    let songs_parsed = match parsed_song {
+        Some(parsed_song) => upsert_song_ini_store(store, parsed_song)?.len(),
+        None => store_song_count(store)?,
+    };
+
+    Ok(SongIniEnableResult {
+        relative_path: relative_path.to_string(),
+        enabled_path: mods_relative_path(mods_dir, &path)?,
         songs_parsed,
     })
 }
@@ -2423,22 +2489,7 @@ fn store_song_count(store: &SongIniStore) -> Result<usize, String> {
 }
 
 fn checked_mods_relative_path(mods_dir: &Path, relative_path: &str) -> Result<PathBuf, String> {
-    let path = Path::new(relative_path);
-
-    if path.components().any(|component| {
-        matches!(
-            component,
-            std::path::Component::ParentDir
-                | std::path::Component::RootDir
-                | std::path::Component::Prefix(_)
-        )
-    }) {
-        return Err(format!(
-            "Rejected unsafe MODS-relative path {relative_path}."
-        ));
-    }
-
-    let full_path = mods_dir.join(path);
+    let full_path = checked_mods_relative_path_allow_missing(mods_dir, relative_path)?;
 
     if !full_path.is_file() {
         return Err(format!(
@@ -2456,6 +2507,49 @@ fn checked_mods_relative_path(mods_dir: &Path, relative_path: &str) -> Result<Pa
     }
 
     Ok(canonical_path)
+}
+
+fn checked_mods_relative_path_allow_missing(
+    mods_dir: &Path,
+    relative_path: &str,
+) -> Result<PathBuf, String> {
+    let path = Path::new(relative_path);
+
+    if path.components().any(|component| {
+        matches!(
+            component,
+            std::path::Component::ParentDir
+                | std::path::Component::RootDir
+                | std::path::Component::Prefix(_)
+        )
+    }) {
+        return Err(format!(
+            "Rejected unsafe MODS-relative path {relative_path}."
+        ));
+    }
+
+    let full_path = mods_dir.join(path);
+    let Some(parent_path) = full_path.parent() else {
+        return Ok(full_path);
+    };
+
+    if !parent_path.exists() {
+        return Ok(full_path);
+    }
+
+    let canonical_parent_path = parent_path
+        .canonicalize()
+        .map_err(|err| format!("Failed to resolve {}: {err}", parent_path.display()))?;
+
+    if !canonical_parent_path.starts_with(mods_dir) {
+        return Err(format!("Rejected path outside MODS: {relative_path}."));
+    }
+
+    let Some(file_name) = full_path.file_name() else {
+        return Err(format!("Rejected unsafe MODS-relative path {relative_path}."));
+    };
+
+    Ok(canonical_parent_path.join(file_name))
 }
 
 fn keep_patterns(pattern: &str) -> Vec<String> {
@@ -4364,6 +4458,83 @@ mod tests {
     }
 
     #[test]
+    fn song_enable_renames_disabled_file_and_updates_store_when_valid() {
+        let project = TestProject::new("song-enable");
+        let disabled_song_ini = valid_song_ini("Enabled", "enabled_checksum");
+        write_test_file_contents(&project.mods_dir.join("song.disabled.ini"), &disabled_song_ini);
+        let store = SongIniStore::default();
+
+        let result = enable_song_ini_file_path(&test_scan_settings(&project), "song.ini", &store)
+            .expect("enable should succeed");
+
+        assert_eq!(result.relative_path, "song.ini");
+        assert_eq!(result.enabled_path, "song.ini");
+        assert_eq!(result.songs_parsed, 1);
+        assert!(!project.mods_dir.join("song.disabled.ini").exists());
+        assert_eq!(
+            fs::read_to_string(project.mods_dir.join("song.ini"))
+                .expect("enabled song should read"),
+            disabled_song_ini
+        );
+        assert_eq!(store.0.lock().expect("store should lock").len(), 1);
+    }
+
+    #[test]
+    fn song_enable_allows_invalid_disabled_file_without_updating_store() {
+        let project = TestProject::new("song-enable-invalid");
+        let disabled_song_ini = "[SongInfo]\nArtist=No title\n";
+        write_test_file_contents(&project.mods_dir.join("song.disabled.ini"), disabled_song_ini);
+        let store = SongIniStore::default();
+
+        let result = enable_song_ini_file_path(&test_scan_settings(&project), "song.ini", &store)
+            .expect("enable should succeed");
+
+        assert_eq!(result.songs_parsed, 0);
+        assert!(!project.mods_dir.join("song.disabled.ini").exists());
+        assert_eq!(
+            fs::read_to_string(project.mods_dir.join("song.ini"))
+                .expect("enabled song should read"),
+            disabled_song_ini
+        );
+        assert!(store.0.lock().expect("store should lock").is_empty());
+    }
+
+    #[test]
+    fn song_enable_rejects_unsafe_enabled_and_missing_disabled_paths() {
+        let project = TestProject::new("song-enable-rejects");
+        let outside_file = project.root.join("song.disabled.ini");
+        let enabled_dir = project.mods_dir.join("AlreadyEnabled");
+        write_test_file_contents(&outside_file, valid_song_ini("Outside", "outside").as_str());
+        fs::create_dir_all(&enabled_dir).expect("enabled folder should be created");
+        write_test_file_contents(
+            &enabled_dir.join("song.ini"),
+            valid_song_ini("Enabled", "enabled_checksum").as_str(),
+        );
+        let store = SongIniStore::default();
+
+        assert_eq!(
+            enable_song_ini_file_path(&test_scan_settings(&project), "../song.ini", &store)
+                .expect_err("unsafe path should be rejected"),
+            "Rejected unsafe MODS-relative path ../song.ini."
+        );
+        assert_eq!(
+            enable_song_ini_file_path(
+                &test_scan_settings(&project),
+                "AlreadyEnabled/song.ini",
+                &store,
+            )
+            .expect_err("enabled song should be rejected"),
+            "AlreadyEnabled/song.ini is already enabled."
+        );
+        assert_eq!(
+            enable_song_ini_file_path(&test_scan_settings(&project), "Missing/song.ini", &store)
+                .expect_err("missing disabled song should be rejected"),
+            "Missing/song.ini has no disabled song.ini file to enable."
+        );
+        assert!(outside_file.exists());
+    }
+
+    #[test]
     fn song_conflict_delete_removes_selected_active_or_disabled_file() {
         let project = TestProject::new("song-conflict-delete");
         let active_dir = project.mods_dir.join("Active");
@@ -4470,6 +4641,7 @@ pub fn run() {
             scan_song_ini_files,
             validate_song_ini_file,
             disable_song_ini_file,
+            enable_song_ini_file,
             delete_song_ini_conflict_file,
             update_scanned_song_metadata,
             restore_original_song_ini,

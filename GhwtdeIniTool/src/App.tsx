@@ -59,6 +59,7 @@ function App() {
     deletedSongIniConflictPaths,
     disableSongIni,
     disabledSongIniPaths,
+    enableSongIni,
     dismissScanToast,
     hasCompletedSongScan,
     instrumentAnalyzeError,
@@ -222,6 +223,7 @@ function App() {
           onCopyContentIssuePath={copyContentIssuePath}
           onDeleteSongIniConflict={deleteSongIniConflict}
           onDisableSongIni={disableSongIni}
+          onEnableSongIni={enableSongIni}
           onSelectSongIni={clearSongIniValidationError}
           onValidateSongIni={validateSongIni}
           deletedSongIniConflictPaths={deletedSongIniConflictPaths}
