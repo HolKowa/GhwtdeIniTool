@@ -129,12 +129,12 @@ Current frontend behavior:
   cells show the highest available difficulty, expose all levels or analyzer
   errors through native hover tooltips, and participate in table sort/filter
   behavior. The table shows `<empty>` for missing display values so filters can
-  find them, provides per-column filters with a scanned-value dropdown for
-  Genre, sortable/resizable data columns, an Include checkbox column with `All`,
-  `Included`, and `Excluded` filtering for choosing which songs remain eligible
-  for later processing, file-like row selection with a right-click
-  include/exclude selection menu, editable metadata cells for the displayed
-  `[SongInfo]` values,
+  find them, provides per-column filters with scanned-value dropdowns for Year,
+  Genre, GameIcon, and instrument columns, sortable/resizable data columns, an
+  Include checkbox column with `All`, `Included`, and `Excluded` filtering for
+  choosing which songs remain eligible for later processing, file-like row
+  selection with a right-click include/exclude selection menu, editable metadata
+  cells for the displayed `[SongInfo]` values,
   fixed-width row actions for copying the song folder, saving metadata edits,
   and restoring from `song.original.ini` when present. The table header shows
   included, visible, and total row counts, duplicate checksum rows are faintly

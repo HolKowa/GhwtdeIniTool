@@ -28,6 +28,7 @@ type InstrumentColumnKey = keyof ScannedSong["instruments"];
 type SortKey = MetadataColumnKey | InstrumentColumnKey;
 type SortDirection = "asc" | "desc";
 type IncludeFilter = "all" | "included" | "excluded";
+type MetadataDropdownFilterKey = "year" | "genre" | "game_icon";
 type ContextMenuState = {
   x: number;
   y: number;
@@ -37,6 +38,11 @@ type Column =
   | { key: InstrumentColumnKey; label: string; type: "instrument" };
 
 const emptyFieldLabel = "<empty>";
+const metadataDropdownFilterKeys = new Set<MetadataColumnKey>([
+  "year",
+  "genre",
+  "game_icon",
+]);
 
 const columns: Column[] = [
   { key: "artist", label: "Artist", type: "metadata" },
@@ -146,15 +152,51 @@ export function ScannedSongsTable({
     columns.reduce((total, column) => total + columnWidths[column.key], 0) +
     includeColumnWidth +
     actionsColumnWidth;
-  const genreFilterOptions = useMemo(() => {
-    const genreSet = new Set(songs.map((song) => displayValue(song.genre)));
+  const metadataDropdownFilterOptions = useMemo(() => {
+    const options = {} as Record<MetadataDropdownFilterKey, string[]>;
 
-    return Array.from(genreSet).sort((left, right) =>
-      left.localeCompare(right, undefined, {
-        numeric: true,
-        sensitivity: "base",
-      }),
-    );
+    metadataDropdownFilterKeys.forEach((key) => {
+      const valueSet = new Set(songs.map((song) => displayValue(song[key])));
+
+      options[key as MetadataDropdownFilterKey] = Array.from(valueSet).sort(
+        (left, right) =>
+          left.localeCompare(right, undefined, {
+            numeric: true,
+            sensitivity: "base",
+          }),
+      );
+    });
+
+    return options;
+  }, [songs]);
+  const instrumentFilterOptions = useMemo(() => {
+    const options = {} as Record<InstrumentColumnKey, string[]>;
+
+    columns.forEach((column) => {
+      if (column.type !== "instrument") {
+        return;
+      }
+
+      const valueSet = new Set(
+        songs.map((song) => song.instruments[column.key].value),
+      );
+
+      options[column.key] = Array.from(valueSet).sort((left, right) => {
+        const rankComparison =
+          (instrumentValueRanks[left] ?? 0) - (instrumentValueRanks[right] ?? 0);
+
+        if (rankComparison !== 0) {
+          return rankComparison;
+        }
+
+        return left.localeCompare(right, undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
+      });
+    });
+
+    return options;
   }, [songs]);
 
   const filteredSongs = useMemo(() => {
@@ -534,11 +576,11 @@ export function ScannedSongsTable({
     if (column.type === "instrument") {
       const value = song.instruments[column.key].value.toLocaleLowerCase();
 
-      return value.includes(filter);
+      return value === filter;
     }
 
-    if (column.key === "genre") {
-      return displayValue(song.genre).toLocaleLowerCase() === filter;
+    if (metadataDropdownFilterKeys.has(column.key)) {
+      return displayValue(song[column.key]).toLocaleLowerCase() === filter;
     }
 
     return displayValue(song[column.key]).toLocaleLowerCase().includes(filter);
@@ -638,18 +680,36 @@ export function ScannedSongsTable({
                 </th>
                 {columns.map((column) => (
                   <th key={column.key}>
-                    {column.key === "genre" ? (
+                    {column.type === "metadata" &&
+                    metadataDropdownFilterKeys.has(column.key) ? (
                       <select
-                        aria-label="Filter Genre"
-                        value={filters.genre}
+                        aria-label={`Filter ${column.label}`}
+                        value={filters[column.key]}
                         onChange={(event) =>
-                          updateFilter("genre", event.target.value)
+                          updateFilter(column.key, event.target.value)
                         }
                       >
                         <option value="">All</option>
-                        {genreFilterOptions.map((genre) => (
-                          <option key={genre} value={genre}>
-                            {genre}
+                        {metadataDropdownFilterOptions[
+                          column.key as MetadataDropdownFilterKey
+                        ].map((value) => (
+                          <option key={value} value={value}>
+                            {value}
+                          </option>
+                        ))}
+                      </select>
+                    ) : column.type === "instrument" ? (
+                      <select
+                        aria-label={`Filter ${column.label}`}
+                        value={filters[column.key]}
+                        onChange={(event) =>
+                          updateFilter(column.key, event.target.value)
+                        }
+                      >
+                        <option value="">All</option>
+                        {instrumentFilterOptions[column.key].map((value) => (
+                          <option key={value} value={value}>
+                            {value}
                           </option>
                         ))}
                       </select>
