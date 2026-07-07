@@ -5,6 +5,7 @@ import type {
   DeleteFilesResult,
   InstrumentAnalyzeMode,
   InstrumentAnalyzeResult,
+  ScannedSongMetadata,
   SongIniDeleteResult,
   SongIniDisableResult,
   SongIniScanResult,
@@ -42,6 +43,22 @@ export function disableSongIniFile(relativePath: string) {
 
 export function deleteSongIniConflictFile(relativePath: string) {
   return invoke<SongIniDeleteResult>("delete_song_ini_conflict_file", {
+    relativePath,
+  });
+}
+
+export function updateScannedSongMetadata(
+  relativePath: string,
+  metadata: ScannedSongMetadata,
+) {
+  return invoke<SongIniValidationResult>("update_scanned_song_metadata", {
+    relativePath,
+    metadata,
+  });
+}
+
+export function restoreOriginalSongIni(relativePath: string) {
+  return invoke<SongIniValidationResult>("restore_original_song_ini", {
     relativePath,
   });
 }

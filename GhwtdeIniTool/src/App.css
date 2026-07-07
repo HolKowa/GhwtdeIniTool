@@ -137,6 +137,7 @@ button {
 }
 
 .scanned-songs-table-wrap {
+  box-sizing: border-box;
   max-height: calc(100vh - 8rem);
   overflow: auto;
   border: 1px solid #d9d9d9;
@@ -201,12 +202,12 @@ button {
   background: #396cd8;
 }
 
-.scanned-songs-folder-column {
+.scanned-songs-action-column {
   border-left: 1px solid #d9d9d9;
   background: #e6e6e6;
 }
 
-th.scanned-songs-folder-column {
+th.scanned-songs-action-column {
   padding-right: 0.2rem;
   padding-left: 0.2rem;
   background: #f4f4f4;
@@ -216,8 +217,8 @@ th.scanned-songs-folder-column {
   white-space: normal;
 }
 
-td.scanned-songs-folder-column {
-  padding: 0;
+td.scanned-songs-action-column {
+  padding: 0.2rem;
 }
 
 .scanned-songs-filters th {
@@ -262,6 +263,10 @@ td.scanned-songs-folder-column {
   line-height: 1.2;
 }
 
+.scanned-songs-metadata-input {
+  height: 1.45rem;
+}
+
 .scanned-songs-table tbody tr:hover td {
   background: #f7f9ff;
 }
@@ -271,25 +276,41 @@ td.scanned-songs-folder-column {
   font-style: italic;
 }
 
-.scanned-songs-folder-btn {
+.scanned-songs-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  width: 100%;
+  height: 100%;
+}
+
+.scanned-songs-action-btn {
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: 0;
-  width: 100%;
-  height: 100%;
+  width: 4.15rem;
+  height: 1.45rem;
   padding: 0;
-  border: none;
-  border-radius: 0;
-  background: transparent;
+  border: 1px solid #c7c7c7;
+  border-radius: 4px;
+  background: #ffffff;
   color: #1f1f1f;
   font-size: 0.72rem;
   line-height: 1.1;
   cursor: pointer;
 }
 
-.scanned-songs-folder-btn:hover {
+.scanned-songs-action-btn:hover:not(:disabled) {
   background: rgba(57, 108, 216, 0.12);
+}
+
+.scanned-songs-action-btn:disabled {
+  border-color: #d0d0d0;
+  background: #eeeeee;
+  color: #777;
+  cursor: not-allowed;
 }
 
 .settings-button {
@@ -1096,21 +1117,29 @@ td.scanned-songs-folder-column {
     background: #333;
   }
 
-  .scanned-songs-folder-column {
+  .scanned-songs-action-column {
     border-left-color: #555;
     background: #444;
   }
 
-  th.scanned-songs-folder-column {
+  th.scanned-songs-action-column {
     background: #333;
   }
 
-  .scanned-songs-folder-btn {
+  .scanned-songs-action-btn {
+    border-color: #555;
+    background: #242424;
     color: #f6f6f6;
   }
 
-  .scanned-songs-folder-btn:hover {
+  .scanned-songs-action-btn:hover:not(:disabled) {
     background: rgba(143, 178, 255, 0.16);
+  }
+
+  .scanned-songs-action-btn:disabled {
+    border-color: #444;
+    background: #303030;
+    color: #888;
   }
 
   .scanned-songs-resize-handle::after {

@@ -92,6 +92,15 @@ struct ParsedIniEntry {
     value: String,
 }
 
+#[derive(Clone, Deserialize)]
+struct ScannedSongMetadataInput {
+    artist: String,
+    title: String,
+    year: String,
+    genre: String,
+    game_icon: String,
+}
+
 #[derive(Default, Serialize)]
 struct SongIniScanResult {
     songs_found: usize,
@@ -113,6 +122,7 @@ struct ScannedSong {
     year: String,
     genre: String,
     game_icon: String,
+    has_original_song_ini: bool,
     instruments: ScannedSongInstruments,
 }
 
@@ -321,6 +331,25 @@ fn delete_song_ini_conflict_file(
 ) -> Result<SongIniDeleteResult, String> {
     let settings = scan_settings()?;
     delete_song_ini_conflict_file_path(&settings, &relative_path, &store)
+}
+
+#[tauri::command]
+fn update_scanned_song_metadata(
+    relative_path: String,
+    metadata: ScannedSongMetadataInput,
+    store: tauri::State<'_, SongIniStore>,
+) -> Result<SongIniValidationResult, String> {
+    let settings = scan_settings()?;
+    update_scanned_song_metadata_path(&settings, &relative_path, metadata, &store)
+}
+
+#[tauri::command]
+fn restore_original_song_ini(
+    relative_path: String,
+    store: tauri::State<'_, SongIniStore>,
+) -> Result<SongIniValidationResult, String> {
+    let settings = scan_settings()?;
+    restore_original_song_ini_path(&settings, &relative_path, &store)
 }
 
 #[tauri::command]
@@ -648,6 +677,102 @@ fn delete_song_ini_conflict_file_path(
     })
 }
 
+fn update_scanned_song_metadata_path(
+    settings: &ScanSettings,
+    relative_path: &str,
+    metadata: ScannedSongMetadataInput,
+    store: &SongIniStore,
+) -> Result<SongIniValidationResult, String> {
+    let mods_dir = &settings.mods_dir;
+    let path = checked_mods_relative_path(mods_dir, relative_path)?;
+
+    if !is_song_ini(&path) {
+        return Err(format!("{relative_path} is not a song.ini file."));
+    }
+
+    let contents = fs::read_to_string(&path)
+        .map_err(|err| format!("Failed to read {}: {err}", path.display()))?;
+    let normalized_contents = normalize_song_ini_key_case(&contents);
+    parse_song_ini(relative_path, &normalized_contents)?;
+    let updated_contents = update_song_ini_metadata_contents(&normalized_contents, &metadata);
+    let parsed_song = parse_song_ini(relative_path, &updated_contents)?;
+
+    write_song_ini_file(&path, &updated_contents, settings.keep_original_song_ini)
+        .map_err(|err| format!("Failed to write {}: {err}", path.display()))?;
+
+    refreshed_song_ini_result(
+        settings,
+        relative_path,
+        updated_contents,
+        parsed_song,
+        store,
+    )
+}
+
+fn restore_original_song_ini_path(
+    settings: &ScanSettings,
+    relative_path: &str,
+    store: &SongIniStore,
+) -> Result<SongIniValidationResult, String> {
+    let mods_dir = &settings.mods_dir;
+    let path = checked_mods_relative_path(mods_dir, relative_path)?;
+
+    if !is_song_ini(&path) {
+        return Err(format!("{relative_path} is not a song.ini file."));
+    }
+
+    let backup_path = original_song_ini_path(&path);
+
+    if !backup_path.is_file() {
+        return Err(format!(
+            "{} has no original song.ini backup to restore.",
+            relative_path
+        ));
+    }
+
+    let backup_contents = fs::read_to_string(&backup_path)
+        .map_err(|err| format!("Failed to read {}: {err}", backup_path.display()))?;
+    let parsed_song = parse_song_ini(
+        relative_path,
+        &normalize_song_ini_key_case(&backup_contents),
+    )?;
+
+    fs::copy(&backup_path, &path).map_err(|err| {
+        format!(
+            "Failed to restore {} from {}: {err}",
+            path.display(),
+            backup_path.display()
+        )
+    })?;
+    fs::remove_file(&backup_path)
+        .map_err(|err| format!("Failed to remove {}: {err}", backup_path.display()))?;
+
+    refreshed_song_ini_result(settings, relative_path, backup_contents, parsed_song, store)
+}
+
+fn refreshed_song_ini_result(
+    settings: &ScanSettings,
+    relative_path: &str,
+    contents: String,
+    parsed_song: ParsedSongIni,
+    store: &SongIniStore,
+) -> Result<SongIniValidationResult, String> {
+    let mods_dir = &settings.mods_dir;
+    let parsed_songs = upsert_song_ini_store(store, parsed_song)?;
+    let songs_parsed = parsed_songs.len();
+    let song_ini_paths = find_song_ini_files(mods_dir)?;
+
+    Ok(SongIniValidationResult {
+        relative_path: relative_path.to_string(),
+        contents,
+        songs_parsed,
+        songs: scanned_songs(mods_dir, &parsed_songs),
+        duplicate_checksum_groups: duplicate_checksum_groups(&parsed_songs),
+        disabled_song_conflicts: disabled_song_conflicts(mods_dir, &song_ini_paths)?,
+        content_file_issues: song_content_issues(mods_dir, &parsed_songs)?,
+    })
+}
+
 fn write_song_ini_file(
     path: &Path,
     contents: &str,
@@ -661,13 +786,17 @@ fn write_song_ini_file(
 }
 
 fn backup_original_song_ini(path: &Path) -> io::Result<()> {
-    let backup_path = path.with_file_name("song.original.ini");
+    let backup_path = original_song_ini_path(path);
 
     if backup_path.exists() {
         return Ok(());
     }
 
     fs::copy(path, backup_path).map(|_| ())
+}
+
+fn original_song_ini_path(path: &Path) -> PathBuf {
+    path.with_file_name("song.original.ini")
 }
 
 fn parse_song_ini(relative_path: &str, contents: &str) -> Result<ParsedSongIni, String> {
@@ -779,6 +908,119 @@ fn split_line_ending(line: &str) -> (&str, &str) {
     (line, "")
 }
 
+fn update_song_ini_metadata_contents(
+    contents: &str,
+    metadata: &ScannedSongMetadataInput,
+) -> String {
+    let updates = [
+        ("Artist", metadata.artist.as_str()),
+        ("Title", metadata.title.as_str()),
+        ("Year", metadata.year.as_str()),
+        ("Genre", metadata.genre.as_str()),
+        ("GameIcon", metadata.game_icon.as_str()),
+    ];
+    let mut updated_contents = String::with_capacity(contents.len());
+    let mut in_song_info = false;
+    let mut found_keys: HashSet<&str> = HashSet::new();
+    let append_line_ending = first_line_ending(contents).unwrap_or("\n");
+    let mut appended_missing_keys = false;
+
+    for line in contents.split_inclusive('\n') {
+        let (line_contents, line_ending) = split_line_ending(line);
+        let line_without_bom = line_contents.trim_start_matches('\u{feff}');
+        let trimmed_line = line_without_bom.trim();
+
+        if trimmed_line.starts_with('[') && trimmed_line.ends_with(']') {
+            if in_song_info && !appended_missing_keys {
+                append_missing_metadata_keys(
+                    &mut updated_contents,
+                    &updates,
+                    &found_keys,
+                    append_line_ending,
+                );
+                appended_missing_keys = true;
+            }
+
+            let section_name = trimmed_line[1..trimmed_line.len() - 1].trim();
+            in_song_info = section_name == "SongInfo";
+            updated_contents.push_str(line_contents);
+            updated_contents.push_str(line_ending);
+            continue;
+        }
+
+        if in_song_info {
+            if let Some((key_part, _value_part)) = line_contents.split_once('=') {
+                let key = key_part.trim();
+
+                if let Some((canonical_key, value)) = updates
+                    .iter()
+                    .find(|(candidate, _)| candidate.eq_ignore_ascii_case(key))
+                {
+                    let leading_whitespace_len = key_part.len() - key_part.trim_start().len();
+                    let trailing_whitespace_len = key_part.len() - key_part.trim_end().len();
+                    updated_contents.push_str(&key_part[..leading_whitespace_len]);
+                    updated_contents.push_str(canonical_key);
+                    updated_contents
+                        .push_str(&key_part[key_part.len() - trailing_whitespace_len..]);
+                    updated_contents.push('=');
+                    updated_contents.push_str(value);
+                    updated_contents.push_str(line_ending);
+                    found_keys.insert(*canonical_key);
+                    continue;
+                }
+            }
+        }
+
+        updated_contents.push_str(line_contents);
+        updated_contents.push_str(line_ending);
+    }
+
+    if in_song_info && !appended_missing_keys {
+        append_missing_metadata_keys(
+            &mut updated_contents,
+            &updates,
+            &found_keys,
+            append_line_ending,
+        );
+    }
+
+    updated_contents
+}
+
+fn append_missing_metadata_keys(
+    contents: &mut String,
+    updates: &[(&'static str, &str)],
+    found_keys: &HashSet<&str>,
+    line_ending: &str,
+) {
+    if !contents.is_empty() && !contents.ends_with('\n') {
+        contents.push_str(line_ending);
+    }
+
+    for (key, value) in updates {
+        if found_keys.contains(key) {
+            continue;
+        }
+
+        contents.push_str(key);
+        contents.push('=');
+        contents.push_str(value);
+        contents.push_str(line_ending);
+    }
+}
+
+fn first_line_ending(contents: &str) -> Option<&'static str> {
+    for line in contents.split_inclusive('\n') {
+        let (_line_contents, line_ending) = split_line_ending(line);
+
+        if !line_ending.is_empty() {
+            return Some(if line_ending == "\r\n" { "\r\n" } else { "\n" });
+        }
+    }
+
+    None
+}
+
 fn canonical_keys_for_section(section_name: &str) -> Option<&'static [&'static str]> {
     match section_name {
         "ModInfo" => Some(MOD_INFO_KEYS),
@@ -865,6 +1107,7 @@ fn scanned_song(mods_dir: &Path, song: &ParsedSongIni) -> ScannedSong {
         year: song_info_value(song, "Year"),
         genre: song_info_value(song, "Genre"),
         game_icon: song_info_value(song, "GameIcon"),
+        has_original_song_ini: original_song_ini_path(&song_ini_path).is_file(),
         instruments,
     }
 }
@@ -3028,6 +3271,27 @@ mod tests {
         assert_eq!(result.songs[0].year, "1984");
         assert_eq!(result.songs[0].genre, "Rock");
         assert_eq!(result.songs[0].game_icon, "ghwt");
+        assert!(!result.songs[0].has_original_song_ini);
+    }
+
+    #[test]
+    fn song_scan_marks_rows_with_original_backup() {
+        let project = TestProject::new("song-scan-original-backup");
+        write_test_file_contents(
+            &project.mods_dir.join("song.ini"),
+            valid_song_ini("Current", "current_checksum").as_str(),
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("song.original.ini"),
+            valid_song_ini("Original", "original_checksum").as_str(),
+        );
+        let store = SongIniStore::default();
+
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should complete");
+
+        assert_eq!(result.songs.len(), 1);
+        assert!(result.songs[0].has_original_song_ini);
     }
 
     #[test]
@@ -3786,6 +4050,137 @@ mod tests {
     }
 
     #[test]
+    fn song_metadata_update_preserves_unrelated_ini_content() {
+        let project = TestProject::new("song-metadata-update");
+        let song_ini_path = project.mods_dir.join("song.ini");
+        write_test_file_contents(
+            &song_ini_path,
+            "[ModInfo]\nName=Original Mod\n\n[SongInfo]\nChecksum=metadata_checksum\nTitle=Old Title\nArtist=Old Artist\nLeaderboard=Yes\n\n[Extra]\nValue=Keep\n",
+        );
+        let store = SongIniStore::default();
+        scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should populate store");
+
+        let result = update_scanned_song_metadata_path(
+            &test_scan_settings(&project),
+            "song.ini",
+            ScannedSongMetadataInput {
+                artist: "New Artist".to_string(),
+                title: "New Title".to_string(),
+                year: "2001".to_string(),
+                genre: "Metal".to_string(),
+                game_icon: "gh3".to_string(),
+            },
+            &store,
+        )
+        .expect("metadata update should pass");
+        let contents = fs::read_to_string(&song_ini_path).expect("song.ini should read");
+
+        assert!(contents.contains("Name=Original Mod"));
+        assert!(contents.contains("Checksum=metadata_checksum"));
+        assert!(contents.contains("Leaderboard=Yes"));
+        assert!(contents.contains("[Extra]\nValue=Keep"));
+        assert!(contents.contains("Artist=New Artist"));
+        assert!(contents.contains("Title=New Title"));
+        assert!(contents.contains("Year=2001"));
+        assert!(contents.contains("Genre=Metal"));
+        assert!(contents.contains("GameIcon=gh3"));
+        assert_eq!(result.songs[0].artist, "New Artist");
+        assert_eq!(result.songs[0].title, "New Title");
+        assert!(result.songs[0].has_original_song_ini);
+        assert_eq!(
+            fs::read_to_string(project.mods_dir.join("song.original.ini"))
+                .expect("backup should read"),
+            "[ModInfo]\nName=Original Mod\n\n[SongInfo]\nChecksum=metadata_checksum\nTitle=Old Title\nArtist=Old Artist\nLeaderboard=Yes\n\n[Extra]\nValue=Keep\n"
+        );
+    }
+
+    #[test]
+    fn song_metadata_update_rejects_unsafe_path() {
+        let project = TestProject::new("song-metadata-unsafe");
+        let outside_file = project.root.join("song.ini");
+        write_test_file_contents(
+            &outside_file,
+            valid_song_ini("Outside", "outside_checksum").as_str(),
+        );
+        let store = SongIniStore::default();
+
+        let result = update_scanned_song_metadata_path(
+            &test_scan_settings(&project),
+            "../song.ini",
+            ScannedSongMetadataInput {
+                artist: "Artist".to_string(),
+                title: "Title".to_string(),
+                year: "2001".to_string(),
+                genre: "Rock".to_string(),
+                game_icon: "gh3".to_string(),
+            },
+            &store,
+        )
+        .expect_err("unsafe metadata update should fail");
+
+        assert_eq!(result, "Rejected unsafe MODS-relative path ../song.ini.");
+    }
+
+    #[test]
+    fn song_restore_original_consumes_backup_and_refreshes_store() {
+        let project = TestProject::new("song-restore-original");
+        let song_ini_path = project.mods_dir.join("song.ini");
+        let backup_path = project.mods_dir.join("song.original.ini");
+        write_test_file_contents(
+            &song_ini_path,
+            valid_song_ini("Current", "current_checksum").as_str(),
+        );
+        write_test_file_contents(
+            &backup_path,
+            "[ModInfo]\nName=Original\n\n[SongInfo]\nChecksum=original_checksum\nArtist=Original Artist\nTitle=Original Title\nYear=1999\nGenre=Rock\nGameIcon=ghwt\n",
+        );
+        let store = SongIniStore::default();
+        scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should populate store");
+
+        let result =
+            restore_original_song_ini_path(&test_scan_settings(&project), "song.ini", &store)
+                .expect("restore should pass");
+
+        assert!(!backup_path.exists());
+        assert_eq!(
+            fs::read_to_string(song_ini_path).expect("song.ini should read"),
+            "[ModInfo]\nName=Original\n\n[SongInfo]\nChecksum=original_checksum\nArtist=Original Artist\nTitle=Original Title\nYear=1999\nGenre=Rock\nGameIcon=ghwt\n"
+        );
+        assert_eq!(result.songs.len(), 1);
+        assert_eq!(result.songs[0].artist, "Original Artist");
+        assert_eq!(result.songs[0].title, "Original Title");
+        assert_eq!(result.songs[0].game_icon, "ghwt");
+        assert!(!result.songs[0].has_original_song_ini);
+
+        let stored_songs = store.0.lock().expect("store should lock");
+        assert_eq!(
+            stored_songs[0].sections[1].entries[0].value,
+            "original_checksum"
+        );
+    }
+
+    #[test]
+    fn song_restore_original_rejects_missing_backup() {
+        let project = TestProject::new("song-restore-missing-original");
+        write_test_file_contents(
+            &project.mods_dir.join("song.ini"),
+            valid_song_ini("Current", "current_checksum").as_str(),
+        );
+        let store = SongIniStore::default();
+
+        let result =
+            restore_original_song_ini_path(&test_scan_settings(&project), "song.ini", &store)
+                .expect_err("restore without backup should fail");
+
+        assert_eq!(
+            result,
+            "song.ini has no original song.ini backup to restore."
+        );
+    }
+
+    #[test]
     fn song_validation_preserves_existing_original_backup() {
         let project = TestProject::new("song-validate-existing-backup");
         let song_ini_path = project.mods_dir.join("song.ini");
@@ -4076,6 +4471,8 @@ pub fn run() {
             validate_song_ini_file,
             disable_song_ini_file,
             delete_song_ini_conflict_file,
+            update_scanned_song_metadata,
+            restore_original_song_ini,
             analyze_scanned_song_instruments,
             analyze_song_pak
         ])

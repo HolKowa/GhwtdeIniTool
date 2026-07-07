@@ -5,15 +5,19 @@ import {
   analyzeScannedSongInstruments,
   deleteSongIniConflictFile,
   disableSongIniFile,
+  restoreOriginalSongIni,
   scanSongIniFiles,
+  updateScannedSongMetadata,
   validateSongIniFile,
 } from "../services/scanModsApi";
 import type {
   InstrumentAnalyzeMode,
   InstrumentAnalyzeProgress,
   InstrumentAnalyzeResult,
+  ScannedSongMetadata,
   SongScanProgress,
   SongIniScanResult,
+  SongIniValidationResult,
 } from "../types/scanMods";
 
 export type ScanModsStatus =
@@ -43,6 +47,14 @@ function waitForNextFrame() {
   });
 }
 
+function addPath(paths: string[], nextPath: string) {
+  return paths.includes(nextPath) ? paths : [...paths, nextPath];
+}
+
+function removePath(paths: string[], pathToRemove: string) {
+  return paths.filter((path) => path !== pathToRemove);
+}
+
 export function useModsScanner() {
   const [scanStatus, setScanStatus] = useState<ScanModsStatus>("idle");
   const [songIniScanResult, setSongIniScanResult] =
@@ -55,6 +67,12 @@ export function useModsScanner() {
   );
   const [deletedSongIniConflictPaths, setDeletedSongIniConflictPaths] =
     useState<string[]>([]);
+  const [savingScannedSongPaths, setSavingScannedSongPaths] = useState<
+    string[]
+  >([]);
+  const [restoringScannedSongPaths, setRestoringScannedSongPaths] = useState<
+    string[]
+  >([]);
   const [songIniValidationError, setSongIniValidationError] = useState("");
   const [songIniConflictError, setSongIniConflictError] = useState("");
   const [scanError, setScanError] = useState("");
@@ -82,6 +100,8 @@ export function useModsScanner() {
     setRepairedSongIniPaths([]);
     setDisabledSongIniPaths([]);
     setDeletedSongIniConflictPaths([]);
+    setSavingScannedSongPaths([]);
+    setRestoringScannedSongPaths([]);
     setSongIniValidationError("");
     setSongIniConflictError("");
     setScanToast(null);
@@ -102,6 +122,8 @@ export function useModsScanner() {
       setRepairedSongIniPaths([]);
       setDisabledSongIniPaths([]);
       setDeletedSongIniConflictPaths([]);
+      setSavingScannedSongPaths([]);
+      setRestoringScannedSongPaths([]);
       setSongIniValidationError("");
       setSongIniConflictError("");
       setScanError(String(err));
@@ -118,6 +140,24 @@ export function useModsScanner() {
     }
   }, [scanStatus]);
 
+  const applySongIniValidationResult = useCallback(
+    (result: SongIniValidationResult) => {
+      setSongIniScanResult((currentResult) =>
+        currentResult === null
+          ? currentResult
+          : {
+              ...currentResult,
+              songs_parsed: result.songs_parsed,
+              songs: result.songs,
+              duplicate_checksum_groups: result.duplicate_checksum_groups,
+              disabled_song_conflicts: result.disabled_song_conflicts,
+              content_file_issues: result.content_file_issues,
+            },
+      );
+    },
+    [],
+  );
+
   const validateSongIni = useCallback(
     async (relativePath: string, contents: string) => {
       if (scanStatus !== "readySongRepair") {
@@ -131,9 +171,7 @@ export function useModsScanner() {
       try {
         const result = await validateSongIniFile(relativePath, contents);
         setRepairedSongIniPaths((currentPaths) =>
-          currentPaths.includes(relativePath)
-            ? currentPaths
-            : [...currentPaths, relativePath],
+          addPath(currentPaths, relativePath),
         );
         setSongIniScanResult((currentResult) =>
           currentResult === null
@@ -179,6 +217,64 @@ export function useModsScanner() {
     [scanStatus],
   );
 
+  const saveScannedSongMetadata = useCallback(
+    async (relativePath: string, metadata: ScannedSongMetadata) => {
+      setSavingScannedSongPaths((currentPaths) =>
+        addPath(currentPaths, relativePath),
+      );
+
+      try {
+        const result = await updateScannedSongMetadata(relativePath, metadata);
+
+        applySongIniValidationResult(result);
+        setScanToast({
+          message: `${relativePath} metadata saved`,
+          tone: "success",
+        });
+      } catch (err) {
+        setScanToast({
+          message: `Failed to save ${relativePath}: ${String(err)}`,
+          tone: "error",
+        });
+        throw err;
+      } finally {
+        setSavingScannedSongPaths((currentPaths) =>
+          removePath(currentPaths, relativePath),
+        );
+      }
+    },
+    [applySongIniValidationResult],
+  );
+
+  const restoreScannedSongOriginal = useCallback(
+    async (relativePath: string) => {
+      setRestoringScannedSongPaths((currentPaths) =>
+        addPath(currentPaths, relativePath),
+      );
+
+      try {
+        const result = await restoreOriginalSongIni(relativePath);
+
+        applySongIniValidationResult(result);
+        setScanToast({
+          message: `${relativePath} restored from original`,
+          tone: "success",
+        });
+      } catch (err) {
+        setScanToast({
+          message: `Failed to restore ${relativePath}: ${String(err)}`,
+          tone: "error",
+        });
+        throw err;
+      } finally {
+        setRestoringScannedSongPaths((currentPaths) =>
+          removePath(currentPaths, relativePath),
+        );
+      }
+    },
+    [applySongIniValidationResult],
+  );
+
   const clearSongIniValidationError = useCallback(() => {
     setSongIniValidationError("");
     setSongIniConflictError("");
@@ -190,6 +286,8 @@ export function useModsScanner() {
     setRepairedSongIniPaths([]);
     setDisabledSongIniPaths([]);
     setDeletedSongIniConflictPaths([]);
+    setSavingScannedSongPaths([]);
+    setRestoringScannedSongPaths([]);
     setSongIniValidationError("");
     setSongIniConflictError("");
     setScanError("");
@@ -228,9 +326,7 @@ export function useModsScanner() {
       try {
         const result = await disableSongIniFile(relativePath);
         setDisabledSongIniPaths((currentPaths) =>
-          currentPaths.includes(relativePath)
-            ? currentPaths
-            : [...currentPaths, relativePath],
+          addPath(currentPaths, relativePath),
         );
         setSongIniScanResult((currentResult) =>
           currentResult
@@ -270,9 +366,7 @@ export function useModsScanner() {
       try {
         const result = await deleteSongIniConflictFile(relativePath);
         setDeletedSongIniConflictPaths((currentPaths) =>
-          currentPaths.includes(relativePath)
-            ? currentPaths
-            : [...currentPaths, relativePath],
+          addPath(currentPaths, relativePath),
         );
         setSongIniScanResult((currentResult) =>
           currentResult
@@ -310,6 +404,8 @@ export function useModsScanner() {
     setRepairedSongIniPaths([]);
     setDisabledSongIniPaths([]);
     setDeletedSongIniConflictPaths([]);
+    setSavingScannedSongPaths([]);
+    setRestoringScannedSongPaths([]);
     setSongIniValidationError("");
     setSongIniConflictError("");
   }, []);
@@ -449,10 +545,14 @@ export function useModsScanner() {
     isScanWizardOpen,
     openInstrumentAnalyzer,
     repairedSongIniPaths,
+    restoringScannedSongPaths,
+    restoreScannedSongOriginal,
     scanError,
     scanMods,
     scanStatus,
     scanToast,
+    saveScannedSongMetadata,
+    savingScannedSongPaths,
     songIniConflictError,
     songIniScanResult,
     songScanProgress,

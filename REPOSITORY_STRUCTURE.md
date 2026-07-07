@@ -126,8 +126,10 @@ Current frontend behavior:
   errors through native hover tooltips, and participate in table sort/filter
   behavior. The table shows `<empty>` for missing display values so filters can
   find them, provides
-  per-column filters, sortable/resizable data columns, a compact folder-copy
-  column, and copies each row's song folder path.
+  per-column filters, sortable/resizable data columns, editable metadata cells
+  for the displayed `[SongInfo]` values, fixed-width row actions for copying the
+  song folder, saving metadata edits, and restoring from `song.original.ini`
+  when present.
 - The settings dialog lets the user choose a MODS folder and toggle whether
   original `song.ini` files are kept before their first edit.
 - Settings changes are saved immediately through `save_project_settings`; there
@@ -173,7 +175,10 @@ Current backend behavior:
 - Exposes `load_project_settings`, `save_project_settings`,
   `preview_keep_only_files_delete`, `delete_keep_only_files`,
   `scan_song_ini_files`, `validate_song_ini_file`, `disable_song_ini_file`, and
-  `delete_song_ini_conflict_file` Tauri commands.
+  `delete_song_ini_conflict_file` Tauri commands. It also exposes
+  `update_scanned_song_metadata` for row-level scanned-table edits and
+  `restore_original_song_ini` for consuming a sibling `song.original.ini` back
+  into the active `song.ini`.
 - `scan_song_ini_files` emits `song_scan_progress` events while finding songs,
   reading `song.ini` files, checking content, and finishing.
 - Exposes `analyze_scanned_song_instruments`, which analyzes instrument support
@@ -210,9 +215,11 @@ Current backend behavior:
   repaired contents before writing them back to disk. Scan and validation
   results include a `songs` array for the frontend table, with each row's
   MODS-relative `song.ini` path, absolute song folder path, and display values
-  parsed from exact `[SongInfo]` keys. Each scanned-song row also reads a fresh
-  sibling `song.instruments.ini` sidecar for instrument availability, or returns
-  `Unknown` instrument values when that sidecar is missing, stale, or invalid.
+  parsed from exact `[SongInfo]` keys, plus whether a sibling
+  `song.original.ini` is available for restore. Each scanned-song row also reads
+  a fresh sibling `song.instruments.ini` sidecar for instrument availability, or
+  returns `Unknown` instrument values when that sidecar is missing, stale, or
+  invalid.
   Debug builds temporarily
   suppress missing `Content/MUSIC` folder warnings when that folder is absent so
   local development can omit bulky MUSIC assets. When
@@ -256,6 +263,7 @@ What was checked:
   content folder and checksum filename case-insensitive matching, debug-only
   missing `Content/MUSIC` suppression, strict extra content file reporting,
   refreshed content issues after checksum repair, song scan progress events,
+  scanned-table metadata updates, original `song.ini` restore behavior,
   instrument summary display policy, instrument sidecar loading/staleness,
   strict instrument analysis mode selection, sidecar writes, case-insensitive
   song PAK resolution, and unsafe repair/action path rejection.

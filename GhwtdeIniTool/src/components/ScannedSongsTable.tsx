@@ -1,10 +1,17 @@
 import { useMemo, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 
-import type { ScannedSong } from "../types/scanMods";
+import type { ScannedSong, ScannedSongMetadata } from "../types/scanMods";
 
 type ScannedSongsTableProps = {
   onCopyFolderPath: (absolutePath: string) => void;
+  onRestoreOriginal: (relativePath: string) => Promise<void>;
+  onSaveMetadata: (
+    relativePath: string,
+    metadata: ScannedSongMetadata,
+  ) => Promise<void>;
+  restoringSongPaths: string[];
+  savingSongPaths: string[];
   songs: ScannedSong[];
 };
 
@@ -33,20 +40,20 @@ const columns: Column[] = [
 ];
 
 const defaultColumnWidths: Record<SortKey, number> = {
-  artist: 280,
-  title: 360,
+  artist: 255,
+  title: 330,
   year: 110,
-  genre: 180,
-  game_icon: 166,
+  genre: 166,
+  game_icon: 150,
   guitar: 96,
   bass: 96,
   drums: 96,
   vocals: 96,
-  coop_guitar: 118,
-  coop_bass: 108,
+  coop_guitar: 110,
+  coop_bass: 103,
 };
 const minColumnWidth = 70;
-const folderColumnWidth = 96;
+const actionsColumnWidth = 220;
 
 const emptyFilters: Record<SortKey, string> = {
   artist: "",
@@ -74,6 +81,10 @@ const instrumentValueRanks: Record<string, number> = {
 
 export function ScannedSongsTable({
   onCopyFolderPath,
+  onRestoreOriginal,
+  onSaveMetadata,
+  restoringSongPaths,
+  savingSongPaths,
   songs,
 }: ScannedSongsTableProps) {
   const [sortKey, setSortKey] = useState<SortKey>("artist");
@@ -81,9 +92,20 @@ export function ScannedSongsTable({
   const [filters, setFilters] = useState<Record<SortKey, string>>(emptyFilters);
   const [columnWidths, setColumnWidths] =
     useState<Record<SortKey, number>>(defaultColumnWidths);
+  const [editedRows, setEditedRows] = useState<
+    Record<string, ScannedSongMetadata>
+  >({});
+  const savingSongPathSet = useMemo(
+    () => new Set(savingSongPaths),
+    [savingSongPaths],
+  );
+  const restoringSongPathSet = useMemo(
+    () => new Set(restoringSongPaths),
+    [restoringSongPaths],
+  );
   const tableWidth =
     columns.reduce((total, column) => total + columnWidths[column.key], 0) +
-    folderColumnWidth;
+    actionsColumnWidth;
 
   const filteredSongs = useMemo(() => {
     const activeFilters = columns
@@ -119,6 +141,92 @@ export function ScannedSongsTable({
       ...currentFilters,
       [key]: value,
     }));
+  }
+
+  function songMetadata(song: ScannedSong): ScannedSongMetadata {
+    return {
+      artist: song.artist,
+      title: song.title,
+      year: song.year,
+      genre: song.genre,
+      game_icon: song.game_icon,
+    };
+  }
+
+  function rowMetadata(song: ScannedSong) {
+    return editedRows[song.relative_path] ?? songMetadata(song);
+  }
+
+  function isRowDirty(song: ScannedSong) {
+    const metadata = editedRows[song.relative_path];
+
+    if (!metadata) {
+      return false;
+    }
+
+    return columns.some(
+      (column) =>
+        column.type === "metadata" && metadata[column.key] !== song[column.key],
+    );
+  }
+
+  function updateMetadataValue(
+    song: ScannedSong,
+    key: MetadataColumnKey,
+    value: string,
+  ) {
+    setEditedRows((currentRows) => {
+      const currentMetadata = currentRows[song.relative_path] ?? songMetadata(song);
+      const nextMetadata = {
+        ...currentMetadata,
+        [key]: value,
+      };
+      const isDirty = columns.some(
+        (column) =>
+          column.type === "metadata" &&
+          nextMetadata[column.key] !== song[column.key],
+      );
+
+      if (!isDirty) {
+        const { [song.relative_path]: _removed, ...remainingRows } =
+          currentRows;
+
+        return remainingRows;
+      }
+
+      return {
+        ...currentRows,
+        [song.relative_path]: nextMetadata,
+      };
+    });
+  }
+
+  async function saveRow(song: ScannedSong) {
+    try {
+      await onSaveMetadata(song.relative_path, rowMetadata(song));
+      setEditedRows((currentRows) => {
+        const { [song.relative_path]: _removed, ...remainingRows } =
+          currentRows;
+
+        return remainingRows;
+      });
+    } catch {
+      // Toast is handled by the scanner hook; keep edits so the user can retry.
+    }
+  }
+
+  async function restoreRow(song: ScannedSong) {
+    try {
+      await onRestoreOriginal(song.relative_path);
+      setEditedRows((currentRows) => {
+        const { [song.relative_path]: _removed, ...remainingRows } =
+          currentRows;
+
+        return remainingRows;
+      });
+    } catch {
+      // Toast is handled by the scanner hook; keep edits so the user can retry.
+    }
   }
 
   function changeSort(nextKey: SortKey) {
@@ -177,6 +285,19 @@ export function ScannedSongsTable({
       <span className={isEmpty ? "scanned-songs-empty-value" : undefined}>
         {displayedValue}
       </span>
+    );
+  }
+
+  function metadataCell(song: ScannedSong, column: MetadataColumnKey) {
+    return (
+      <input
+        aria-label={`${column} for ${song.relative_path}`}
+        className="scanned-songs-metadata-input"
+        value={rowMetadata(song)[column]}
+        onChange={(event) =>
+          updateMetadataValue(song, column, event.target.value)
+        }
+      />
     );
   }
 
@@ -251,7 +372,7 @@ export function ScannedSongsTable({
                   style={{ width: columnWidths[column.key] }}
                 />
               ))}
-              <col style={{ width: folderColumnWidth }} />
+              <col style={{ width: actionsColumnWidth }} />
             </colgroup>
             <thead>
               <tr>
@@ -277,8 +398,8 @@ export function ScannedSongsTable({
                     )}
                   </th>
                 ))}
-                <th className="scanned-songs-folder-column">
-                  {"Folder"}
+                <th className="scanned-songs-action-column">
+                  {"Actions"}
                 </th>
               </tr>
               <tr className="scanned-songs-filters">
@@ -293,28 +414,57 @@ export function ScannedSongsTable({
                     />
                   </th>
                 ))}
-                <th className="scanned-songs-folder-column" />
+                <th className="scanned-songs-action-column" />
               </tr>
             </thead>
             <tbody>
-              {filteredSongs.map((song) => (
-                <tr key={song.relative_path}>
-                  {columns.map((column) => (
-                    <td key={column.key} title={columnTitle(song, column)}>
-                      {displayCell(columnValue(song, column))}
+              {filteredSongs.map((song) => {
+                const isSaving = savingSongPathSet.has(song.relative_path);
+                const isRestoring = restoringSongPathSet.has(song.relative_path);
+                const isRowBusy = isSaving || isRestoring;
+                const isDirty = isRowDirty(song);
+
+                return (
+                  <tr key={song.relative_path}>
+                    {columns.map((column) => (
+                      <td key={column.key} title={columnTitle(song, column)}>
+                        {column.type === "metadata"
+                          ? metadataCell(song, column.key)
+                          : displayCell(columnValue(song, column))}
+                      </td>
+                    ))}
+                    <td className="scanned-songs-action-column">
+                      <div className="scanned-songs-actions">
+                        <button
+                          className="scanned-songs-action-btn"
+                          type="button"
+                          onClick={() =>
+                            onCopyFolderPath(song.folder_absolute_path)
+                          }
+                        >
+                          Folder
+                        </button>
+                        <button
+                          className="scanned-songs-action-btn"
+                          type="button"
+                          onClick={() => saveRow(song)}
+                          disabled={!isDirty || isRowBusy}
+                        >
+                          {isSaving ? "Saving" : "Save"}
+                        </button>
+                        <button
+                          className="scanned-songs-action-btn"
+                          type="button"
+                          onClick={() => restoreRow(song)}
+                          disabled={!song.has_original_song_ini || isRowBusy}
+                        >
+                          {isRestoring ? "Restoring" : "Restore"}
+                        </button>
+                      </div>
                     </td>
-                  ))}
-                  <td className="scanned-songs-folder-column">
-                    <button
-                      className="scanned-songs-folder-btn"
-                      type="button"
-                      onClick={() => onCopyFolderPath(song.folder_absolute_path)}
-                    >
-                      Copy
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
 

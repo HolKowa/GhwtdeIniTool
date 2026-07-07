@@ -68,7 +68,16 @@ export type ScannedSong = {
   year: string;
   genre: string;
   game_icon: string;
+  has_original_song_ini: boolean;
   instruments: ScannedSongInstruments;
+};
+
+export type ScannedSongMetadata = {
+  artist: string;
+  title: string;
+  year: string;
+  genre: string;
+  game_icon: string;
 };
 
 export type SongIniScanResult = {

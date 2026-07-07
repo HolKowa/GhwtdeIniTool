@@ -69,10 +69,14 @@ function App() {
     isScanWizardOpen,
     openInstrumentAnalyzer,
     repairedSongIniPaths,
+    restoringScannedSongPaths,
+    restoreScannedSongOriginal,
     scanError,
     scanMods,
     scanStatus,
     scanToast,
+    saveScannedSongMetadata,
+    savingScannedSongPaths,
     songIniConflictError,
     songIniScanResult,
     songScanProgress,
@@ -155,6 +159,10 @@ function App() {
       {hasScannedSongs && songIniScanResult && (
         <ScannedSongsTable
           onCopyFolderPath={copyContentIssuePath}
+          onRestoreOriginal={restoreScannedSongOriginal}
+          onSaveMetadata={saveScannedSongMetadata}
+          restoringSongPaths={restoringScannedSongPaths}
+          savingSongPaths={savingScannedSongPaths}
           songs={songIniScanResult.songs}
         />
       )}
