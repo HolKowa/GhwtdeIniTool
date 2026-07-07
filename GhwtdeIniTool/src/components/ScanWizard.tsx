@@ -12,6 +12,7 @@ type ScanWizardProps = {
   onEnableSongIni: (relativePath: string) => void;
   onSelectSongIni: () => void;
   onValidateSongIni: (relativePath: string, contents: string) => void;
+  onVerifyContentIssueSong: (relativePath: string) => void;
   deletedSongIniConflictPaths: string[];
   disabledSongIniPaths: string[];
   repairedSongIniPaths: string[];
@@ -21,6 +22,8 @@ type ScanWizardProps = {
   songIniScanResult: SongIniScanResult | null;
   songScanProgress: SongScanProgress | null;
   songIniValidationError: string;
+  verifiedContentIssueSongPaths: string[];
+  verifyingContentIssueSongPath: string;
 };
 
 function scanProgressLabel(progress: SongScanProgress) {
@@ -48,6 +51,7 @@ export function ScanWizard({
   onEnableSongIni,
   onSelectSongIni,
   onValidateSongIni,
+  onVerifyContentIssueSong,
   deletedSongIniConflictPaths,
   disabledSongIniPaths,
   repairedSongIniPaths,
@@ -57,6 +61,8 @@ export function ScanWizard({
   songIniScanResult,
   songScanProgress,
   songIniValidationError,
+  verifiedContentIssueSongPaths,
+  verifyingContentIssueSongPath,
 }: ScanWizardProps) {
   const [activeStep, setActiveStep] = useState<1 | 2 | 3>(1);
   const [selectedSongIniPath, setSelectedSongIniPath] = useState("");
@@ -65,12 +71,14 @@ export function ScanWizard({
   >({});
   const isScanningSongs = scanStatus === "scanningSongs";
   const isValidatingSong = scanStatus === "validatingSong";
+  const isVerifyingSong = scanStatus === "verifyingSong";
   const isDisablingSong = scanStatus === "disablingSong";
   const isEnablingSong = scanStatus === "enablingSong";
   const isDeletingSongConflict = scanStatus === "deletingSongConflict";
   const isBusy =
     isScanningSongs ||
     isValidatingSong ||
+    isVerifyingSong ||
     isDisablingSong ||
     isEnablingSong ||
     isDeletingSongConflict;
@@ -78,6 +86,7 @@ export function ScanWizard({
     scanStatus === "scanningSongs" ||
     scanStatus === "readySongRepair" ||
     scanStatus === "validatingSong" ||
+    scanStatus === "verifyingSong" ||
     scanStatus === "disablingSong" ||
     scanStatus === "enablingSong" ||
     scanStatus === "deletingSongConflict";
@@ -104,6 +113,16 @@ export function ScanWizard({
   const disabledSongConflicts =
     songIniScanResult?.disabled_song_conflicts ?? [];
   const contentFileIssues = songIniScanResult?.content_file_issues ?? [];
+  const songByPath = useMemo(
+    () =>
+      new Map(
+        (songIniScanResult?.songs ?? []).map((song) => [
+          song.relative_path,
+          song,
+        ]),
+      ),
+    [songIniScanResult],
+  );
   const unresolvedDuplicateChecksumGroups = duplicateChecksumGroups.filter(
     (group) =>
       group.relative_paths.filter(
@@ -136,11 +155,43 @@ export function ScanWizard({
       groups.set(issue.song_ini_relative_path, group);
     }
 
-    return Array.from(groups.entries()).map(([relativePath, issues]) => ({
+    const rows = Array.from(groups.entries()).map(([relativePath, issues]) => ({
       relativePath,
       issues,
+      folderAbsolutePath:
+        absoluteParentPath(issues[0].song_ini_absolute_path) ||
+        songByPath.get(relativePath)?.folder_absolute_path ||
+        "",
     }));
-  }, [unresolvedContentFileIssues]);
+
+    for (const relativePath of verifiedContentIssueSongPaths) {
+      if (
+        groups.has(relativePath) ||
+        disabledPathSet.has(relativePath) ||
+        deletedPathSet.has(relativePath)
+      ) {
+        continue;
+      }
+
+      const song = songByPath.get(relativePath);
+
+      if (song) {
+        rows.push({
+          relativePath,
+          issues: [],
+          folderAbsolutePath: song.folder_absolute_path,
+        });
+      }
+    }
+
+    return rows;
+  }, [
+    deletedPathSet,
+    disabledPathSet,
+    songByPath,
+    unresolvedContentFileIssues,
+    verifiedContentIssueSongPaths,
+  ]);
   const unresolvedConflictCount =
     unresolvedDuplicateChecksumGroups.length +
     unresolvedDisabledSongConflicts.length;
@@ -411,29 +462,41 @@ export function ScanWizard({
         <p className="scan-wizard-error">{songIniConflictError}</p>
       )}
 
-      {contentIssuesBySong.map(({ relativePath, issues }) => {
+      {contentIssuesBySong.map(({
+        relativePath,
+        issues,
+        folderAbsolutePath,
+      }) => {
         const firstIssue = issues[0];
         const isDisabled = disabledPathSet.has(relativePath);
         const isDeleted = deletedPathSet.has(relativePath);
+        const isVerifiedFine = issues.length === 0;
+        const isVerifyingThisSong =
+          isVerifyingSong && verifyingContentIssueSongPath === relativePath;
 
         return (
           <div className="song-conflict-group" key={relativePath}>
             <div className="song-conflict-group-header">
               <span>
-                {relativePath} ({firstIssue.checksum})
+                {relativePath}
+                {firstIssue ? ` (${firstIssue.checksum})` : ""}
               </span>
               <div className="song-conflict-actions">
                 <button
                   className="secondary-btn"
                   type="button"
-                  onClick={() =>
-                    onCopyContentIssuePath(
-                      absoluteParentPath(firstIssue.song_ini_absolute_path),
-                    )
-                  }
-                  disabled={isBusy}
+                  onClick={() => onCopyContentIssuePath(folderAbsolutePath)}
+                  disabled={isBusy || !folderAbsolutePath}
                 >
                   Copy path
+                </button>
+                <button
+                  className="secondary-btn"
+                  type="button"
+                  onClick={() => onVerifyContentIssueSong(relativePath)}
+                  disabled={isBusy || isDisabled || isDeleted}
+                >
+                  {isVerifyingThisSong ? "Verifying..." : "Verify"}
                 </button>
                 <button
                   className="secondary-btn"
@@ -446,23 +509,34 @@ export function ScanWizard({
               </div>
             </div>
             <ul className="song-conflict-list">
-              {issues.map((issue) => (
-                <li
-                  className="song-content-issue-row"
-                  key={`${issue.absolute_path}-${issue.message}`}
-                >
+              {isVerifiedFine ? (
+                <li className="song-content-issue-row">
                   <span>
-                    <strong>{issue.message}</strong>
-                    <small>{contentIssueDisplayPath(issue)}</small>
+                    <strong>Fine</strong>
+                    <small>No content file issues found.</small>
                   </span>
                 </li>
-              ))}
+              ) : (
+                issues.map((issue) => (
+                  <li
+                    className="song-content-issue-row"
+                    key={`${issue.absolute_path}-${issue.message}`}
+                  >
+                    <span>
+                      <strong>{issue.message}</strong>
+                      <small>{contentIssueDisplayPath(issue)}</small>
+                    </span>
+                  </li>
+                ))
+              )}
             </ul>
           </div>
         );
       })}
 
-      {hasContentStep && unresolvedContentIssueCount === 0 && (
+      {hasContentStep &&
+        unresolvedContentIssueCount === 0 &&
+        contentIssuesBySong.length === 0 && (
         <p className="scan-wizard-muted">
           All content file issues have been resolved.
         </p>

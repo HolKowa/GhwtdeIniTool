@@ -323,6 +323,15 @@ fn validate_song_ini_file(
 }
 
 #[tauri::command]
+fn verify_song_ini_file(
+    relative_path: String,
+    store: tauri::State<'_, SongIniStore>,
+) -> Result<SongIniValidationResult, String> {
+    let settings = scan_settings()?;
+    verify_song_ini_file_path(&settings, &relative_path, &store)
+}
+
+#[tauri::command]
 fn disable_song_ini_file(
     relative_path: String,
     store: tauri::State<'_, SongIniStore>,
@@ -621,6 +630,32 @@ fn validate_song_ini_file_path(
         disabled_song_conflicts: disabled_song_conflicts(mods_dir, &song_ini_paths)?,
         content_file_issues: song_content_issues(mods_dir, &parsed_songs)?,
     })
+}
+
+fn verify_song_ini_file_path(
+    settings: &ScanSettings,
+    relative_path: &str,
+    store: &SongIniStore,
+) -> Result<SongIniValidationResult, String> {
+    let mods_dir = &settings.mods_dir;
+    let path = checked_mods_relative_path(mods_dir, relative_path)?;
+
+    if !is_song_ini(&path) {
+        return Err(format!("{relative_path} is not a song.ini file."));
+    }
+
+    let contents = fs::read_to_string(&path)
+        .map_err(|err| format!("Failed to read {}: {err}", path.display()))?;
+    let normalized_contents = normalize_song_ini_key_case(&contents);
+    let parsed_song = parse_song_ini(relative_path, &normalized_contents)?;
+
+    refreshed_song_ini_result(
+        settings,
+        relative_path,
+        normalized_contents,
+        parsed_song,
+        store,
+    )
 }
 
 fn disable_song_ini_file_path(
@@ -4144,6 +4179,70 @@ mod tests {
     }
 
     #[test]
+    fn song_verify_refreshes_content_issues_without_rewriting_song_ini() {
+        let project = TestProject::new("song-verify-refresh-content");
+        let song_ini_path = project.mods_dir.join("song.ini");
+        write_test_file_contents(
+            &song_ini_path,
+            valid_song_ini("Original", "verify_checksum").as_str(),
+        );
+        write_valid_content_files(&project.mods_dir, "verify_checksum");
+        fs::remove_file(
+            project
+                .mods_dir
+                .join("Content")
+                .join("MUSIC")
+                .join("verify_checksum_3.fsb.xen"),
+        )
+        .expect("required file should be removed");
+        let store = SongIniStore::default();
+
+        let scan_result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should complete");
+        assert!(scan_result.content_file_issues.iter().any(|issue| {
+            issue.song_ini_relative_path == "song.ini" && issue.message == "Missing required file."
+        }));
+
+        write_test_file(
+            &project
+                .mods_dir
+                .join("Content")
+                .join("MUSIC")
+                .join("verify_checksum_3.fsb.xen"),
+        );
+
+        let result = verify_song_ini_file_path(&test_scan_settings(&project), "song.ini", &store)
+            .expect("verify should pass");
+
+        assert!(result
+            .content_file_issues
+            .iter()
+            .all(|issue| issue.song_ini_relative_path != "song.ini"));
+        assert_eq!(
+            fs::read_to_string(song_ini_path).expect("song.ini should read"),
+            valid_song_ini("Original", "verify_checksum")
+        );
+    }
+
+    #[test]
+    fn song_verify_rejects_invalid_or_unsafe_song_ini_paths() {
+        let project = TestProject::new("song-verify-rejects");
+        write_test_file_contents(&project.mods_dir.join("notes.txt"), "not a song");
+        let store = SongIniStore::default();
+
+        assert_eq!(
+            verify_song_ini_file_path(&test_scan_settings(&project), "../song.ini", &store)
+                .expect_err("unsafe path should be rejected"),
+            "Rejected unsafe MODS-relative path ../song.ini."
+        );
+        assert_eq!(
+            verify_song_ini_file_path(&test_scan_settings(&project), "notes.txt", &store)
+                .expect_err("non-song.ini should be rejected"),
+            "notes.txt is not a song.ini file."
+        );
+    }
+
+    #[test]
     fn song_metadata_update_preserves_unrelated_ini_content() {
         let project = TestProject::new("song-metadata-update");
         let song_ini_path = project.mods_dir.join("song.ini");
@@ -4640,6 +4739,7 @@ pub fn run() {
             delete_keep_only_files,
             scan_song_ini_files,
             validate_song_ini_file,
+            verify_song_ini_file,
             disable_song_ini_file,
             enable_song_ini_file,
             delete_song_ini_conflict_file,

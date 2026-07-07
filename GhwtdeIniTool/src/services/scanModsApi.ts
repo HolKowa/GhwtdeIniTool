@@ -36,6 +36,12 @@ export function validateSongIniFile(relativePath: string, contents: string) {
   });
 }
 
+export function verifySongIniFile(relativePath: string) {
+  return invoke<SongIniValidationResult>("verify_song_ini_file", {
+    relativePath,
+  });
+}
+
 export function disableSongIniFile(relativePath: string) {
   return invoke<SongIniDisableResult>("disable_song_ini_file", {
     relativePath,

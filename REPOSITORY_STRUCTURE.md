@@ -106,7 +106,9 @@ Current frontend behavior:
   `Content/MUSIC` layout against the parsed checksum, accepts those folder and
   checksum-derived file names case-insensitively without renaming them, reports
   missing/misnamed/extra files, lets the user copy the native absolute path to
-  the related song folder, and can disable that `song.ini`. Debug/Tauri dev runs
+  the related song folder, verify a song again after external file fixes, and
+  can disable that `song.ini`. Verified songs remain visible as fine when their
+  content issues are resolved. Debug/Tauri dev runs
   temporarily suppress missing `Content/MUSIC` warnings when that folder is
   absent so local development can omit bulky MUSIC assets. The wizard scales
   with the app window while keeping preview content scrollable, and shows
@@ -179,8 +181,9 @@ Current backend behavior:
 - Registers the Tauri opener, updater, process, and dialog plugins.
 - Exposes `load_project_settings`, `save_project_settings`,
   `preview_keep_only_files_delete`, `delete_keep_only_files`,
-  `scan_song_ini_files`, `validate_song_ini_file`, `disable_song_ini_file`,
-  `enable_song_ini_file`, and `delete_song_ini_conflict_file` Tauri commands.
+  `scan_song_ini_files`, `validate_song_ini_file`, `verify_song_ini_file`,
+  `disable_song_ini_file`, `enable_song_ini_file`, and
+  `delete_song_ini_conflict_file` Tauri commands.
   It also exposes `update_scanned_song_metadata` for row-level scanned-table edits and
   `restore_original_song_ini` for consuming a sibling `song.original.ini` back
   into the active `song.ini`.
@@ -268,7 +271,7 @@ What was checked:
   validation,
   content folder and checksum filename case-insensitive matching, debug-only
   missing `Content/MUSIC` suppression, strict extra content file reporting,
-  refreshed content issues after checksum repair, song scan progress events,
+  refreshed content issues after checksum repair or verify, song scan progress events,
   scanned-table metadata updates, original `song.ini` restore behavior,
   instrument summary display policy, instrument sidecar loading/staleness,
   strict instrument analysis mode selection, sidecar writes, case-insensitive

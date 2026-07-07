@@ -83,6 +83,9 @@ function App() {
     songScanProgress,
     songIniValidationError,
     validateSongIni,
+    verifiedContentIssueSongPaths,
+    verifyingContentIssueSongPath,
+    verifyContentIssueSong,
   } = useModsScanner();
 
   useEffect(() => {
@@ -99,6 +102,7 @@ function App() {
   const isScanBusy =
     scanStatus === "scanningSongs" ||
     scanStatus === "validatingSong" ||
+    scanStatus === "verifyingSong" ||
     scanStatus === "disablingSong" ||
     scanStatus === "deletingSongConflict";
   const isCleanBusy =
@@ -236,6 +240,7 @@ function App() {
           onEnableSongIni={enableSongIni}
           onSelectSongIni={clearSongIniValidationError}
           onValidateSongIni={validateSongIni}
+          onVerifyContentIssueSong={verifyContentIssueSong}
           deletedSongIniConflictPaths={deletedSongIniConflictPaths}
           disabledSongIniPaths={disabledSongIniPaths}
           repairedSongIniPaths={repairedSongIniPaths}
@@ -245,6 +250,8 @@ function App() {
           songIniScanResult={songIniScanResult}
           songScanProgress={songScanProgress}
           songIniValidationError={songIniValidationError}
+          verifiedContentIssueSongPaths={verifiedContentIssueSongPaths}
+          verifyingContentIssueSongPath={verifyingContentIssueSongPath}
         />
       )}
 
