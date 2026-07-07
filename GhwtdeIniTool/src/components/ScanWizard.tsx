@@ -601,15 +601,17 @@ export function ScanWizard({
             </p>
             <h2 id="scan-wizard-title">{title}</h2>
           </div>
-          <button
-            className="close-btn"
-            type="button"
-            onClick={onCancel}
-            aria-label="Cancel scan"
-            disabled={isBusy || (isConflictsOnly && !canFinishConflictStep)}
-          >
-            &times;
-          </button>
+          {!isConflictsOnly && (
+            <button
+              className="close-btn"
+              type="button"
+              onClick={onCancel}
+              aria-label="Cancel scan"
+              disabled={isBusy}
+            >
+              &times;
+            </button>
+          )}
         </div>
 
         <div className="scan-wizard-body">
