@@ -146,6 +146,16 @@ export function ScannedSongsTable({
     columns.reduce((total, column) => total + columnWidths[column.key], 0) +
     includeColumnWidth +
     actionsColumnWidth;
+  const genreFilterOptions = useMemo(() => {
+    const genreSet = new Set(songs.map((song) => displayValue(song.genre)));
+
+    return Array.from(genreSet).sort((left, right) =>
+      left.localeCompare(right, undefined, {
+        numeric: true,
+        sensitivity: "base",
+      }),
+    );
+  }, [songs]);
 
   const filteredSongs = useMemo(() => {
     const activeFilters = columns
@@ -527,6 +537,10 @@ export function ScannedSongsTable({
       return value.includes(filter);
     }
 
+    if (column.key === "genre") {
+      return displayValue(song.genre).toLocaleLowerCase() === filter;
+    }
+
     return displayValue(song[column.key]).toLocaleLowerCase().includes(filter);
   }
 
@@ -624,13 +638,30 @@ export function ScannedSongsTable({
                 </th>
                 {columns.map((column) => (
                   <th key={column.key}>
-                    <input
-                      aria-label={`Filter ${column.label}`}
-                      value={filters[column.key]}
-                      onChange={(event) =>
-                        updateFilter(column.key, event.target.value)
-                      }
-                    />
+                    {column.key === "genre" ? (
+                      <select
+                        aria-label="Filter Genre"
+                        value={filters.genre}
+                        onChange={(event) =>
+                          updateFilter("genre", event.target.value)
+                        }
+                      >
+                        <option value="">All</option>
+                        {genreFilterOptions.map((genre) => (
+                          <option key={genre} value={genre}>
+                            {genre}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        aria-label={`Filter ${column.label}`}
+                        value={filters[column.key]}
+                        onChange={(event) =>
+                          updateFilter(column.key, event.target.value)
+                        }
+                      />
+                    )}
                   </th>
                 ))}
                 <th className="scanned-songs-action-column" />
