@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 
 import type { ScannedSong, ScannedSongMetadata } from "../types/scanMods";
@@ -19,6 +19,10 @@ type MetadataColumnKey = "artist" | "title" | "year" | "genre" | "game_icon";
 type InstrumentColumnKey = keyof ScannedSong["instruments"];
 type SortKey = MetadataColumnKey | InstrumentColumnKey;
 type SortDirection = "asc" | "desc";
+type ContextMenuState = {
+  x: number;
+  y: number;
+};
 type Column =
   | { key: MetadataColumnKey; label: string; type: "metadata" }
   | { key: InstrumentColumnKey; label: string; type: "instrument" };
@@ -40,20 +44,21 @@ const columns: Column[] = [
 ];
 
 const defaultColumnWidths: Record<SortKey, number> = {
-  artist: 255,
-  title: 330,
-  year: 110,
-  genre: 166,
-  game_icon: 150,
-  guitar: 96,
-  bass: 96,
-  drums: 96,
-  vocals: 96,
-  coop_guitar: 110,
-  coop_bass: 103,
+  artist: 240,
+  title: 315,
+  year: 100,
+  genre: 150,
+  game_icon: 138,
+  guitar: 90,
+  bass: 90,
+  drums: 90,
+  vocals: 90,
+  coop_guitar: 104,
+  coop_bass: 98,
 };
 const minColumnWidth = 70;
-const actionsColumnWidth = 220;
+const includeColumnWidth = 84;
+const actionsColumnWidth = 184;
 
 const emptyFilters: Record<SortKey, string> = {
   artist: "",
@@ -95,6 +100,17 @@ export function ScannedSongsTable({
   const [editedRows, setEditedRows] = useState<
     Record<string, ScannedSongMetadata>
   >({});
+  const [includedSongPaths, setIncludedSongPaths] = useState<Set<string>>(
+    () => new Set(songs.map((song) => song.relative_path)),
+  );
+  const [selectedSongPaths, setSelectedSongPaths] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [lastSelectedSongPath, setLastSelectedSongPath] = useState("");
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const knownSongPathSetRef = useRef(
+    new Set(songs.map((song) => song.relative_path)),
+  );
   const savingSongPathSet = useMemo(
     () => new Set(savingSongPaths),
     [savingSongPaths],
@@ -105,6 +121,7 @@ export function ScannedSongsTable({
   );
   const tableWidth =
     columns.reduce((total, column) => total + columnWidths[column.key], 0) +
+    includeColumnWidth +
     actionsColumnWidth;
 
   const filteredSongs = useMemo(() => {
@@ -135,12 +152,91 @@ export function ScannedSongsTable({
 
     return nextSongs;
   }, [filters, songs, sortDirection, sortKey]);
+  const filteredSongPathSet = useMemo(
+    () => new Set(filteredSongs.map((song) => song.relative_path)),
+    [filteredSongs],
+  );
+  const includedSongCount = useMemo(
+    () =>
+      songs.reduce(
+        (total, song) =>
+          includedSongPaths.has(song.relative_path) ? total + 1 : total,
+        0,
+      ),
+    [includedSongPaths, songs],
+  );
+
+  useEffect(() => {
+    const currentSongPathSet = new Set(songs.map((song) => song.relative_path));
+    const previousSongPathSet = knownSongPathSetRef.current;
+
+    setIncludedSongPaths((currentIncludedSongPaths) => {
+      const nextIncludedSongPaths = new Set<string>();
+
+      for (const song of songs) {
+        if (currentIncludedSongPaths.has(song.relative_path)) {
+          nextIncludedSongPaths.add(song.relative_path);
+        } else if (!previousSongPathSet.has(song.relative_path)) {
+          nextIncludedSongPaths.add(song.relative_path);
+        }
+      }
+
+      return nextIncludedSongPaths;
+    });
+
+    setSelectedSongPaths((currentSelectedSongPaths) => {
+      const nextSelectedSongPaths = new Set<string>();
+
+      currentSelectedSongPaths.forEach((path) => {
+        if (currentSongPathSet.has(path) && filteredSongPathSet.has(path)) {
+          nextSelectedSongPaths.add(path);
+        }
+      });
+
+      return nextSelectedSongPaths;
+    });
+
+    setLastSelectedSongPath((currentLastSelectedSongPath) =>
+      currentSongPathSet.has(currentLastSelectedSongPath) &&
+      filteredSongPathSet.has(currentLastSelectedSongPath)
+        ? currentLastSelectedSongPath
+        : "",
+    );
+    knownSongPathSetRef.current = currentSongPathSet;
+  }, [filteredSongPathSet, songs]);
+
+  useEffect(() => {
+    if (!contextMenu) {
+      return;
+    }
+
+    function closeContextMenu() {
+      setContextMenu(null);
+    }
+
+    function closeContextMenuOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        closeContextMenu();
+      }
+    }
+
+    document.addEventListener("click", closeContextMenu);
+    document.addEventListener("keydown", closeContextMenuOnEscape);
+    window.addEventListener("scroll", closeContextMenu, true);
+
+    return () => {
+      document.removeEventListener("click", closeContextMenu);
+      document.removeEventListener("keydown", closeContextMenuOnEscape);
+      window.removeEventListener("scroll", closeContextMenu, true);
+    };
+  }, [contextMenu]);
 
   function updateFilter(key: SortKey, value: string) {
     setFilters((currentFilters) => ({
       ...currentFilters,
       [key]: value,
     }));
+    setContextMenu(null);
   }
 
   function songMetadata(song: ScannedSong): ScannedSongMetadata {
@@ -234,11 +330,13 @@ export function ScannedSongsTable({
       setSortDirection((currentDirection) =>
         currentDirection === "asc" ? "desc" : "asc",
       );
+      setContextMenu(null);
       return;
     }
 
     setSortKey(nextKey);
     setSortDirection("asc");
+    setContextMenu(null);
   }
 
   function resizeColumn(columnIndex: number, event: ReactMouseEvent) {
@@ -297,8 +395,107 @@ export function ScannedSongsTable({
         onChange={(event) =>
           updateMetadataValue(song, column, event.target.value)
         }
+        onClick={(event) => event.stopPropagation()}
+        onContextMenu={(event) => event.stopPropagation()}
       />
     );
+  }
+
+  function toggleIncludedSong(song: ScannedSong) {
+    setIncludedSongPaths((currentIncludedSongPaths) => {
+      const nextIncludedSongPaths = new Set(currentIncludedSongPaths);
+
+      if (nextIncludedSongPaths.has(song.relative_path)) {
+        nextIncludedSongPaths.delete(song.relative_path);
+      } else {
+        nextIncludedSongPaths.add(song.relative_path);
+      }
+
+      return nextIncludedSongPaths;
+    });
+  }
+
+  function selectSong(song: ScannedSong, event: ReactMouseEvent) {
+    const isRangeSelection = event.shiftKey && lastSelectedSongPath.length > 0;
+    const isToggleSelection = event.ctrlKey || event.metaKey;
+
+    if (isRangeSelection) {
+      const visibleSongPaths = filteredSongs.map(
+        (filteredSong) => filteredSong.relative_path,
+      );
+      const anchorIndex = visibleSongPaths.indexOf(lastSelectedSongPath);
+      const songIndex = visibleSongPaths.indexOf(song.relative_path);
+
+      if (anchorIndex >= 0 && songIndex >= 0) {
+        const startIndex = Math.min(anchorIndex, songIndex);
+        const endIndex = Math.max(anchorIndex, songIndex);
+
+        setSelectedSongPaths(
+          new Set(visibleSongPaths.slice(startIndex, endIndex + 1)),
+        );
+        return;
+      }
+    }
+
+    setSelectedSongPaths((currentSelectedSongPaths) => {
+      if (isToggleSelection) {
+        const nextSelectedSongPaths = new Set(currentSelectedSongPaths);
+
+        if (nextSelectedSongPaths.has(song.relative_path)) {
+          nextSelectedSongPaths.delete(song.relative_path);
+        } else {
+          nextSelectedSongPaths.add(song.relative_path);
+        }
+
+        return nextSelectedSongPaths;
+      }
+
+      return new Set([song.relative_path]);
+    });
+    setLastSelectedSongPath(song.relative_path);
+    setContextMenu(null);
+  }
+
+  function preventNativeModifierSelection(event: ReactMouseEvent) {
+    if (!event.shiftKey && !event.ctrlKey && !event.metaKey) {
+      return;
+    }
+
+    event.preventDefault();
+    window.getSelection()?.removeAllRanges();
+  }
+
+  function openSelectionMenu(song: ScannedSong, event: ReactMouseEvent) {
+    event.preventDefault();
+
+    if (!selectedSongPaths.has(song.relative_path)) {
+      setSelectedSongPaths(new Set([song.relative_path]));
+      setLastSelectedSongPath(song.relative_path);
+    }
+
+    setContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+    });
+  }
+
+  function updateSelectedIncludedState(isIncluded: boolean) {
+    setIncludedSongPaths((currentIncludedSongPaths) => {
+      const nextIncludedSongPaths = new Set(currentIncludedSongPaths);
+
+      selectedSongPaths.forEach((path) => {
+        if (filteredSongPathSet.has(path)) {
+          if (isIncluded) {
+            nextIncludedSongPaths.add(path);
+          } else {
+            nextIncludedSongPaths.delete(path);
+          }
+        }
+      });
+
+      return nextIncludedSongPaths;
+    });
+    setContextMenu(null);
   }
 
   function columnValue(song: ScannedSong, column: Column) {
@@ -353,7 +550,8 @@ export function ScannedSongsTable({
       <div className="scanned-songs-header">
         <h1 id="scanned-songs-title">Scanned songs</h1>
         <span>
-          {filteredSongs.length} of {songs.length}
+          included: {includedSongCount} - visible: {filteredSongs.length} -
+          total: {songs.length}
         </span>
       </div>
 
@@ -366,6 +564,7 @@ export function ScannedSongsTable({
             style={{ minWidth: tableWidth }}
           >
             <colgroup>
+              <col style={{ width: includeColumnWidth }} />
               {columns.map((column) => (
                 <col
                   key={column.key}
@@ -376,6 +575,7 @@ export function ScannedSongsTable({
             </colgroup>
             <thead>
               <tr>
+                <th className="scanned-songs-include-column">Include</th>
                 {columns.map((column, index) => (
                   <th className="scanned-songs-resizable" key={column.key}>
                     <button type="button" onClick={() => changeSort(column.key)}>
@@ -403,6 +603,7 @@ export function ScannedSongsTable({
                 </th>
               </tr>
               <tr className="scanned-songs-filters">
+                <th className="scanned-songs-include-column" />
                 {columns.map((column) => (
                   <th key={column.key}>
                     <input
@@ -423,9 +624,28 @@ export function ScannedSongsTable({
                 const isRestoring = restoringSongPathSet.has(song.relative_path);
                 const isRowBusy = isSaving || isRestoring;
                 const isDirty = isRowDirty(song);
+                const isIncluded = includedSongPaths.has(song.relative_path);
+                const isSelected = selectedSongPaths.has(song.relative_path);
 
                 return (
-                  <tr key={song.relative_path}>
+                  <tr
+                    aria-selected={isSelected}
+                    className={isSelected ? "selected" : undefined}
+                    key={song.relative_path}
+                    onClick={(event) => selectSong(song, event)}
+                    onContextMenu={(event) => openSelectionMenu(song, event)}
+                    onMouseDownCapture={preventNativeModifierSelection}
+                  >
+                    <td className="scanned-songs-include-column">
+                      <input
+                        aria-label={`Include ${song.relative_path}`}
+                        checked={isIncluded}
+                        type="checkbox"
+                        onChange={() => toggleIncludedSong(song)}
+                        onClick={(event) => event.stopPropagation()}
+                        onContextMenu={(event) => event.stopPropagation()}
+                      />
+                    </td>
                     {columns.map((column) => (
                       <td key={column.key} title={columnTitle(song, column)}>
                         {column.type === "metadata"
@@ -434,7 +654,11 @@ export function ScannedSongsTable({
                       </td>
                     ))}
                     <td className="scanned-songs-action-column">
-                      <div className="scanned-songs-actions">
+                      <div
+                        className="scanned-songs-actions"
+                        onClick={(event) => event.stopPropagation()}
+                        onContextMenu={(event) => event.stopPropagation()}
+                      >
                         <button
                           className="scanned-songs-action-btn"
                           type="button"
@@ -467,6 +691,33 @@ export function ScannedSongsTable({
               })}
             </tbody>
           </table>
+
+          {contextMenu && (
+            <div
+              className="scanned-songs-context-menu"
+              style={{
+                left: contextMenu.x,
+                top: contextMenu.y,
+              }}
+              onClick={(event) => event.stopPropagation()}
+              role="menu"
+            >
+              <button
+                type="button"
+                onClick={() => updateSelectedIncludedState(true)}
+                role="menuitem"
+              >
+                Include selection
+              </button>
+              <button
+                type="button"
+                onClick={() => updateSelectedIncludedState(false)}
+                role="menuitem"
+              >
+                Exclude selection
+              </button>
+            </div>
+          )}
 
           {filteredSongs.length === 0 && (
             <p className="scanned-songs-empty">No songs match the filters.</p>

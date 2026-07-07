@@ -155,6 +155,16 @@ function App() {
             {isInstrumentAnalyzeBusy ? "Analyzing..." : "Analyze instruments"}
           </button>
         )}
+        {hasScannedSongs && (
+          <button
+            className="categorize-button"
+            type="button"
+            disabled
+            title="Backend categorization is not implemented yet"
+          >
+            Categorize
+          </button>
+        )}
       </div>
 
       {hasScannedSongs && songIniScanResult && (

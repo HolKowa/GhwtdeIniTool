@@ -126,11 +126,15 @@ Current frontend behavior:
   cells show the highest available difficulty, expose all levels or analyzer
   errors through native hover tooltips, and participate in table sort/filter
   behavior. The table shows `<empty>` for missing display values so filters can
-  find them, provides
-  per-column filters, sortable/resizable data columns, editable metadata cells
-  for the displayed `[SongInfo]` values, fixed-width row actions for copying the
-  song folder, saving metadata edits, and restoring from `song.original.ini`
-  when present.
+  find them, provides per-column filters, sortable/resizable data columns, an
+  Include checkbox column for choosing which songs remain eligible for later
+  processing, file-like row selection with a right-click include/exclude
+  selection menu, editable metadata cells for the displayed `[SongInfo]` values,
+  fixed-width row actions for copying the song folder, saving metadata edits,
+  and restoring from `song.original.ini` when present. The table header shows
+  included, visible, and total row counts, while the top action row includes a
+  disabled Categorize button alongside Analyze instruments until backend
+  categorization is implemented.
 - The settings dialog lets the user choose a MODS folder and toggle whether
   original `song.ini` files are kept before their first edit.
 - Settings changes are saved immediately through `save_project_settings`; there
