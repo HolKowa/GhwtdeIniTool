@@ -1,6 +1,9 @@
 import { useCallback, useState } from "react";
 
-import { openModsFolderDialog } from "../services/modsFolderDialog";
+import {
+  openGameLogosFolderDialog,
+  openModsFolderDialog,
+} from "../services/modsFolderDialog";
 import {
   loadProjectSettings,
   saveProjectSettings,
@@ -12,9 +15,21 @@ export type SettingsStatus = "loading" | "ready" | "needs-folder" | "error";
 const defaultSettings: ProjectSettings = {
   mods_dir: null,
   mods_dir_available: false,
+  official_gamelogos_dir: null,
+  official_gamelogos_dir_available: false,
   keep_original_song_ini: true,
   settings_file: "",
 };
+
+function hasCompleteSetup(settings: ProjectSettings) {
+  return (
+    Boolean(settings.mods_dir && settings.mods_dir_available) &&
+    Boolean(
+      settings.official_gamelogos_dir &&
+        settings.official_gamelogos_dir_available,
+    )
+  );
+}
 
 export function useProjectSettings() {
   const [settings, setSettings] = useState<ProjectSettings | null>(null);
@@ -56,6 +71,22 @@ export function useProjectSettings() {
     }
   }, [persistSettings]);
 
+  const chooseGameLogosFolder = useCallback(async () => {
+    try {
+      const selected = await openGameLogosFolderDialog();
+
+      if (typeof selected !== "string") {
+        return;
+      }
+
+      await persistSettings({ official_gamelogos_dir: selected });
+      setIsSettingsOpen(true);
+    } catch (err) {
+      setSettingsStatus("error");
+      setSettingsError(String(err));
+    }
+  }, [persistSettings]);
+
   const setKeepOriginalSongIni = useCallback(
     async (keepOriginalSongIni: boolean) => {
       try {
@@ -75,7 +106,7 @@ export function useProjectSettings() {
       const loadedSettings = await loadProjectSettings();
       setSettings(loadedSettings);
 
-      if (!loadedSettings.mods_dir || !loadedSettings.mods_dir_available) {
+      if (!hasCompleteSetup(loadedSettings)) {
         setSettingsStatus("needs-folder");
         setIsSettingsOpen(true);
         return;
@@ -90,6 +121,7 @@ export function useProjectSettings() {
   }, []);
 
   return {
+    chooseGameLogosFolder,
     chooseModsFolder,
     isSettingsOpen,
     loadSettings,

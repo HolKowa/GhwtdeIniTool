@@ -26,6 +26,7 @@ function App() {
     updateStatus,
   } = useAppUpdater();
   const {
+    chooseGameLogosFolder,
     chooseModsFolder,
     isSettingsOpen,
     loadSettings,
@@ -117,7 +118,9 @@ function App() {
     updateStatus === "downloading" ||
     updateStatus === "ready" ||
     updateStatus === "error";
-  const canCloseSettings = Boolean(settings?.mods_dir_available);
+  const canCloseSettings = Boolean(
+    settings?.mods_dir_available && settings.official_gamelogos_dir_available,
+  );
   const isScanBusy =
     scanStatus === "scanningSongs" ||
     scanStatus === "validatingSong" ||
@@ -243,6 +246,7 @@ function App() {
       {isSettingsOpen && (
         <SettingsDialog
           canClose={canCloseSettings}
+          onChangeGameLogosFolder={chooseGameLogosFolder}
           onChangeFolder={chooseModsFolder}
           onClose={() => {
             if (canCloseSettings) {

@@ -3,6 +3,7 @@ import type { ProjectSettings } from "../types/projectSettings";
 
 type SettingsDialogProps = {
   canClose: boolean;
+  onChangeGameLogosFolder: () => void;
   onChangeFolder: () => void;
   onClose: () => void;
   onKeepOriginalSongIniChange: (keepOriginalSongIni: boolean) => void;
@@ -13,6 +14,7 @@ type SettingsDialogProps = {
 
 export function SettingsDialog({
   canClose,
+  onChangeGameLogosFolder,
   onChangeFolder,
   onClose,
   onKeepOriginalSongIniChange,
@@ -22,6 +24,10 @@ export function SettingsDialog({
 }: SettingsDialogProps) {
   const hasAvailableModsFolder = Boolean(
     settings?.mods_dir && settings.mods_dir_available,
+  );
+  const hasAvailableGameLogosFolder = Boolean(
+    settings?.official_gamelogos_dir &&
+      settings.official_gamelogos_dir_available,
   );
   const isLoading = settingsStatus === "loading";
 
@@ -71,12 +77,42 @@ export function SettingsDialog({
           </button>
         </div>
 
+        <div className="settings-row">
+          <div>
+            <h3>Official GAMELOGOS folder</h3>
+            <p
+              className={
+                hasAvailableGameLogosFolder
+                  ? "folder-path"
+                  : "folder-path muted"
+              }
+            >
+              {settingsStatus === "loading"
+                ? "Loading..."
+                : settings?.official_gamelogos_dir ?? "No folder selected"}
+            </p>
+          </div>
+
+          <button
+            className="primary-btn"
+            type="button"
+            onClick={onChangeGameLogosFolder}
+            disabled={isLoading || !hasAvailableModsFolder}
+          >
+            Change folder
+          </button>
+        </div>
+
         <label className="settings-toggle-row">
           <span>Keep original on first song.ini change</span>
           <input
             type="checkbox"
             checked={settings?.keep_original_song_ini ?? true}
-            disabled={isLoading || !hasAvailableModsFolder}
+            disabled={
+              isLoading ||
+              !hasAvailableModsFolder ||
+              !hasAvailableGameLogosFolder
+            }
             onChange={(event) =>
               onKeepOriginalSongIniChange(event.currentTarget.checked)
             }

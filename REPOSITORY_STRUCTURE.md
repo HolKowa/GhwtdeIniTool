@@ -89,9 +89,10 @@ Current frontend behavior:
 - If the updater check fails, the frontend currently treats it as no update and
   does not show an error dialog.
 - Settings are loaded from the Rust `load_project_settings` command.
-- If no MODS folder is configured, or the configured MODS folder is unavailable,
-  settings status becomes `needs-folder` and the settings dialog opens
-  automatically. The dialog cannot be closed until `mods_dir_available` is true.
+- If no MODS folder or official GAMELOGOS folder is configured, or either
+  configured folder is unavailable, settings status becomes `needs-folder` and
+  the settings dialog opens automatically. The dialog cannot be closed until
+  both required folders are available.
 - The settings button can reopen the dialog after startup.
 - The Clean MODS folder button opens a two-step wizard that asks for a
   keep-pattern, previews MODS files that do not match it, allows returning from
@@ -159,8 +160,13 @@ Current frontend behavior:
   duplicate group reopens the duplicate resolver directly on the conflict step.
   The top action row includes a disabled Categorize button alongside Analyze
   instruments until backend categorization is implemented.
-- The settings dialog lets the user choose a MODS folder and toggle whether
-  original `song.ini` files are kept before their first edit.
+- The settings dialog lets the user choose a MODS folder, choose an official
+  GAMELOGOS folder after MODS is set, and toggle whether original `song.ini`
+  files are kept before their first edit.
+- When a MODS folder is saved, settings try to auto-fill the official GAMELOGOS
+  folder by replacing each exact `MODS` path component with `IMAGES`, nearest
+  first, appending `GAMELOGOS`, dropping folders below the matched `MODS`
+  component, and using the first existing directory.
 - Settings changes are saved immediately through `save_project_settings`; there
   is no separate Apply or Save button.
 - Keep-pattern entries are comma-separated, trimmed, matched case-insensitively
@@ -223,12 +229,15 @@ Current backend behavior:
   frontend-ready serialized shape.
 - Stores project settings in `ghwtdeinitool.ini` next to the executable under a
   `[project]` section.
-- Reads and writes `mods_dir` and `keep_original_song_ini`. Missing
-  `keep_original_song_ini` values default to `true`; legacy
+- Reads and writes `mods_dir`, `official_gamelogos_dir`, and
+  `keep_original_song_ini`. Missing `official_gamelogos_dir` values default to
+  unset, missing `keep_original_song_ini` values default to `true`, and legacy
   `keep_only_files_pattern` entries in old settings files are ignored.
-- Reports `mods_dir_available` by checking whether the stored path still exists
-  as a directory.
+- Reports `mods_dir_available` and `official_gamelogos_dir_available` by
+  checking whether each stored path still exists as a directory.
 - Requires `mods_dir` to be an existing directory before saving settings.
+  `official_gamelogos_dir` is stored only when it exists or can be derived;
+  otherwise setup remains incomplete until the user chooses it manually.
 - Recursively previews files that do not match the keep-pattern argument passed
   by the clean wizard; confirmed deletes validate each MODS-relative path
   before removing only those files.

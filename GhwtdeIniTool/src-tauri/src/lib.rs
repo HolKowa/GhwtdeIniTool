@@ -2,7 +2,9 @@ use ini::Ini;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
-    env, fs, io,
+    env,
+    ffi::OsStr,
+    fs, io,
     path::{Path, PathBuf},
     sync::Mutex,
     time::{Duration, Instant, UNIX_EPOCH},
@@ -49,6 +51,8 @@ const SONG_INFO_KEYS: &[&str] = &[
 struct ProjectSettings {
     mods_dir: Option<String>,
     mods_dir_available: bool,
+    official_gamelogos_dir: Option<String>,
+    official_gamelogos_dir_available: bool,
     keep_original_song_ini: bool,
     settings_file: String,
 }
@@ -56,6 +60,7 @@ struct ProjectSettings {
 #[derive(Deserialize)]
 struct ProjectSettingsInput {
     mods_dir: Option<String>,
+    official_gamelogos_dir: Option<String>,
     keep_original_song_ini: Option<bool>,
 }
 
@@ -269,6 +274,7 @@ struct SongScanProgress {
 
 struct StoredProjectSettings {
     mods_dir: Option<String>,
+    official_gamelogos_dir: Option<String>,
     keep_original_song_ini: bool,
 }
 
@@ -287,7 +293,12 @@ fn load_project_settings() -> Result<ProjectSettings, String> {
 #[tauri::command]
 fn save_project_settings(settings: ProjectSettingsInput) -> Result<ProjectSettings, String> {
     let settings_path = settings_file_path().map_err(settings_error)?;
-    let settings = validate_project_settings(settings)?;
+    let previous_settings = match fs::read_to_string(&settings_path) {
+        Ok(contents) => read_project_settings_from_ini(&contents),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => StoredProjectSettings::default(),
+        Err(err) => return Err(settings_error(err)),
+    };
+    let settings = validate_project_settings(settings, &previous_settings)?;
     let contents = write_project_settings_to_ini(&settings);
 
     fs::write(&settings_path, contents).map_err(|err| {
@@ -462,10 +473,16 @@ fn project_settings(settings_path: PathBuf, settings: StoredProjectSettings) -> 
         .mods_dir
         .as_ref()
         .is_some_and(|path| PathBuf::from(path).is_dir());
+    let official_gamelogos_dir_available = settings
+        .official_gamelogos_dir
+        .as_ref()
+        .is_some_and(|path| PathBuf::from(path).is_dir());
 
     ProjectSettings {
         mods_dir: settings.mods_dir,
         mods_dir_available,
+        official_gamelogos_dir: settings.official_gamelogos_dir,
+        official_gamelogos_dir_available,
         keep_original_song_ini: settings.keep_original_song_ini,
         settings_file: settings_path.to_string_lossy().into_owned(),
     }
@@ -2947,6 +2964,9 @@ fn read_project_settings_from_ini(contents: &str) -> StoredProjectSettings {
 
         match key.trim() {
             "mods_dir" => settings.mods_dir = (!value.is_empty()).then_some(value),
+            "official_gamelogos_dir" => {
+                settings.official_gamelogos_dir = (!value.is_empty()).then_some(value)
+            }
             "keep_original_song_ini" => {
                 settings.keep_original_song_ini = parse_ini_bool(&value).unwrap_or(true)
             }
@@ -2959,21 +2979,96 @@ fn read_project_settings_from_ini(contents: &str) -> StoredProjectSettings {
 
 fn write_project_settings_to_ini(settings: &StoredProjectSettings) -> String {
     format!(
-        "[project]\nmods_dir={}\nkeep_original_song_ini={}\n",
+        "[project]\nmods_dir={}\nofficial_gamelogos_dir={}\nkeep_original_song_ini={}\n",
         escape_ini_value(settings.mods_dir.as_deref().unwrap_or("")),
+        escape_ini_value(settings.official_gamelogos_dir.as_deref().unwrap_or("")),
         settings.keep_original_song_ini
     )
 }
 
 fn validate_project_settings(
     settings: ProjectSettingsInput,
+    previous_settings: &StoredProjectSettings,
 ) -> Result<StoredProjectSettings, String> {
     let mods_dir = required_existing_dir(settings.mods_dir, "Selected MODS folder")?;
+    let incoming_official_gamelogos_dir = existing_optional_dir(settings.official_gamelogos_dir);
+    let official_gamelogos_dir = if incoming_was_previous_auto_gamelogos_dir(
+        &incoming_official_gamelogos_dir,
+        previous_settings,
+    ) {
+        derive_official_gamelogos_dir(&mods_dir)
+    } else {
+        incoming_official_gamelogos_dir.or_else(|| derive_official_gamelogos_dir(&mods_dir))
+    };
 
     Ok(StoredProjectSettings {
         mods_dir: Some(mods_dir.to_string_lossy().into_owned()),
+        official_gamelogos_dir: official_gamelogos_dir
+            .map(|path| path.to_string_lossy().into_owned()),
         keep_original_song_ini: settings.keep_original_song_ini.unwrap_or(true),
     })
+}
+
+fn incoming_was_previous_auto_gamelogos_dir(
+    incoming_official_gamelogos_dir: &Option<PathBuf>,
+    previous_settings: &StoredProjectSettings,
+) -> bool {
+    let Some(incoming_official_gamelogos_dir) = incoming_official_gamelogos_dir else {
+        return false;
+    };
+    let Some(previous_official_gamelogos_dir) =
+        existing_optional_dir(previous_settings.official_gamelogos_dir.clone())
+    else {
+        return false;
+    };
+    let Some(previous_mods_dir) = previous_settings.mods_dir.as_deref() else {
+        return false;
+    };
+    let Some(previous_auto_gamelogos_dir) =
+        derive_official_gamelogos_dir(Path::new(previous_mods_dir))
+    else {
+        return false;
+    };
+
+    incoming_official_gamelogos_dir == &previous_official_gamelogos_dir
+        && incoming_official_gamelogos_dir == &previous_auto_gamelogos_dir
+}
+
+fn existing_optional_dir(path: Option<String>) -> Option<PathBuf> {
+    let path = path?;
+
+    if path.trim().is_empty() {
+        return None;
+    }
+
+    let path = PathBuf::from(path);
+
+    if !path.is_dir() {
+        return None;
+    }
+
+    path.canonicalize().ok()
+}
+
+fn derive_official_gamelogos_dir(mods_dir: &Path) -> Option<PathBuf> {
+    let mut current = Some(mods_dir);
+
+    while let Some(path) = current {
+        if path.file_name() == Some(OsStr::new("MODS")) {
+            let parent = path.parent().unwrap_or_else(|| Path::new(""));
+            let candidate = parent.join("IMAGES").join("GAMELOGOS");
+
+            if candidate.is_dir() {
+                if let Ok(candidate) = candidate.canonicalize() {
+                    return Some(candidate);
+                }
+            }
+        }
+
+        current = path.parent();
+    }
+
+    None
 }
 
 fn required_existing_dir(path: Option<String>, label: &str) -> Result<PathBuf, String> {
@@ -3037,6 +3132,7 @@ impl Default for StoredProjectSettings {
     fn default() -> Self {
         Self {
             mods_dir: None,
+            official_gamelogos_dir: None,
             keep_original_song_ini: true,
         }
     }
@@ -3100,7 +3196,20 @@ mod tests {
         let settings = read_project_settings_from_ini("[project]\nmods_dir=/tmp/MODS\n");
 
         assert_eq!(settings.mods_dir.as_deref(), Some("/tmp/MODS"));
+        assert_eq!(settings.official_gamelogos_dir, None);
         assert!(settings.keep_original_song_ini);
+    }
+
+    #[test]
+    fn settings_parse_official_gamelogos_dir() {
+        let settings = read_project_settings_from_ini(
+            "[project]\nmods_dir=/tmp/MODS\nofficial_gamelogos_dir=/tmp/IMAGES/GAMELOGOS\n",
+        );
+
+        assert_eq!(
+            settings.official_gamelogos_dir.as_deref(),
+            Some("/tmp/IMAGES/GAMELOGOS")
+        );
     }
 
     #[test]
@@ -3116,13 +3225,187 @@ mod tests {
     fn settings_writer_includes_keep_original_song_ini() {
         let settings = StoredProjectSettings {
             mods_dir: Some("/tmp/MODS".to_string()),
+            official_gamelogos_dir: Some("/tmp/IMAGES/GAMELOGOS".to_string()),
             keep_original_song_ini: false,
         };
 
         assert_eq!(
             write_project_settings_to_ini(&settings),
-            "[project]\nmods_dir=/tmp/MODS\nkeep_original_song_ini=false\n"
+            "[project]\nmods_dir=/tmp/MODS\nofficial_gamelogos_dir=/tmp/IMAGES/GAMELOGOS\nkeep_original_song_ini=false\n"
         );
+    }
+
+    #[test]
+    fn settings_derives_official_gamelogos_dir_from_mods_dir() {
+        let project = TestProject::new("derive-gamelogos");
+        let mods_dir = project.root.join("MODS").join("BH");
+        let gamelogos_dir = project.root.join("IMAGES").join("GAMELOGOS");
+        fs::create_dir_all(&mods_dir).expect("nested mods dir should be created");
+        fs::create_dir_all(&gamelogos_dir).expect("gamelogos dir should be created");
+
+        assert_eq!(
+            derive_official_gamelogos_dir(&mods_dir).as_deref(),
+            Some(gamelogos_dir.canonicalize().unwrap().as_path())
+        );
+    }
+
+    #[test]
+    fn settings_derives_official_gamelogos_dir_from_next_mods_match_when_nearest_is_missing() {
+        let project = TestProject::new("derive-gamelogos-fallback");
+        let mods_dir = project
+            .root
+            .join("MODS")
+            .join("foo")
+            .join("MODS")
+            .join("BH");
+        let gamelogos_dir = project.root.join("IMAGES").join("GAMELOGOS");
+        fs::create_dir_all(&mods_dir).expect("nested mods dir should be created");
+        fs::create_dir_all(&gamelogos_dir).expect("gamelogos dir should be created");
+
+        assert_eq!(
+            derive_official_gamelogos_dir(&mods_dir).as_deref(),
+            Some(gamelogos_dir.canonicalize().unwrap().as_path())
+        );
+    }
+
+    #[test]
+    fn settings_derives_official_gamelogos_dir_from_nearest_mods_match_first() {
+        let project = TestProject::new("derive-gamelogos-nearest");
+        let mods_dir = project
+            .root
+            .join("MODS")
+            .join("foo")
+            .join("MODS")
+            .join("BH");
+        let nearest_gamelogos_dir = project
+            .root
+            .join("MODS")
+            .join("foo")
+            .join("IMAGES")
+            .join("GAMELOGOS");
+        let farther_gamelogos_dir = project.root.join("IMAGES").join("GAMELOGOS");
+        fs::create_dir_all(&mods_dir).expect("nested mods dir should be created");
+        fs::create_dir_all(&nearest_gamelogos_dir)
+            .expect("nearest gamelogos dir should be created");
+        fs::create_dir_all(&farther_gamelogos_dir)
+            .expect("farther gamelogos dir should be created");
+
+        assert_eq!(
+            derive_official_gamelogos_dir(&mods_dir).as_deref(),
+            Some(nearest_gamelogos_dir.canonicalize().unwrap().as_path())
+        );
+    }
+
+    #[test]
+    fn settings_does_not_derive_official_gamelogos_dir_from_inexact_mods_match() {
+        let project = TestProject::new("derive-gamelogos-inexact");
+        let lowercase_mods_dir = project.root.join("mods").join("BH");
+        let containing_mods_dir = project.root.join("MODS_extra").join("BH");
+        let gamelogos_dir = project.root.join("IMAGES").join("GAMELOGOS");
+        fs::create_dir_all(&lowercase_mods_dir).expect("lowercase mods dir should be created");
+        fs::create_dir_all(&containing_mods_dir).expect("containing mods dir should be created");
+        fs::create_dir_all(&gamelogos_dir).expect("gamelogos dir should be created");
+
+        assert_eq!(derive_official_gamelogos_dir(&lowercase_mods_dir), None);
+        assert_eq!(derive_official_gamelogos_dir(&containing_mods_dir), None);
+    }
+
+    #[test]
+    fn settings_preserves_existing_official_gamelogos_dir() {
+        let project = TestProject::new("preserve-manual-gamelogos");
+        let mods_dir = project.root.join("MODS").join("BH");
+        let manual_gamelogos_dir = project.root.join("ManualGameLogos");
+        let derived_gamelogos_dir = project.root.join("IMAGES").join("GAMELOGOS");
+        fs::create_dir_all(&mods_dir).expect("nested mods dir should be created");
+        fs::create_dir_all(&manual_gamelogos_dir).expect("manual gamelogos dir should be created");
+        fs::create_dir_all(&derived_gamelogos_dir)
+            .expect("derived gamelogos dir should be created");
+
+        let settings = validate_project_settings(
+            ProjectSettingsInput {
+                mods_dir: Some(mods_dir.to_string_lossy().into_owned()),
+                official_gamelogos_dir: Some(manual_gamelogos_dir.to_string_lossy().into_owned()),
+                keep_original_song_ini: Some(false),
+            },
+            &StoredProjectSettings::default(),
+        )
+        .expect("settings should be valid");
+
+        assert_eq!(
+            settings.official_gamelogos_dir.as_deref(),
+            Some(
+                manual_gamelogos_dir
+                    .canonicalize()
+                    .unwrap()
+                    .to_string_lossy()
+                    .as_ref()
+            )
+        );
+        assert!(!settings.keep_original_song_ini);
+    }
+
+    #[test]
+    fn settings_replaces_previous_auto_official_gamelogos_dir_when_mods_changes() {
+        let project = TestProject::new("replace-auto-gamelogos");
+        let previous_mods_dir = project.root.join("MODS").join("BH");
+        let previous_auto_gamelogos_dir = project.root.join("IMAGES").join("GAMELOGOS");
+        let new_auto_gamelogos_dir = project
+            .root
+            .join("Official")
+            .join("IMAGES")
+            .join("GAMELOGOS");
+        fs::create_dir_all(&previous_mods_dir).expect("previous mods dir should be created");
+        fs::create_dir_all(&previous_auto_gamelogos_dir)
+            .expect("previous gamelogos dir should be created");
+        let new_mods_dir = project.root.join("Official").join("MODS").join("GH");
+        fs::create_dir_all(&new_mods_dir).expect("new mods dir should be created");
+        fs::create_dir_all(&new_auto_gamelogos_dir).expect("new gamelogos dir should be created");
+
+        let previous_settings = StoredProjectSettings {
+            mods_dir: Some(previous_mods_dir.to_string_lossy().into_owned()),
+            official_gamelogos_dir: Some(
+                previous_auto_gamelogos_dir.to_string_lossy().into_owned(),
+            ),
+            keep_original_song_ini: true,
+        };
+        let settings = validate_project_settings(
+            ProjectSettingsInput {
+                mods_dir: Some(new_mods_dir.to_string_lossy().into_owned()),
+                official_gamelogos_dir: Some(
+                    previous_auto_gamelogos_dir.to_string_lossy().into_owned(),
+                ),
+                keep_original_song_ini: None,
+            },
+            &previous_settings,
+        )
+        .expect("settings should be valid");
+
+        assert_eq!(
+            settings.official_gamelogos_dir.as_deref(),
+            Some(
+                new_auto_gamelogos_dir
+                    .canonicalize()
+                    .unwrap()
+                    .to_string_lossy()
+                    .as_ref()
+            )
+        );
+    }
+
+    #[test]
+    fn settings_allows_missing_official_gamelogos_dir() {
+        let project = TestProject::new("missing-gamelogos");
+        let settings = validate_project_settings(
+            ProjectSettingsInput {
+                mods_dir: Some(project.mods_dir.to_string_lossy().into_owned()),
+                official_gamelogos_dir: None,
+                keep_original_song_ini: None,
+            },
+            &StoredProjectSettings::default(),
+        )
+        .expect("settings should be valid without gamelogos");
+
+        assert_eq!(settings.official_gamelogos_dir, None);
     }
 
     #[test]

@@ -10,6 +10,7 @@ export function saveProjectSettings(settings: ProjectSettings) {
   return invoke<ProjectSettings>("save_project_settings", {
     settings: {
       mods_dir: settings.mods_dir,
+      official_gamelogos_dir: settings.official_gamelogos_dir,
       keep_original_song_ini: settings.keep_original_song_ini,
     },
   });
