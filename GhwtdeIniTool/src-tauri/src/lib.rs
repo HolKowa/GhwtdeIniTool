@@ -336,6 +336,16 @@ fn validate_song_ini_file(
 }
 
 #[tauri::command]
+fn undo_song_ini_repair(
+    relative_path: String,
+    contents: String,
+    store: tauri::State<'_, SongIniStore>,
+) -> Result<SongIniValidationResult, String> {
+    let settings = scan_settings()?;
+    undo_song_ini_repair_path(&settings, &relative_path, &contents, &store)
+}
+
+#[tauri::command]
 fn verify_song_ini_file(
     relative_path: String,
     store: tauri::State<'_, SongIniStore>,
@@ -646,6 +656,37 @@ fn validate_song_ini_file_path(
     Ok(SongIniValidationResult {
         relative_path: relative_path.to_string(),
         contents: normalized_contents,
+        songs_parsed,
+        songs: scanned_songs(mods_dir, &parsed_songs),
+        duplicate_checksum_groups: duplicate_checksum_groups(&parsed_songs),
+        disabled_song_conflicts: disabled_song_conflicts(mods_dir, &song_ini_paths)?,
+        content_file_issues: song_content_issues(mods_dir, &parsed_songs)?,
+    })
+}
+
+fn undo_song_ini_repair_path(
+    settings: &ScanSettings,
+    relative_path: &str,
+    contents: &str,
+    store: &SongIniStore,
+) -> Result<SongIniValidationResult, String> {
+    let mods_dir = &settings.mods_dir;
+    let path = checked_mods_relative_path(mods_dir, relative_path)?;
+
+    if !is_song_ini(&path) {
+        return Err(format!("{relative_path} is not a song.ini file."));
+    }
+
+    fs::write(&path, contents)
+        .map_err(|err| format!("Failed to write {}: {err}", path.display()))?;
+
+    let parsed_songs = remove_song_ini_from_store_with_songs(store, relative_path)?;
+    let songs_parsed = parsed_songs.len();
+    let song_ini_paths = find_song_ini_files(mods_dir)?;
+
+    Ok(SongIniValidationResult {
+        relative_path: relative_path.to_string(),
+        contents: contents.to_string(),
         songs_parsed,
         songs: scanned_songs(mods_dir, &parsed_songs),
         duplicate_checksum_groups: duplicate_checksum_groups(&parsed_songs),
@@ -2668,13 +2709,20 @@ fn upsert_song_ini_store(
 }
 
 fn remove_song_ini_from_store(store: &SongIniStore, relative_path: &str) -> Result<usize, String> {
+    Ok(remove_song_ini_from_store_with_songs(store, relative_path)?.len())
+}
+
+fn remove_song_ini_from_store_with_songs(
+    store: &SongIniStore,
+    relative_path: &str,
+) -> Result<Vec<ParsedSongIni>, String> {
     let mut songs = store
         .0
         .lock()
         .map_err(|_| "Failed to lock song.ini store.".to_string())?;
 
     songs.retain(|song| song.relative_path != relative_path);
-    Ok(songs.len())
+    Ok(songs.clone())
 }
 
 fn store_song_count(store: &SongIniStore) -> Result<usize, String> {
@@ -4365,6 +4413,78 @@ mod tests {
     }
 
     #[test]
+    fn song_repair_undo_restores_invalid_contents_and_removes_song_from_store() {
+        let project = TestProject::new("song-repair-undo-invalid");
+        let song_ini_path = project.mods_dir.join("song.ini");
+        let invalid_contents = "[SongInfo\nTitle=Broken\n";
+        let repaired_contents = valid_song_ini("Repaired", "repaired_checksum");
+        write_test_file_contents(&song_ini_path, invalid_contents);
+        let store = SongIniStore::default();
+
+        validate_song_ini_file_path(
+            &test_scan_settings(&project),
+            "song.ini",
+            &repaired_contents,
+            &store,
+        )
+        .expect("validation should pass");
+
+        let result = undo_song_ini_repair_path(
+            &test_scan_settings(&project),
+            "song.ini",
+            invalid_contents,
+            &store,
+        )
+        .expect("undo should restore invalid contents");
+
+        assert_eq!(result.relative_path, "song.ini");
+        assert_eq!(result.contents, invalid_contents);
+        assert_eq!(result.songs_parsed, 0);
+        assert!(result.songs.is_empty());
+        assert_eq!(
+            fs::read_to_string(song_ini_path).expect("song.ini should read"),
+            invalid_contents
+        );
+        assert!(store.0.lock().expect("store should lock").is_empty());
+    }
+
+    #[test]
+    fn song_repair_undo_rejects_non_song_ini_path() {
+        let project = TestProject::new("song-repair-undo-non-song");
+        write_test_file_contents(&project.mods_dir.join("notes.ini"), "hello");
+        let store = SongIniStore::default();
+
+        let result = undo_song_ini_repair_path(
+            &test_scan_settings(&project),
+            "notes.ini",
+            "restored",
+            &store,
+        );
+
+        assert!(result
+            .expect_err("non-song.ini path should be rejected")
+            .contains("notes.ini is not a song.ini file."));
+    }
+
+    #[test]
+    fn song_repair_undo_rejects_unsafe_path() {
+        let project = TestProject::new("song-repair-undo-unsafe");
+        write_test_file_contents(&project.root.join("song.ini"), "outside");
+        let store = SongIniStore::default();
+
+        let result = undo_song_ini_repair_path(
+            &test_scan_settings(&project),
+            "../song.ini",
+            "restored",
+            &store,
+        );
+
+        assert!(result
+            .expect_err("unsafe path should be rejected")
+            .contains("Rejected unsafe MODS-relative path"));
+    }
+
+    #[test]
     fn song_verify_refreshes_content_issues_without_rewriting_song_ini() {
         let project = TestProject::new("song-verify-refresh-content");
         let song_ini_path = project.mods_dir.join("song.ini");
@@ -5134,6 +5254,7 @@ pub fn run() {
             delete_keep_only_files,
             scan_song_ini_files,
             validate_song_ini_file,
+            undo_song_ini_repair,
             verify_song_ini_file,
             disable_song_ini_file,
             enable_song_ini_file,

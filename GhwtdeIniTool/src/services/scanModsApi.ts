@@ -38,6 +38,13 @@ export function validateSongIniFile(relativePath: string, contents: string) {
   });
 }
 
+export function undoSongIniRepair(relativePath: string, contents: string) {
+  return invoke<SongIniValidationResult>("undo_song_ini_repair", {
+    relativePath,
+    contents,
+  });
+}
+
 export function verifySongIniFile(relativePath: string) {
   return invoke<SongIniValidationResult>("verify_song_ini_file", {
     relativePath,

@@ -58,14 +58,14 @@ Important files:
 - `GhwtdeIniTool/src/hooks/useModsCleaner.ts` owns keep-pattern cleanup state.
 - `GhwtdeIniTool/src/hooks/useIniRestorer.ts` owns bulk `song.ini` restore
   dialog state.
-- `GhwtdeIniTool/src/hooks/useModsScanner.ts` owns `song.ini` scan and
-  instrument analysis action state.
+- `GhwtdeIniTool/src/hooks/useModsScanner.ts` owns `song.ini` scan, step-one
+  undo snapshots, and instrument analysis action state.
 - `GhwtdeIniTool/src/hooks/useAppUpdater.ts` owns updater state and actions.
 - `GhwtdeIniTool/src/services/projectSettingsApi.ts` wraps the Tauri settings
   commands.
 - `GhwtdeIniTool/src/services/scanModsApi.ts` wraps the Tauri keep-pattern
-  delete, `song.ini` scan/validation/disable/enable/conflict delete, and
-  instrument analysis commands.
+  delete, `song.ini` scan/validation/step-one undo/disable/enable/conflict
+  delete, and instrument analysis commands.
 - `GhwtdeIniTool/src/services/modsFolderDialog.ts` wraps Tauri folder pickers.
 - `GhwtdeIniTool/src/types/projectSettings.ts` defines the frontend settings
   shape returned by Rust.
@@ -112,12 +112,13 @@ Current frontend behavior:
   files, stores valid parsed results in backend memory, lets the user repair
   faulty files, then resolves duplicate checksum groups and folders containing
   both `song.ini` and `song.disabled.ini`. Faulty step-one entries can be
-  repaired with their pre-repair contents preserved as
-  `song.original.faulty.ini`, or disabled to rename `song.ini` to
-  `song.disabled.ini`, then enabled again if needed. Duplicate checksums are
-  resolved by excluding selected songs from the
-  frontend include state without renaming files; active/disabled sibling
-  conflicts can delete either file.
+  edited and repaired with their pre-repair contents preserved as
+  `song.original.faulty.ini`, undone after the first edit or repair while the
+  wizard remains open by writing the scan-time faulty contents back from
+  frontend memory, or disabled to rename `song.ini` to `song.disabled.ini`,
+  then enabled again if needed. Duplicate checksums are resolved by excluding
+  selected songs from the frontend include state without renaming files;
+  active/disabled sibling conflicts can delete either file.
   The final step validates each active song folder's `Content` and
   `Content/MUSIC` layout against the parsed checksum, accepts those folder and
   checksum-derived file names case-insensitively without renaming them, reports
@@ -202,8 +203,8 @@ Current backend behavior:
 - Registers the Tauri opener, updater, process, and dialog plugins.
 - Exposes `load_project_settings`, `save_project_settings`,
   `preview_keep_only_files_delete`, `delete_keep_only_files`,
-  `scan_song_ini_files`, `validate_song_ini_file`, `verify_song_ini_file`,
-  `disable_song_ini_file`, `enable_song_ini_file`, and
+  `scan_song_ini_files`, `validate_song_ini_file`, `undo_song_ini_repair`,
+  `verify_song_ini_file`, `disable_song_ini_file`, `enable_song_ini_file`, and
   `delete_song_ini_conflict_file` Tauri commands.
   It also exposes `update_scanned_song_metadata` for row-level scanned-table edits and
   `restore_original_song_ini` for consuming a sibling `song.original.ini` back
@@ -256,10 +257,12 @@ Current backend behavior:
   `keep_original_song_ini` is enabled, the backend creates a sibling
   `song.original.faulty.ini` before writing repaired wizard step-one files, and
   creates a sibling `song.original.ini` before scanned-table metadata edits or
-  before a `song.ini` is disabled by rename. Only `song.original.ini` marks a
-  row as restorable and can be consumed by row-level restore; the bulk restore
-  dialog's pre-format-fix mode can also consume `song.original.faulty.ini`
-  after normal backups have been restored.
+  before a `song.ini` is disabled by rename. Step-one Undo uses the frontend's
+  scan-time faulty contents snapshot while the wizard is open, so it does not
+  depend on `song.original.faulty.ini`. Only `song.original.ini` marks a row as
+  restorable and can be consumed by row-level restore; the bulk restore dialog's
+  pre-format-fix mode can also consume `song.original.faulty.ini` after normal
+  backups have been restored.
 - Uses `tauri.conf.json` to open the main window maximized, restore it to
   1920x1080 when un-maximized, and configure bundling and updater artifacts.
 

@@ -12,12 +12,17 @@ type ScanWizardProps = {
   onEnableSongIni: (relativePath: string) => void;
   onExcludeScannedSong: (relativePath: string) => void;
   onSelectSongIni: () => void;
+  onUndoSongIni: (relativePath: string) => void | Promise<void>;
   onValidateSongIni: (relativePath: string, contents: string) => void;
   onVerifyContentIssueSong: (relativePath: string) => void;
   deletedSongIniConflictPaths: string[];
   disabledSongIniPaths: string[];
   includedSongPaths: string[];
   isConflictsOnly: boolean;
+  originalFaultySongIniFiles: Record<
+    string,
+    { contents: string; error: string; relative_path: string }
+  >;
   repairedSongIniPaths: string[];
   scanError: string;
   scanStatus: ScanModsStatus;
@@ -54,12 +59,14 @@ export function ScanWizard({
   onEnableSongIni,
   onExcludeScannedSong,
   onSelectSongIni,
+  onUndoSongIni,
   onValidateSongIni,
   onVerifyContentIssueSong,
   deletedSongIniConflictPaths,
   disabledSongIniPaths,
   includedSongPaths,
   isConflictsOnly,
+  originalFaultySongIniFiles,
   repairedSongIniPaths,
   scanError,
   scanStatus,
@@ -79,6 +86,7 @@ export function ScanWizard({
   >({});
   const isScanningSongs = scanStatus === "scanningSongs";
   const isValidatingSong = scanStatus === "validatingSong";
+  const isUndoingSong = scanStatus === "undoingSong";
   const isVerifyingSong = scanStatus === "verifyingSong";
   const isDisablingSong = scanStatus === "disablingSong";
   const isEnablingSong = scanStatus === "enablingSong";
@@ -86,6 +94,7 @@ export function ScanWizard({
   const isBusy =
     isScanningSongs ||
     isValidatingSong ||
+    isUndoingSong ||
     isVerifyingSong ||
     isDisablingSong ||
     isEnablingSong ||
@@ -94,6 +103,7 @@ export function ScanWizard({
     scanStatus === "scanningSongs" ||
     scanStatus === "readySongRepair" ||
     scanStatus === "validatingSong" ||
+    scanStatus === "undoingSong" ||
     scanStatus === "verifyingSong" ||
     scanStatus === "disablingSong" ||
     scanStatus === "enablingSong" ||
@@ -215,10 +225,20 @@ export function ScanWizard({
     (file) => file.relative_path === selectedSongIniPath,
   );
   const isSelectedSongIniDisabled = disabledPathSet.has(selectedSongIniPath);
+  const selectedOriginalSongIniFile =
+    originalFaultySongIniFiles[selectedSongIniPath];
   const selectedSongIniContents =
     selectedSongIniPath in editedSongIniContents
       ? editedSongIniContents[selectedSongIniPath]
       : (selectedSongIniFile?.contents ?? "");
+  const hasSelectedSongIniDraftChanges =
+    Boolean(selectedOriginalSongIniFile) &&
+    selectedSongIniContents !== selectedOriginalSongIniFile?.contents;
+  const canUndoSelectedSongIni =
+    Boolean(selectedOriginalSongIniFile) &&
+    (repairedPathSet.has(selectedSongIniPath) ||
+      hasSelectedSongIniDraftChanges) &&
+    !isSelectedSongIniDisabled;
   const canFinishSongIniStep =
     activeStep === 1 && isScanWorkflow && unresolvedSongIniCount === 0;
   const canFinishConflictStep = activeStep === 2 && unresolvedConflictCount === 0;
@@ -737,6 +757,35 @@ export function ScanWizard({
                               : isSelectedSongIniDisabled
                                 ? "Enable"
                                 : "Disable"}
+                          </button>
+                          <button
+                            className="secondary-btn"
+                            type="button"
+                            onClick={async () => {
+                              const originalFile =
+                                originalFaultySongIniFiles[
+                                  selectedSongIniPath
+                                ];
+
+                              if (originalFile) {
+                                setEditedSongIniContents(
+                                  (currentContents) => ({
+                                    ...currentContents,
+                                    [selectedSongIniPath]:
+                                      originalFile.contents,
+                                  }),
+                                );
+                              }
+
+                              await onUndoSongIni(selectedSongIniPath);
+                            }}
+                            disabled={
+                              isBusy ||
+                              !selectedSongIniPath ||
+                              !canUndoSelectedSongIni
+                            }
+                          >
+                            {isUndoingSong ? "Undoing..." : "Undo"}
                           </button>
                           <button
                             className="primary-btn"

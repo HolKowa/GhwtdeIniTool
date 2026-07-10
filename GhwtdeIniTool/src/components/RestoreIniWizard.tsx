@@ -93,14 +93,6 @@ export function RestoreIniWizard({
 
         <div className="scan-wizard-actions">
           <button
-            className="secondary-btn"
-            type="button"
-            onClick={onCancel}
-            disabled={isRestoring}
-          >
-            Cancel
-          </button>
-          <button
             className="primary-btn"
             type="button"
             onClick={() => onConfirm(mode)}

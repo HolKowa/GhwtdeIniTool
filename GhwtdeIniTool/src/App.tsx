@@ -84,6 +84,7 @@ function App() {
     isScanWizardConflictsOnly,
     isScanWizardOpen,
     openInstrumentAnalyzer,
+    originalFaultySongIniFiles,
     repairedSongIniPaths,
     restoringScannedSongPaths,
     restoreScannedSongOriginal,
@@ -99,6 +100,7 @@ function App() {
     songIniValidationError,
     setSongIncluded,
     setSongsIncluded,
+    undoSongIni,
     validateSongIni,
     verifiedContentIssueSongPaths,
     verifyingContentIssueSongPath,
@@ -119,8 +121,10 @@ function App() {
   const isScanBusy =
     scanStatus === "scanningSongs" ||
     scanStatus === "validatingSong" ||
+    scanStatus === "undoingSong" ||
     scanStatus === "verifyingSong" ||
     scanStatus === "disablingSong" ||
+    scanStatus === "enablingSong" ||
     scanStatus === "deletingSongConflict";
   const isCleanBusy =
     cleanStatus === "previewing" || cleanStatus === "deleting";
@@ -297,12 +301,14 @@ function App() {
             setSongIncluded(relativePath, false)
           }
           onSelectSongIni={clearSongIniValidationError}
+          onUndoSongIni={undoSongIni}
           onValidateSongIni={validateSongIni}
           onVerifyContentIssueSong={verifyContentIssueSong}
           deletedSongIniConflictPaths={deletedSongIniConflictPaths}
           disabledSongIniPaths={disabledSongIniPaths}
           includedSongPaths={includedSongPaths}
           isConflictsOnly={isScanWizardConflictsOnly}
+          originalFaultySongIniFiles={originalFaultySongIniFiles}
           repairedSongIniPaths={repairedSongIniPaths}
           scanError={scanError}
           scanStatus={scanStatus}
