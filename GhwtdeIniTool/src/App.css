@@ -60,10 +60,11 @@ button {
   z-index: 5;
   display: flex;
   gap: 0.5rem;
-  width: min(46rem, calc(100vw - 10rem));
+  width: min(58rem, calc(100vw - 10rem));
   text-align: left;
 }
 
+.restore-button,
 .clean-button,
 .scan-button,
 .instrument-button,
@@ -77,6 +78,14 @@ button {
   cursor: pointer;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
   transition: background 0.2s;
+}
+
+.restore-button {
+  background: #455a64;
+}
+
+.restore-button:hover:not(:disabled) {
+  background: #263238;
 }
 
 .clean-button {
@@ -103,6 +112,7 @@ button {
   background: #616161;
 }
 
+.restore-button:disabled,
 .clean-button:disabled,
 .scan-button:disabled,
 .instrument-button:disabled {
@@ -751,6 +761,41 @@ td.scanned-songs-action-column {
   color: #565656;
   font-size: 0.78rem;
   line-height: 1.35;
+}
+
+.restore-ini-panel {
+  width: min(32rem, calc(100vw - 3rem));
+  height: auto;
+  max-height: min(80vh, calc(100vh - 3rem));
+}
+
+.restore-mode-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.restore-mode-option {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.restore-mode-option:has(input:checked) {
+  border-color: #396cd8;
+  background: #f7f9ff;
+}
+
+.restore-error-details {
+  margin-top: 1rem;
+}
+
+.restore-error-list {
+  max-height: 12rem;
 }
 
 .scan-file-list {
@@ -1482,6 +1527,7 @@ td.scanned-songs-action-column {
     width: calc(100vw - 2rem);
   }
 
+  .restore-button,
   .clean-button,
   .scan-button,
   .instrument-button,

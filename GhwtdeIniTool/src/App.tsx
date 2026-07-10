@@ -2,6 +2,7 @@ import { useEffect } from "react";
 
 import { CleanModsWizard } from "./components/CleanModsWizard";
 import { InstrumentAnalyzeWizard } from "./components/InstrumentAnalyzeWizard";
+import { RestoreIniWizard } from "./components/RestoreIniWizard";
 import { ScanToast } from "./components/ScanToast";
 import { ScanWizard } from "./components/ScanWizard";
 import { ScannedSongsTable } from "./components/ScannedSongsTable";
@@ -10,6 +11,7 @@ import { UpdateDialog } from "./components/UpdateDialog";
 import { useAppUpdater } from "./hooks/useAppUpdater";
 import { useModsCleaner } from "./hooks/useModsCleaner";
 import { useModsScanner } from "./hooks/useModsScanner";
+import { useIniRestorer } from "./hooks/useIniRestorer";
 import { useProjectSettings } from "./hooks/useProjectSettings";
 import "./App.css";
 
@@ -46,6 +48,17 @@ function App() {
     isCleanWizardOpen,
     previewClean,
   } = useModsCleaner();
+  const {
+    cancelRestore,
+    confirmRestore,
+    dismissRestoreToast,
+    isRestoreWizardOpen,
+    openRestoreWizard,
+    restoreError,
+    restoreErrors,
+    restoreStatus,
+    restoreToast,
+  } = useIniRestorer();
   const {
     analyzeInstruments,
     cancelInstrumentAnalyzer,
@@ -111,20 +124,35 @@ function App() {
     scanStatus === "deletingSongConflict";
   const isCleanBusy =
     cleanStatus === "previewing" || cleanStatus === "deleting";
+  const isRestoreBusy = restoreStatus === "restoring";
   const isInstrumentAnalyzeBusy = instrumentAnalyzeStatus === "analyzing";
   const isWorkflowOpen =
-    isCleanWizardOpen || isScanWizardOpen || isInstrumentWizardOpen;
+    isRestoreWizardOpen ||
+    isCleanWizardOpen ||
+    isScanWizardOpen ||
+    isInstrumentWizardOpen;
   const hasScannedSongs = hasCompletedSongScan && Boolean(songIniScanResult);
   const canAnalyzeInstruments =
     hasScannedSongs && !isWorkflowOpen;
-  const activeToast = cleanToast ?? scanToast;
-  const dismissActiveToast = cleanToast
-    ? dismissCleanToast
-    : dismissScanToast;
+  const activeToast = restoreToast ?? cleanToast ?? scanToast;
+  const dismissActiveToast = restoreToast
+    ? dismissRestoreToast
+    : cleanToast
+      ? dismissCleanToast
+      : dismissScanToast;
   const confirmCleanAndClearScan = async () => {
     const filesDeleted = await confirmClean();
 
     if (filesDeleted > 0) {
+      clearCompletedSongScan();
+    }
+  };
+  const confirmRestoreAndClearScan = async (
+    mode: Parameters<typeof confirmRestore>[0],
+  ) => {
+    const filesRestored = await confirmRestore(mode);
+
+    if (filesRestored > 0) {
       clearCompletedSongScan();
     }
   };
@@ -133,10 +161,18 @@ function App() {
     <main className="container">
       <div className="scan-panel">
         <button
+          className="restore-button"
+          type="button"
+          onClick={openRestoreWizard}
+          disabled={isWorkflowOpen || isScanBusy || isCleanBusy || isRestoreBusy}
+        >
+          {isRestoreBusy ? "Restoring..." : "Restore INI files"}
+        </button>
+        <button
           className="clean-button"
           type="button"
           onClick={cleanMods}
-          disabled={isWorkflowOpen || isScanBusy || isCleanBusy}
+          disabled={isWorkflowOpen || isScanBusy || isCleanBusy || isRestoreBusy}
         >
           {isCleanBusy ? "Cleaning..." : "Clean MODS folder"}
         </button>
@@ -144,7 +180,7 @@ function App() {
           className="scan-button"
           type="button"
           onClick={scanMods}
-          disabled={isWorkflowOpen || isScanBusy || isCleanBusy}
+          disabled={isWorkflowOpen || isScanBusy || isCleanBusy || isRestoreBusy}
         >
           {isScanBusy ? "Scanning..." : "Scan MODS folder"}
         </button>
@@ -157,6 +193,7 @@ function App() {
               !canAnalyzeInstruments ||
               isScanBusy ||
               isCleanBusy ||
+              isRestoreBusy ||
               isInstrumentAnalyzeBusy
             }
           >
@@ -223,6 +260,16 @@ function App() {
           onSkip={skipUpdate}
           onStartDownload={startDownload}
           updateStatus={updateStatus}
+        />
+      )}
+
+      {isRestoreWizardOpen && (
+        <RestoreIniWizard
+          error={restoreError}
+          errors={restoreErrors}
+          onCancel={cancelRestore}
+          onConfirm={confirmRestoreAndClearScan}
+          status={restoreStatus}
         />
       )}
 

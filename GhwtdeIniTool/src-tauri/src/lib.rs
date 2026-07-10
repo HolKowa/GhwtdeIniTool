@@ -71,6 +71,12 @@ struct DeleteFilesResult {
     errors: Vec<String>,
 }
 
+#[derive(Default, Serialize)]
+struct RestoreOriginalSongIniResult {
+    files_restored: usize,
+    errors: Vec<String>,
+}
+
 #[derive(Default)]
 struct SongIniStore(Mutex<Vec<ParsedSongIni>>);
 
@@ -219,6 +225,13 @@ struct SongIniEnableResult {
 struct SongIniDeleteResult {
     relative_path: String,
     songs_parsed: usize,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+enum RestoreOriginalSongIniMode {
+    AfterFormatIssueFixes,
+    BeforeFormatIssueFix,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
@@ -375,6 +388,15 @@ fn restore_original_song_ini(
 ) -> Result<SongIniValidationResult, String> {
     let settings = scan_settings()?;
     restore_original_song_ini_path(&settings, &relative_path, &store)
+}
+
+#[tauri::command]
+fn restore_all_original_song_ini(
+    mode: RestoreOriginalSongIniMode,
+    store: tauri::State<'_, SongIniStore>,
+) -> Result<RestoreOriginalSongIniResult, String> {
+    let settings = scan_settings()?;
+    restore_all_original_song_ini_paths(&settings, mode, &store)
 }
 
 #[tauri::command]
@@ -727,8 +749,11 @@ fn enable_song_ini_file_path(
 
     let disabled_contents = fs::read_to_string(&disabled_path)
         .map_err(|err| format!("Failed to read {}: {err}", disabled_path.display()))?;
-    let parsed_song =
-        parse_song_ini(relative_path, &normalize_song_ini_key_case(&disabled_contents)).ok();
+    let parsed_song = parse_song_ini(
+        relative_path,
+        &normalize_song_ini_key_case(&disabled_contents),
+    )
+    .ok();
 
     fs::rename(&disabled_path, &path).map_err(|err| {
         format!(
@@ -849,6 +874,118 @@ fn restore_original_song_ini_path(
         .map_err(|err| format!("Failed to remove {}: {err}", backup_path.display()))?;
 
     refreshed_song_ini_result(settings, relative_path, backup_contents, parsed_song, store)
+}
+
+fn restore_all_original_song_ini_paths(
+    settings: &ScanSettings,
+    mode: RestoreOriginalSongIniMode,
+    store: &SongIniStore,
+) -> Result<RestoreOriginalSongIniResult, String> {
+    let mods_dir = &settings.mods_dir;
+    let song_ini_paths = find_song_ini_files(mods_dir)?;
+    let mut result = RestoreOriginalSongIniResult::default();
+    let mut restored_paths = HashSet::new();
+
+    restore_all_from_original_backups(&song_ini_paths, mods_dir, &mut result, &mut restored_paths);
+
+    if mode == RestoreOriginalSongIniMode::BeforeFormatIssueFix {
+        restore_all_from_faulty_original_backups(
+            &song_ini_paths,
+            mods_dir,
+            &mut result,
+            &mut restored_paths,
+        );
+    }
+
+    result.files_restored = restored_paths.len();
+    replace_song_ini_store(store, Vec::new())?;
+    Ok(result)
+}
+
+fn restore_all_from_original_backups(
+    song_ini_paths: &[PathBuf],
+    mods_dir: &Path,
+    result: &mut RestoreOriginalSongIniResult,
+    restored_paths: &mut HashSet<String>,
+) {
+    for song_ini_path in song_ini_paths {
+        let relative_path = match mods_relative_path(mods_dir, &song_ini_path) {
+            Ok(relative_path) => relative_path,
+            Err(err) => {
+                result.errors.push(err);
+                continue;
+            }
+        };
+
+        let backup_path = original_song_ini_path(&song_ini_path);
+
+        match restore_song_ini_from_backup(&song_ini_path, &backup_path) {
+            Ok(true) => {
+                if let Err(err) = remove_existing_file(&backup_path) {
+                    result.errors.push(err);
+                } else {
+                    restored_paths.insert(relative_path);
+                }
+            }
+            Ok(false) => {}
+            Err(err) => result.errors.push(err),
+        }
+    }
+}
+
+fn restore_all_from_faulty_original_backups(
+    song_ini_paths: &[PathBuf],
+    mods_dir: &Path,
+    result: &mut RestoreOriginalSongIniResult,
+    restored_paths: &mut HashSet<String>,
+) {
+    for song_ini_path in song_ini_paths {
+        let relative_path = match mods_relative_path(mods_dir, &song_ini_path) {
+            Ok(relative_path) => relative_path,
+            Err(err) => {
+                result.errors.push(err);
+                continue;
+            }
+        };
+
+        let backup_path = faulty_original_song_ini_path(&song_ini_path);
+
+        match restore_song_ini_from_backup(&song_ini_path, &backup_path) {
+            Ok(true) => {
+                if let Err(err) = remove_existing_file(&backup_path) {
+                    result.errors.push(err);
+                } else {
+                    restored_paths.insert(relative_path);
+                }
+            }
+            Ok(false) => {}
+            Err(err) => result.errors.push(err),
+        }
+    }
+}
+
+fn restore_song_ini_from_backup(song_ini_path: &Path, backup_path: &Path) -> Result<bool, String> {
+    if !backup_path.is_file() {
+        return Ok(false);
+    }
+
+    fs::copy(&backup_path, song_ini_path).map_err(|err| {
+        format!(
+            "Failed to restore {} from {}: {err}",
+            song_ini_path.display(),
+            backup_path.display()
+        )
+    })?;
+
+    Ok(true)
+}
+
+fn remove_existing_file(path: &Path) -> Result<(), String> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(format!("Failed to remove {}: {err}", path.display())),
+    }
 }
 
 fn refreshed_song_ini_result(
@@ -2607,7 +2744,9 @@ fn checked_mods_relative_path_allow_missing(
     }
 
     let Some(file_name) = full_path.file_name() else {
-        return Err(format!("Rejected unsafe MODS-relative path {relative_path}."));
+        return Err(format!(
+            "Rejected unsafe MODS-relative path {relative_path}."
+        ));
     };
 
     Ok(canonical_parent_path.join(file_name))
@@ -4487,6 +4626,141 @@ mod tests {
     }
 
     #[test]
+    fn song_restore_all_after_format_restores_original_backup() {
+        let project = TestProject::new("song-restore-all-after-format");
+        let song_ini_path = project.mods_dir.join("song.ini");
+        let backup_path = project.mods_dir.join("song.original.ini");
+        let faulty_path = project.mods_dir.join("song.original.faulty.ini");
+        write_test_file_contents(
+            &song_ini_path,
+            valid_song_ini("Current", "current_checksum").as_str(),
+        );
+        write_test_file_contents(
+            &backup_path,
+            valid_song_ini("Original", "original_checksum").as_str(),
+        );
+        write_test_file_contents(
+            &faulty_path,
+            valid_song_ini("Faulty Original", "faulty_checksum").as_str(),
+        );
+        let store = SongIniStore::default();
+        scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should populate store");
+
+        let result = restore_all_original_song_ini_paths(
+            &test_scan_settings(&project),
+            RestoreOriginalSongIniMode::AfterFormatIssueFixes,
+            &store,
+        )
+        .expect("restore should pass");
+
+        assert_eq!(result.files_restored, 1);
+        assert!(result.errors.is_empty());
+        assert!(!backup_path.exists());
+        assert!(faulty_path.exists());
+        assert_eq!(
+            fs::read_to_string(song_ini_path).expect("song.ini should read"),
+            valid_song_ini("Original", "original_checksum")
+        );
+        assert!(store.0.lock().expect("store should lock").is_empty());
+    }
+
+    #[test]
+    fn song_restore_all_before_format_restores_original_then_faulty_and_removes_both_backups() {
+        let project = TestProject::new("song-restore-all-before-format-faulty");
+        let song_ini_path = project.mods_dir.join("song.ini");
+        let original_path = project.mods_dir.join("song.original.ini");
+        let faulty_path = project.mods_dir.join("song.original.faulty.ini");
+        let faulty_contents = "[SongInfo\nTitle=Broken Before Fix\n";
+        write_test_file_contents(
+            &song_ini_path,
+            valid_song_ini("Current", "current_checksum").as_str(),
+        );
+        write_test_file_contents(
+            &original_path,
+            valid_song_ini("Original", "original_checksum").as_str(),
+        );
+        write_test_file_contents(&faulty_path, faulty_contents);
+        let store = SongIniStore::default();
+
+        let result = restore_all_original_song_ini_paths(
+            &test_scan_settings(&project),
+            RestoreOriginalSongIniMode::BeforeFormatIssueFix,
+            &store,
+        )
+        .expect("restore should pass");
+
+        assert_eq!(result.files_restored, 1);
+        assert!(result.errors.is_empty());
+        assert!(!original_path.exists());
+        assert!(!faulty_path.exists());
+        assert_eq!(
+            fs::read_to_string(song_ini_path).expect("song.ini should read"),
+            faulty_contents
+        );
+    }
+
+    #[test]
+    fn song_restore_all_before_format_falls_back_to_original_backup() {
+        let project = TestProject::new("song-restore-all-before-format-original");
+        let song_ini_path = project.mods_dir.join("song.ini");
+        let backup_path = project.mods_dir.join("song.original.ini");
+        write_test_file_contents(
+            &song_ini_path,
+            valid_song_ini("Current", "current_checksum").as_str(),
+        );
+        write_test_file_contents(
+            &backup_path,
+            valid_song_ini("Original", "original_checksum").as_str(),
+        );
+        let store = SongIniStore::default();
+
+        let result = restore_all_original_song_ini_paths(
+            &test_scan_settings(&project),
+            RestoreOriginalSongIniMode::BeforeFormatIssueFix,
+            &store,
+        )
+        .expect("restore should pass");
+
+        assert_eq!(result.files_restored, 1);
+        assert!(result.errors.is_empty());
+        assert!(!backup_path.exists());
+        assert_eq!(
+            fs::read_to_string(song_ini_path).expect("song.ini should read"),
+            valid_song_ini("Original", "original_checksum")
+        );
+    }
+
+    #[test]
+    fn song_restore_all_restores_invalid_backup_as_plain_file_copy() {
+        let project = TestProject::new("song-restore-all-plain-copy");
+        let song_ini_path = project.mods_dir.join("song.ini");
+        let backup_path = project.mods_dir.join("song.original.ini");
+        let backup_contents = "[SongInfo\nTitle=Broken\n";
+        write_test_file_contents(
+            &song_ini_path,
+            valid_song_ini("Current", "current_checksum").as_str(),
+        );
+        write_test_file_contents(&backup_path, backup_contents);
+        let store = SongIniStore::default();
+
+        let result = restore_all_original_song_ini_paths(
+            &test_scan_settings(&project),
+            RestoreOriginalSongIniMode::AfterFormatIssueFixes,
+            &store,
+        )
+        .expect("restore should pass");
+
+        assert_eq!(result.files_restored, 1);
+        assert!(result.errors.is_empty());
+        assert!(!backup_path.exists());
+        assert_eq!(
+            fs::read_to_string(song_ini_path).expect("song.ini should read"),
+            backup_contents
+        );
+    }
+
+    #[test]
     fn song_validation_preserves_existing_original_backup() {
         let project = TestProject::new("song-validate-existing-backup");
         let song_ini_path = project.mods_dir.join("song.ini");
@@ -4675,7 +4949,10 @@ mod tests {
     fn song_enable_renames_disabled_file_and_updates_store_when_valid() {
         let project = TestProject::new("song-enable");
         let disabled_song_ini = valid_song_ini("Enabled", "enabled_checksum");
-        write_test_file_contents(&project.mods_dir.join("song.disabled.ini"), &disabled_song_ini);
+        write_test_file_contents(
+            &project.mods_dir.join("song.disabled.ini"),
+            &disabled_song_ini,
+        );
         let store = SongIniStore::default();
 
         let result = enable_song_ini_file_path(&test_scan_settings(&project), "song.ini", &store)
@@ -4697,7 +4974,10 @@ mod tests {
     fn song_enable_allows_invalid_disabled_file_without_updating_store() {
         let project = TestProject::new("song-enable-invalid");
         let disabled_song_ini = "[SongInfo]\nArtist=No title\n";
-        write_test_file_contents(&project.mods_dir.join("song.disabled.ini"), disabled_song_ini);
+        write_test_file_contents(
+            &project.mods_dir.join("song.disabled.ini"),
+            disabled_song_ini,
+        );
         let store = SongIniStore::default();
 
         let result = enable_song_ini_file_path(&test_scan_settings(&project), "song.ini", &store)
@@ -4860,6 +5140,7 @@ pub fn run() {
             delete_song_ini_conflict_file,
             update_scanned_song_metadata,
             restore_original_song_ini,
+            restore_all_original_song_ini,
             analyze_scanned_song_instruments,
             analyze_song_pak
         ])

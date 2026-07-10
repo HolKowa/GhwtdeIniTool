@@ -5,6 +5,8 @@ import type {
   DeleteFilesResult,
   InstrumentAnalyzeMode,
   InstrumentAnalyzeResult,
+  RestoreOriginalSongIniMode,
+  RestoreOriginalSongIniResult,
   ScannedSongMetadata,
   SongIniDeleteResult,
   SongIniDisableResult,
@@ -73,6 +75,12 @@ export function updateScannedSongMetadata(
 export function restoreOriginalSongIni(relativePath: string) {
   return invoke<SongIniValidationResult>("restore_original_song_ini", {
     relativePath,
+  });
+}
+
+export function restoreAllOriginalSongIni(mode: RestoreOriginalSongIniMode) {
+  return invoke<RestoreOriginalSongIniResult>("restore_all_original_song_ini", {
+    mode,
   });
 }
 

@@ -8,6 +8,15 @@ export type DeleteFilesResult = {
   errors: string[];
 };
 
+export type RestoreOriginalSongIniMode =
+  | "afterFormatIssueFixes"
+  | "beforeFormatIssueFix";
+
+export type RestoreOriginalSongIniResult = {
+  files_restored: number;
+  errors: string[];
+};
+
 export type FaultySongIniFile = {
   relative_path: string;
   contents: string;

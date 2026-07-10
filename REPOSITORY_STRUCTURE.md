@@ -42,6 +42,8 @@ Important files:
   cleanup wizard for keep-pattern entry and delete confirmation.
 - `GhwtdeIniTool/src/components/InstrumentAnalyzeWizard.tsx` renders the
   separate instrument sidecar analysis wizard and progress state.
+- `GhwtdeIniTool/src/components/RestoreIniWizard.tsx` renders the bulk
+  `song.ini` backup restore dialog.
 - `GhwtdeIniTool/src/components/ScanToast.tsx` renders compact scan completion
   and error toasts.
 - `GhwtdeIniTool/src/components/ScanWizard.tsx` renders the `song.ini` scan,
@@ -54,6 +56,8 @@ Important files:
 - `GhwtdeIniTool/src/hooks/useProjectSettings.ts` owns settings state and
   persistence calls.
 - `GhwtdeIniTool/src/hooks/useModsCleaner.ts` owns keep-pattern cleanup state.
+- `GhwtdeIniTool/src/hooks/useIniRestorer.ts` owns bulk `song.ini` restore
+  dialog state.
 - `GhwtdeIniTool/src/hooks/useModsScanner.ts` owns `song.ini` scan and
   instrument analysis action state.
 - `GhwtdeIniTool/src/hooks/useAppUpdater.ts` owns updater state and actions.
@@ -95,6 +99,15 @@ Current frontend behavior:
   review step. The pattern defaults to
   `song*.ini,*_song.pak.xen,*.fsb.xen,category*.ini,*.img.xen,Readme.txt`
   each time and is not saved.
+- The Restore INI files button opens a dialog for bulk restoring active
+  `song.ini` files from sibling backups with plain file copy/delete operations,
+  without parsing backup contents. The default mode restores
+  `song.original.ini` backups and leaves `song.original.faulty.ini` in place.
+  The pre-format-fix mode first consumes normal `song.original.ini` backups,
+  then consumes `song.original.faulty.ini` backups so the pre-fix contents
+  overwrite the working restore. Restoring clears any completed scan table so
+  stale parsed metadata is not shown. If any files fail to restore, the dialog
+  stays open and lists the backend restore errors.
 - The Scan MODS folder button opens a three-step wizard that parses `song.ini`
   files, stores valid parsed results in backend memory, lets the user repair
   faulty files, then resolves duplicate checksum groups and folders containing
@@ -194,7 +207,8 @@ Current backend behavior:
   `delete_song_ini_conflict_file` Tauri commands.
   It also exposes `update_scanned_song_metadata` for row-level scanned-table edits and
   `restore_original_song_ini` for consuming a sibling `song.original.ini` back
-  into the active `song.ini`.
+  into the active `song.ini`, plus `restore_all_original_song_ini` for bulk
+  restore from normal or pre-format-fix backups.
 - `scan_song_ini_files` emits `song_scan_progress` events while finding songs,
   reading `song.ini` files, checking content, and finishing.
 - Exposes `analyze_scanned_song_instruments`, which analyzes instrument support
@@ -243,7 +257,9 @@ Current backend behavior:
   `song.original.faulty.ini` before writing repaired wizard step-one files, and
   creates a sibling `song.original.ini` before scanned-table metadata edits or
   before a `song.ini` is disabled by rename. Only `song.original.ini` marks a
-  row as restorable and can be consumed by restore.
+  row as restorable and can be consumed by row-level restore; the bulk restore
+  dialog's pre-format-fix mode can also consume `song.original.faulty.ini`
+  after normal backups have been restored.
 - Uses `tauri.conf.json` to open the main window maximized, restore it to
   1920x1080 when un-maximized, and configure bundling and updater artifacts.
 
@@ -282,8 +298,8 @@ What was checked:
   content folder and checksum filename case-insensitive matching, debug-only
   missing `Content/MUSIC` suppression, strict extra content file reporting,
   refreshed content issues after checksum repair or verify, song scan progress events,
-  scanned-table metadata updates, original `song.ini` restore behavior,
-  instrument summary display policy, instrument sidecar loading/staleness,
+  scanned-table metadata updates, row-level and bulk original `song.ini`
+  restore behavior, instrument summary display policy, instrument sidecar loading/staleness,
   strict instrument analysis mode selection, sidecar writes, case-insensitive
   song PAK resolution, and unsafe repair/action path rejection.
 - Rust song PAK analyzer tests cover QBKey hashing, hash normalization, minimal
