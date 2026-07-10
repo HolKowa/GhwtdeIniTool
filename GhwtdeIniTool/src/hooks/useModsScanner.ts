@@ -6,7 +6,9 @@ import {
   deleteSongIniConflictFile,
   disableSongIniFile,
   enableSongIniFile,
+  fixGameIconCategories,
   restoreOriginalSongIni,
+  scanGameIconCategories,
   scanSongIniFiles,
   undoSongIniRepair,
   updateScannedSongMetadata,
@@ -15,6 +17,7 @@ import {
 } from "../services/scanModsApi";
 import type {
   FaultySongIniFile,
+  GameIconCategoryScanResult,
   InstrumentAnalyzeMode,
   InstrumentAnalyzeProgress,
   InstrumentAnalyzeResult,
@@ -46,6 +49,13 @@ export type InstrumentAnalyzeStatus =
   | "selecting"
   | "analyzing"
   | "complete"
+  | "error";
+
+export type GameIconCategoryStatus =
+  | "idle"
+  | "scanning"
+  | "ready"
+  | "fixing"
   | "error";
 
 function waitForNextFrame() {
@@ -123,6 +133,12 @@ export function useModsScanner() {
   const [instrumentAnalyzeResult, setInstrumentAnalyzeResult] =
     useState<InstrumentAnalyzeResult | null>(null);
   const [instrumentAnalyzeError, setInstrumentAnalyzeError] = useState("");
+  const [isGameIconWizardOpen, setIsGameIconWizardOpen] = useState(false);
+  const [gameIconCategoryStatus, setGameIconCategoryStatus] =
+    useState<GameIconCategoryStatus>("idle");
+  const [gameIconCategoryResult, setGameIconCategoryResult] =
+    useState<GameIconCategoryScanResult | null>(null);
+  const [gameIconCategoryError, setGameIconCategoryError] = useState("");
   const knownIncludedSongPathSetRef = useRef(new Set<string>());
 
   const scanMods = useCallback(async () => {
@@ -149,6 +165,10 @@ export function useModsScanner() {
     setInstrumentAnalyzeProgress(null);
     setInstrumentAnalyzeResult(null);
     setInstrumentAnalyzeError("");
+    setIsGameIconWizardOpen(false);
+    setGameIconCategoryStatus("idle");
+    setGameIconCategoryResult(null);
+    setGameIconCategoryError("");
     setIsScanWizardConflictsOnly(false);
 
     try {
@@ -454,6 +474,10 @@ export function useModsScanner() {
     setInstrumentAnalyzeProgress(null);
     setInstrumentAnalyzeResult(null);
     setInstrumentAnalyzeError("");
+    setIsGameIconWizardOpen(false);
+    setGameIconCategoryStatus("idle");
+    setGameIconCategoryResult(null);
+    setGameIconCategoryError("");
     setIsScanWizardConflictsOnly(false);
   }, []);
 
@@ -666,11 +690,16 @@ export function useModsScanner() {
     setRestoringScannedSongPaths([]);
     setSongIniValidationError("");
     setSongIniConflictError("");
+    setIsGameIconWizardOpen(false);
+    setGameIconCategoryStatus("idle");
+    setGameIconCategoryResult(null);
+    setGameIconCategoryError("");
     setIsScanWizardConflictsOnly(false);
   }, [isScanWizardConflictsOnly]);
 
   const openInstrumentAnalyzer = useCallback(() => {
     setIsInstrumentWizardOpen(true);
+    setIsGameIconWizardOpen(false);
     setInstrumentAnalyzeStatus("selecting");
     setInstrumentAnalyzeProgress(null);
     setInstrumentAnalyzeResult(null);
@@ -690,6 +719,48 @@ export function useModsScanner() {
     setInstrumentAnalyzeProgress(null);
     setInstrumentAnalyzeResult(null);
     setInstrumentAnalyzeError("");
+  }, []);
+
+  const openGameIconCategories = useCallback(async () => {
+    setIsGameIconWizardOpen(true);
+    setIsInstrumentWizardOpen(false);
+    setGameIconCategoryStatus("scanning");
+    setGameIconCategoryResult(null);
+    setGameIconCategoryError("");
+
+    try {
+      await waitForNextFrame();
+      const result = await scanGameIconCategories();
+
+      setGameIconCategoryResult(result);
+      setGameIconCategoryStatus("ready");
+    } catch (err) {
+      setGameIconCategoryError(String(err));
+      setGameIconCategoryStatus("error");
+    }
+  }, []);
+
+  const closeGameIconCategories = useCallback(() => {
+    setIsGameIconWizardOpen(false);
+    setGameIconCategoryStatus("idle");
+    setGameIconCategoryResult(null);
+    setGameIconCategoryError("");
+  }, []);
+
+  const fixGameIconCategoryFolders = useCallback(async () => {
+    setGameIconCategoryStatus("fixing");
+    setGameIconCategoryError("");
+
+    try {
+      await waitForNextFrame();
+      const result = await fixGameIconCategories();
+
+      setGameIconCategoryResult(result);
+      setGameIconCategoryStatus("ready");
+    } catch (err) {
+      setGameIconCategoryError(String(err));
+      setGameIconCategoryStatus("error");
+    }
   }, []);
 
   const analyzeInstruments = useCallback(async (mode: InstrumentAnalyzeMode) => {
@@ -771,6 +842,7 @@ export function useModsScanner() {
     setIsScanWizardOpen(true);
     setIsScanWizardConflictsOnly(true);
     setIsInstrumentWizardOpen(false);
+    setIsGameIconWizardOpen(false);
     setScanStatus("readySongRepair");
     setSongIniConflictError("");
   }, [
@@ -855,17 +927,24 @@ export function useModsScanner() {
     disableSongIni,
     disabledSongIniPaths,
     enableSongIni,
+    fixGameIconCategoryFolders,
     dismissScanToast,
+    gameIconCategoryError,
+    gameIconCategoryResult,
+    gameIconCategoryStatus,
     hasCompletedSongScan,
     includedSongPaths,
     instrumentAnalyzeError,
     instrumentAnalyzeProgress,
     instrumentAnalyzeResult,
     instrumentAnalyzeStatus,
+    isGameIconWizardOpen,
     isInstrumentWizardOpen,
     isScanWizardConflictsOnly,
     isScanWizardOpen,
+    closeGameIconCategories,
     openInstrumentAnalyzer,
+    openGameIconCategories,
     originalFaultySongIniFiles,
     repairedSongIniPaths,
     restoringScannedSongPaths,

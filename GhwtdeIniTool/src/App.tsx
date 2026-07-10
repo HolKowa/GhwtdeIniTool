@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 
 import { CleanModsWizard } from "./components/CleanModsWizard";
+import { FixGameIconsWizard } from "./components/FixGameIconsWizard";
 import { InstrumentAnalyzeWizard } from "./components/InstrumentAnalyzeWizard";
 import { RestoreIniWizard } from "./components/RestoreIniWizard";
 import { ScanToast } from "./components/ScanToast";
@@ -74,17 +75,24 @@ function App() {
     disableSongIni,
     disabledSongIniPaths,
     enableSongIni,
+    fixGameIconCategoryFolders,
     dismissScanToast,
+    gameIconCategoryError,
+    gameIconCategoryResult,
+    gameIconCategoryStatus,
     hasCompletedSongScan,
     includedSongPaths,
     instrumentAnalyzeError,
     instrumentAnalyzeProgress,
     instrumentAnalyzeResult,
     instrumentAnalyzeStatus,
+    isGameIconWizardOpen,
     isInstrumentWizardOpen,
     isScanWizardConflictsOnly,
     isScanWizardOpen,
+    closeGameIconCategories,
     openInstrumentAnalyzer,
+    openGameIconCategories,
     originalFaultySongIniFiles,
     repairedSongIniPaths,
     restoringScannedSongPaths,
@@ -133,14 +141,18 @@ function App() {
     cleanStatus === "previewing" || cleanStatus === "deleting";
   const isRestoreBusy = restoreStatus === "restoring";
   const isInstrumentAnalyzeBusy = instrumentAnalyzeStatus === "analyzing";
+  const isGameIconBusy =
+    gameIconCategoryStatus === "scanning" || gameIconCategoryStatus === "fixing";
   const isWorkflowOpen =
     isRestoreWizardOpen ||
     isCleanWizardOpen ||
     isScanWizardOpen ||
-    isInstrumentWizardOpen;
+    isInstrumentWizardOpen ||
+    isGameIconWizardOpen;
   const hasScannedSongs = hasCompletedSongScan && Boolean(songIniScanResult);
   const canAnalyzeInstruments =
     hasScannedSongs && !isWorkflowOpen;
+  const canFixGameIcons = hasScannedSongs && !isWorkflowOpen;
   const activeToast = restoreToast ?? cleanToast ?? scanToast;
   const dismissActiveToast = restoreToast
     ? dismissRestoreToast
@@ -171,7 +183,13 @@ function App() {
           className="restore-button"
           type="button"
           onClick={openRestoreWizard}
-          disabled={isWorkflowOpen || isScanBusy || isCleanBusy || isRestoreBusy}
+          disabled={
+            isWorkflowOpen ||
+            isScanBusy ||
+            isCleanBusy ||
+            isRestoreBusy ||
+            isGameIconBusy
+          }
         >
           {isRestoreBusy ? "Restoring..." : "Restore INI files"}
         </button>
@@ -179,7 +197,13 @@ function App() {
           className="clean-button"
           type="button"
           onClick={cleanMods}
-          disabled={isWorkflowOpen || isScanBusy || isCleanBusy || isRestoreBusy}
+          disabled={
+            isWorkflowOpen ||
+            isScanBusy ||
+            isCleanBusy ||
+            isRestoreBusy ||
+            isGameIconBusy
+          }
         >
           {isCleanBusy ? "Cleaning..." : "Clean MODS folder"}
         </button>
@@ -187,7 +211,13 @@ function App() {
           className="scan-button"
           type="button"
           onClick={scanMods}
-          disabled={isWorkflowOpen || isScanBusy || isCleanBusy || isRestoreBusy}
+          disabled={
+            isWorkflowOpen ||
+            isScanBusy ||
+            isCleanBusy ||
+            isRestoreBusy ||
+            isGameIconBusy
+          }
         >
           {isScanBusy ? "Scanning..." : "Scan MODS folder"}
         </button>
@@ -201,10 +231,28 @@ function App() {
               isScanBusy ||
               isCleanBusy ||
               isRestoreBusy ||
-              isInstrumentAnalyzeBusy
+              isInstrumentAnalyzeBusy ||
+              isGameIconBusy
             }
           >
             {isInstrumentAnalyzeBusy ? "Analyzing..." : "Analyze instruments"}
+          </button>
+        )}
+        {hasScannedSongs && (
+          <button
+            className="game-icon-button"
+            type="button"
+            onClick={openGameIconCategories}
+            disabled={
+              !canFixGameIcons ||
+              isScanBusy ||
+              isCleanBusy ||
+              isRestoreBusy ||
+              isInstrumentAnalyzeBusy ||
+              isGameIconBusy
+            }
+          >
+            {isGameIconBusy ? "Fixing..." : "Fix GameIcons"}
           </button>
         )}
         {hasScannedSongs && (
@@ -334,6 +382,16 @@ function App() {
           progress={instrumentAnalyzeProgress}
           result={instrumentAnalyzeResult}
           status={instrumentAnalyzeStatus}
+        />
+      )}
+
+      {isGameIconWizardOpen && (
+        <FixGameIconsWizard
+          error={gameIconCategoryError}
+          onClose={closeGameIconCategories}
+          onFix={fixGameIconCategoryFolders}
+          result={gameIconCategoryResult}
+          status={gameIconCategoryStatus}
         />
       )}
 

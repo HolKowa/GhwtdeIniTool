@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   DeleteFilesPreview,
   DeleteFilesResult,
+  GameIconCategoryScanResult,
   InstrumentAnalyzeMode,
   InstrumentAnalyzeResult,
   RestoreOriginalSongIniMode,
@@ -95,4 +96,12 @@ export function analyzeScannedSongInstruments(mode: InstrumentAnalyzeMode) {
   return invoke<InstrumentAnalyzeResult>("analyze_scanned_song_instruments", {
     mode,
   });
+}
+
+export function scanGameIconCategories() {
+  return invoke<GameIconCategoryScanResult>("scan_game_icon_categories");
+}
+
+export function fixGameIconCategories() {
+  return invoke<GameIconCategoryScanResult>("fix_game_icon_categories");
 }

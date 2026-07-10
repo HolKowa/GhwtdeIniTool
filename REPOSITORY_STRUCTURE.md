@@ -40,6 +40,8 @@ Important files:
 - `GhwtdeIniTool/src/App.css` contains the current app styling.
 - `GhwtdeIniTool/src/components/CleanModsWizard.tsx` renders the two-step MODS
   cleanup wizard for keep-pattern entry and delete confirmation.
+- `GhwtdeIniTool/src/components/FixGameIconsWizard.tsx` renders the custom
+  GameIcon category scan/fix wizard.
 - `GhwtdeIniTool/src/components/InstrumentAnalyzeWizard.tsx` renders the
   separate instrument sidecar analysis wizard and progress state.
 - `GhwtdeIniTool/src/components/RestoreIniWizard.tsx` renders the bulk
@@ -59,19 +61,20 @@ Important files:
 - `GhwtdeIniTool/src/hooks/useIniRestorer.ts` owns bulk `song.ini` restore
   dialog state.
 - `GhwtdeIniTool/src/hooks/useModsScanner.ts` owns `song.ini` scan, step-one
-  undo snapshots, and instrument analysis action state.
+  undo snapshots, instrument analysis action state, and GameIcon category
+  fixing state.
 - `GhwtdeIniTool/src/hooks/useAppUpdater.ts` owns updater state and actions.
 - `GhwtdeIniTool/src/services/projectSettingsApi.ts` wraps the Tauri settings
   commands.
 - `GhwtdeIniTool/src/services/scanModsApi.ts` wraps the Tauri keep-pattern
   delete, `song.ini` scan/validation/step-one undo/disable/enable/conflict
-  delete, and instrument analysis commands.
+  delete, instrument analysis, and GameIcon category commands.
 - `GhwtdeIniTool/src/services/modsFolderDialog.ts` wraps Tauri folder pickers.
 - `GhwtdeIniTool/src/types/projectSettings.ts` defines the frontend settings
   shape returned by Rust.
 - `GhwtdeIniTool/src/types/scanMods.ts` defines the frontend MODS scan,
   keep-pattern delete, and `song.ini` scan/validation/conflict/content result
-  shapes.
+  shapes, plus GameIcon category scan result shapes.
 - `GhwtdeIniTool/src/utils/keepOnlyFilesPattern.ts` defines the default
   keep-pattern and frontend validation helper.
 - `GhwtdeIniTool/vite.config.ts` configures Vite for Tauri development on port
@@ -137,6 +140,14 @@ Current frontend behavior:
   errors`, and `Reread all` modes. It switches immediately to a progress step
   while PAK chart data is analyzed, writes `song.instruments.ini` sidecars next
   to active `song.ini` files, then updates the scanned-song table.
+- The Fix GameIcons top-bar button is enabled after a completed song scan and
+  opens a custom GameIcon category wizard. The wizard scans MODS for
+  case-insensitive `gamelogo_*.img.xen` files, groups them by folder, shows a
+  `category.ini` chip only when the sibling `[CategoryInfo] Logo` matches the
+  gamelogo stem, and can fix folders by moving multiple gamelogos into
+  `Category_<gamelogo_stem>` subfolders and generating or replacing
+  `category.ini` files. Its future Next button is always visible but disabled
+  until the next step is implemented.
 - After the Scan MODS folder wizard is finished, the main view shows a compact
   scanned-song table populated from parsed active `song.ini` files. It displays
   exact `[SongInfo]` `Artist`, `Title`, `Year`, `Genre`, and `GameIcon` values,
@@ -159,7 +170,7 @@ Current frontend behavior:
   rows are faintly highlighted, and re-including multiple songs from the same
   duplicate group reopens the duplicate resolver directly on the conflict step.
   The top action row includes a disabled Categorize button alongside Analyze
-  instruments until backend categorization is implemented.
+  instruments and Fix GameIcons until backend categorization is implemented.
 - The settings dialog lets the user choose a MODS folder, choose an official
   GAMELOGOS folder after MODS is set, and toggle whether original `song.ini`
   files are kept before their first edit.
@@ -223,6 +234,14 @@ Current backend behavior:
   runs the expensive PAK work on a blocking worker while emitting throttled
   progress events, writes `song.instruments.ini` sidecars beside active
   `song.ini` files, and returns refreshed table rows.
+- Exposes `scan_game_icon_categories` and `fix_game_icon_categories` for the
+  GameIcon wizard. These commands recursively scan MODS for case-insensitive
+  `gamelogo_*.img.xen` files, parse sibling `category.ini` files with duplicate
+  key rejection, compare `[CategoryInfo] Logo` to the gamelogo stem, return
+  original and custom gamelogo stems without `.img.xen`, and fix custom
+  categories by splitting multi-gamelogo folders, renaming invalid or
+  mismatched `category.ini` files to `category.original.faulty.ini`, and
+  writing generated category metadata.
 - Exposes `analyze_song_pak`, which takes a PAK path and song checksum, reads
   the matching main chart QB from the PAK without extracting files, and returns
   instrument support details, parser diagnostics, warnings, and errors in a
@@ -313,7 +332,9 @@ What was checked:
   scanned-table metadata updates, row-level and bulk original `song.ini`
   restore behavior, instrument summary display policy, instrument sidecar loading/staleness,
   strict instrument analysis mode selection, sidecar writes, case-insensitive
-  song PAK resolution, and unsafe repair/action path rejection.
+  song PAK resolution, unsafe repair/action path rejection, GameIcon category
+  discovery/fixing, invalid category backup/regeneration, collision handling,
+  and original/custom gamelogo stem listing.
 - Rust song PAK analyzer tests cover QBKey hashing, hash normalization, minimal
   PAK entry parsing, QB section parsing, instrument/vocal support detection, and
   an optional local parity check against the Sk8er Boi sample in `MODS_medium`

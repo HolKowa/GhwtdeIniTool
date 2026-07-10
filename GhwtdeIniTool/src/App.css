@@ -68,6 +68,7 @@ button {
 .clean-button,
 .scan-button,
 .instrument-button,
+.game-icon-button,
 .categorize-button {
   padding: 0.5rem 1rem;
   border: none;
@@ -108,6 +109,14 @@ button {
   background: #0d47a1;
 }
 
+.game-icon-button {
+  background: #00796b;
+}
+
+.game-icon-button:hover:not(:disabled) {
+  background: #004d40;
+}
+
 .categorize-button {
   background: #616161;
 }
@@ -115,7 +124,8 @@ button {
 .restore-button:disabled,
 .clean-button:disabled,
 .scan-button:disabled,
-.instrument-button:disabled {
+.instrument-button:disabled,
+.game-icon-button:disabled {
   cursor: wait;
   opacity: 0.75;
 }
@@ -761,6 +771,106 @@ td.scanned-songs-action-column {
   color: #565656;
   font-size: 0.78rem;
   line-height: 1.35;
+}
+
+.game-icon-panel {
+  width: min(56rem, calc(100vw - 3rem));
+}
+
+.game-icon-info {
+  padding: 0.75rem;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  background: #f7f7f7;
+  font-size: 0.86rem;
+  line-height: 1.4;
+}
+
+.game-icon-info p,
+.game-icon-info ul {
+  margin: 0;
+}
+
+.game-icon-info ul {
+  padding-left: 1.2rem;
+}
+
+.game-icon-info ul + p {
+  margin-top: 0.75rem;
+}
+
+.game-icon-summary {
+  margin-top: 1rem;
+}
+
+.game-icon-group-list {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.game-icon-group {
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.game-icon-group-header,
+.game-icon-file-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.game-icon-group-header {
+  padding: 0.55rem 0.65rem;
+  background: #f4f4f4;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono",
+    monospace;
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.game-icon-group-header span:first-child,
+.game-icon-file-list span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.game-icon-warning {
+  color: #b71c1c;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+}
+
+.game-icon-file-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.game-icon-file-list li {
+  padding: 0.55rem 0.65rem;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono",
+    monospace;
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.game-icon-file-list li + li {
+  border-top: 1px solid #eeeeee;
+}
+
+.game-icon-chip {
+  padding: 0.15rem 0.45rem;
+  border: 1px solid #a5d6a7;
+  border-radius: 999px;
+  background: #f1f8e9;
+  color: #1b5e20;
+  font-family: inherit;
+  font-size: 0.72rem;
+  line-height: 1.2;
 }
 
 .restore-ini-panel {

@@ -155,3 +155,25 @@ export type InstrumentAnalyzeResult = {
   skipped: number;
   errors: number;
 };
+
+export type GameIconFile = {
+  relative_path: string;
+  file_name: string;
+  stem: string;
+  has_matching_category_ini: boolean;
+};
+
+export type GameIconCategoryGroup = {
+  folder_relative_path: string;
+  folder_absolute_path: string;
+  gamelogos: GameIconFile[];
+  has_multiple_gamelogos: boolean;
+};
+
+export type GameIconCategoryScanResult = {
+  groups: GameIconCategoryGroup[];
+  needs_fix: boolean;
+  official_game_icons: string[];
+  custom_game_icons: string[];
+  errors: string[];
+};
