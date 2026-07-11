@@ -177,3 +177,30 @@ export type GameIconCategoryScanResult = {
   custom_game_icons: string[];
   errors: string[];
 };
+
+export type GameIconSongFixRow = {
+  relative_path: string;
+  artist: string;
+  title: string;
+  invalid_game_icon: string;
+  new_game_icon: string;
+};
+
+export type GameIconSongFixPreview = {
+  rows: GameIconSongFixRow[];
+  valid_game_icons: string[];
+};
+
+export type GameIconSongFixInput = {
+  relative_path: string;
+  new_game_icon: string;
+};
+
+export type GameIconSongFixApplyResult = {
+  applied: number;
+  songs_parsed: number;
+  songs: ScannedSong[];
+  duplicate_checksum_groups: DuplicateChecksumGroup[];
+  disabled_song_conflicts: DisabledSongConflict[];
+  content_file_issues: SongContentIssue[];
+};

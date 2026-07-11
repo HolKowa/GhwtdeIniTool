@@ -774,7 +774,7 @@ td.scanned-songs-action-column {
 }
 
 .game-icon-panel {
-  width: min(56rem, calc(100vw - 3rem));
+  width: min(66rem, calc(100vw - 3rem));
 }
 
 .game-icon-info {
@@ -871,6 +871,61 @@ td.scanned-songs-action-column {
   font-family: inherit;
   font-size: 0.72rem;
   line-height: 1.2;
+}
+
+.game-icon-song-fix-table-wrap {
+  flex: 1;
+  min-height: 0;
+  margin-top: 0.75rem;
+  overflow: auto;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+}
+
+.game-icon-step-two-body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.game-icon-song-fix-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.game-icon-song-fix-table th,
+.game-icon-song-fix-table td {
+  padding: 0.55rem 0.65rem;
+  border-bottom: 1px solid #eeeeee;
+  text-align: left;
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+}
+
+.game-icon-song-fix-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f4f4f4;
+  color: #2f2f2f;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+}
+
+.game-icon-song-fix-table input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 0.42rem 0.5rem;
+  border: 1px solid #cfcfcf;
+  border-radius: 4px;
+  font: inherit;
+}
+
+.game-icon-song-fix-table input.input-error {
+  border-color: #b71c1c;
+  background: #fff5f5;
 }
 
 .restore-ini-panel {

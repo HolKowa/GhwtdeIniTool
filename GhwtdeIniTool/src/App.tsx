@@ -63,6 +63,7 @@ function App() {
   } = useIniRestorer();
   const {
     analyzeInstruments,
+    applyGameIconSongFixRows,
     cancelInstrumentAnalyzer,
     cancelScan,
     clearCompletedSongScan,
@@ -80,6 +81,7 @@ function App() {
     gameIconCategoryError,
     gameIconCategoryResult,
     gameIconCategoryStatus,
+    gameIconSongFixPreview,
     hasCompletedSongScan,
     includedSongPaths,
     instrumentAnalyzeError,
@@ -93,6 +95,7 @@ function App() {
     closeGameIconCategories,
     openInstrumentAnalyzer,
     openGameIconCategories,
+    previewGameIconSongFixRows,
     originalFaultySongIniFiles,
     repairedSongIniPaths,
     restoringScannedSongPaths,
@@ -388,8 +391,11 @@ function App() {
       {isGameIconWizardOpen && (
         <FixGameIconsWizard
           error={gameIconCategoryError}
+          fixPreview={gameIconSongFixPreview}
+          onApplyFixes={applyGameIconSongFixRows}
           onClose={closeGameIconCategories}
           onFix={fixGameIconCategoryFolders}
+          onPreviewFixes={previewGameIconSongFixRows}
           result={gameIconCategoryResult}
           status={gameIconCategoryStatus}
         />

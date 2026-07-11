@@ -4,6 +4,9 @@ import type {
   DeleteFilesPreview,
   DeleteFilesResult,
   GameIconCategoryScanResult,
+  GameIconSongFixApplyResult,
+  GameIconSongFixInput,
+  GameIconSongFixPreview,
   InstrumentAnalyzeMode,
   InstrumentAnalyzeResult,
   RestoreOriginalSongIniMode,
@@ -104,4 +107,14 @@ export function scanGameIconCategories() {
 
 export function fixGameIconCategories() {
   return invoke<GameIconCategoryScanResult>("fix_game_icon_categories");
+}
+
+export function previewGameIconSongFixes() {
+  return invoke<GameIconSongFixPreview>("preview_game_icon_song_fixes");
+}
+
+export function applyGameIconSongFixes(fixes: GameIconSongFixInput[]) {
+  return invoke<GameIconSongFixApplyResult>("apply_game_icon_song_fixes", {
+    fixes,
+  });
 }

@@ -141,13 +141,15 @@ Current frontend behavior:
   while PAK chart data is analyzed, writes `song.instruments.ini` sidecars next
   to active `song.ini` files, then updates the scanned-song table.
 - The Fix GameIcons top-bar button is enabled after a completed song scan and
-  opens a custom GameIcon category wizard. The wizard scans MODS for
+  opens a two-step GameIcon wizard. Step 1 scans MODS for
   case-insensitive `gamelogo_*.img.xen` files, groups them by folder, shows a
   `category.ini` chip only when the sibling `[CategoryInfo] Logo` matches the
   gamelogo stem, and can fix folders by moving multiple gamelogos into
   `Category_<gamelogo_stem>` subfolders and generating or replacing
-  `category.ini` files. Its future Next button is always visible but disabled
-  until the next step is implemented.
+  `category.ini` files. Step 2 previews songs whose `GameIcon` is not known
+  from official or custom gamelogos, shows backend-guessed replacements, lets
+  only the replacement value be edited, and applies the new values to
+  `song.ini` files before refreshing the scanned-song table.
 - After the Scan MODS folder wizard is finished, the main view shows a compact
   scanned-song table populated from parsed active `song.ini` files. It displays
   exact `[SongInfo]` `Artist`, `Title`, `Year`, `Genre`, and `GameIcon` values,
@@ -242,6 +244,12 @@ Current backend behavior:
   categories by splitting multi-gamelogo folders, renaming invalid or
   mismatched `category.ini` files to `category.original.faulty.ini`, and
   writing generated category metadata.
+- Exposes `preview_game_icon_song_fixes` and `apply_game_icon_song_fixes` for
+  the GameIcon wizard's second step. The preview command uses the current
+  scanned song store plus official/custom gamelogo stems to return invalid
+  song rows with guessed replacements. The apply command validates replacement
+  stems, updates only `GameIcon` in each target `song.ini`, preserves existing
+  backup behavior, and returns refreshed scanned-song table data.
 - Exposes `analyze_song_pak`, which takes a PAK path and song checksum, reads
   the matching main chart QB from the PAK without extracting files, and returns
   instrument support details, parser diagnostics, warnings, and errors in a
@@ -334,7 +342,8 @@ What was checked:
   strict instrument analysis mode selection, sidecar writes, case-insensitive
   song PAK resolution, unsafe repair/action path rejection, GameIcon category
   discovery/fixing, invalid category backup/regeneration, collision handling,
-  and original/custom gamelogo stem listing.
+  original/custom gamelogo stem listing, invalid song GameIcon preview
+  guessing, and song GameIcon apply validation/writes.
 - Rust song PAK analyzer tests cover QBKey hashing, hash normalization, minimal
   PAK entry parsing, QB section parsing, instrument/vocal support detection, and
   an optional local parity check against the Sk8er Boi sample in `MODS_medium`
