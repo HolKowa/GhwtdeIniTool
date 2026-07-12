@@ -4106,6 +4106,7 @@ fn checked_mods_relative_path(mods_dir: &Path, relative_path: &str) -> Result<Pa
 
     let canonical_path = full_path
         .canonicalize()
+        .map(normalize_settings_path)
         .map_err(|err| format!("Failed to resolve {}: {err}", full_path.display()))?;
 
     if !canonical_path.starts_with(mods_dir) {
@@ -4145,6 +4146,7 @@ fn checked_mods_relative_path_allow_missing(
 
     let canonical_parent_path = parent_path
         .canonicalize()
+        .map(normalize_settings_path)
         .map_err(|err| format!("Failed to resolve {}: {err}", parent_path.display()))?;
 
     if !canonical_parent_path.starts_with(mods_dir) {
@@ -4841,6 +4843,32 @@ mod tests {
         assert_eq!(
             normalize_settings_path_string(r"C:\Games\GHWT".to_string()),
             r"C:\Games\GHWT"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn checked_mods_paths_accept_normalized_windows_roots() {
+        let project = TestProject::new("normalized-windows-mods-root");
+        let song_dir = project.mods_dir.join("BH").join("A Million Ways");
+        let song_ini = song_dir.join("song.ini");
+        write_test_file_contents(&song_ini, &valid_song_ini("A Million Ways", "millionways"));
+        let mods_dir = normalize_settings_path(
+            project
+                .mods_dir
+                .canonicalize()
+                .expect("MODS directory should resolve"),
+        );
+
+        assert_eq!(
+            checked_mods_relative_path(&mods_dir, "BH/A Million Ways/song.ini")
+                .expect("song inside MODS should be accepted"),
+            mods_dir.join("BH").join("A Million Ways").join("song.ini")
+        );
+        assert_eq!(
+            checked_mods_relative_path_allow_missing(&mods_dir, "BH/A Million Ways/new.ini")
+                .expect("new file under MODS should be accepted"),
+            mods_dir.join("BH").join("A Million Ways").join("new.ini")
         );
     }
 
