@@ -851,7 +851,7 @@ fn categorize_songs_paths(
         fs::create_dir(&folder)
             .map_err(|err| format!("Failed to create {}: {err}", folder.display()))?;
         let contents = format!(
-            "[ModInfo]\nName=IniTool Category {category_number:02}\nDescription=Songs categorized by {category_name}.\nAuthor=GhwtDeIniTool\nVersion=1.0\n\n[CategoryInfo]\nName={category_name}\nChecksum={checksum}\nLogo=\n"
+            "[ModInfo]\nName=IniTool Category {category_number:02}\nDescription=Songs categorized by {category_name}.\nAuthor=GhwtDeIniTool\nVersion=1.0\n\n[CategoryInfo]\nName={category_name}\nChecksum={checksum}\nLogo=gamelogo_gh1\n"
         );
         let category_ini = folder.join("category.ini");
         fs::write(&category_ini, contents)
@@ -4396,9 +4396,13 @@ fn read_project_settings_from_ini(contents: &str) -> StoredProjectSettings {
             "disclaimer_accepted" => {
                 settings.disclaimer_accepted = parse_ini_bool(&value).unwrap_or(false)
             }
-            "mods_dir" => settings.mods_dir = (!value.is_empty()).then_some(value),
+            "mods_dir" => {
+                settings.mods_dir =
+                    (!value.is_empty()).then(|| normalize_settings_path_string(value));
+            }
             "official_gamelogos_dir" => {
-                settings.official_gamelogos_dir = (!value.is_empty()).then_some(value)
+                settings.official_gamelogos_dir =
+                    (!value.is_empty()).then(|| normalize_settings_path_string(value))
             }
             "keep_original_song_ini" => {
                 settings.keep_original_song_ini = parse_ini_bool(&value).unwrap_or(true)
@@ -4414,8 +4418,8 @@ fn write_project_settings_to_ini(settings: &StoredProjectSettings) -> String {
     format!(
         "[project]\ndisclaimer_accepted={}\nmods_dir={}\nofficial_gamelogos_dir={}\nkeep_original_song_ini={}\n",
         settings.disclaimer_accepted,
-        escape_ini_value(settings.mods_dir.as_deref().unwrap_or("")),
-        escape_ini_value(settings.official_gamelogos_dir.as_deref().unwrap_or("")),
+        settings.mods_dir.as_deref().unwrap_or(""),
+        settings.official_gamelogos_dir.as_deref().unwrap_or(""),
         settings.keep_original_song_ini
     )
 }
@@ -4437,9 +4441,11 @@ fn validate_project_settings(
 
     Ok(StoredProjectSettings {
         disclaimer_accepted: settings.disclaimer_accepted.unwrap_or(false),
-        mods_dir: Some(mods_dir.to_string_lossy().into_owned()),
+        mods_dir: Some(normalize_settings_path_string(
+            mods_dir.to_string_lossy().into_owned(),
+        )),
         official_gamelogos_dir: official_gamelogos_dir
-            .map(|path| path.to_string_lossy().into_owned()),
+            .map(|path| normalize_settings_path_string(path.to_string_lossy().into_owned())),
         keep_original_song_ini: settings.keep_original_song_ini.unwrap_or(true),
     })
 }
@@ -4482,7 +4488,7 @@ fn existing_optional_dir(path: Option<String>) -> Option<PathBuf> {
         return None;
     }
 
-    path.canonicalize().ok()
+    path.canonicalize().ok().map(normalize_settings_path)
 }
 
 fn derive_official_gamelogos_dir(mods_dir: &Path) -> Option<PathBuf> {
@@ -4495,7 +4501,7 @@ fn derive_official_gamelogos_dir(mods_dir: &Path) -> Option<PathBuf> {
 
             if candidate.is_dir() {
                 if let Ok(candidate) = candidate.canonicalize() {
-                    return Some(candidate);
+                    return Some(normalize_settings_path(candidate));
                 }
             }
         }
@@ -4521,11 +4527,8 @@ fn existing_dir(path: String, label: &str) -> Result<PathBuf, String> {
     }
 
     path.canonicalize()
+        .map(normalize_settings_path)
         .map_err(|err| format!("Failed to resolve {label}: {err}"))
-}
-
-fn escape_ini_value(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('\n', "\\n")
 }
 
 fn unescape_ini_value(value: &str) -> String {
@@ -4535,7 +4538,6 @@ fn unescape_ini_value(value: &str) -> String {
     while let Some(char) = chars.next() {
         if char == '\\' {
             match chars.next() {
-                Some('n') => result.push('\n'),
                 Some('\\') => result.push('\\'),
                 Some(next) => {
                     result.push('\\');
@@ -4549,6 +4551,32 @@ fn unescape_ini_value(value: &str) -> String {
     }
 
     result
+}
+
+#[cfg(windows)]
+fn normalize_settings_path(path: PathBuf) -> PathBuf {
+    PathBuf::from(normalize_settings_path_string(
+        path.to_string_lossy().into_owned(),
+    ))
+}
+
+#[cfg(not(windows))]
+fn normalize_settings_path(path: PathBuf) -> PathBuf {
+    path
+}
+
+#[cfg(windows)]
+fn normalize_settings_path_string(path: String) -> String {
+    if let Some(path) = path.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{path}");
+    }
+
+    path.strip_prefix(r"\\?\").unwrap_or(&path).to_string()
+}
+
+#[cfg(not(windows))]
+fn normalize_settings_path_string(path: String) -> String {
+    path
 }
 
 fn parse_ini_bool(value: &str) -> Option<bool> {
@@ -4669,7 +4697,7 @@ mod tests {
             .join("IniToolCategories/Category_01_Artist_AB/category.ini");
         assert_eq!(
             fs::read_to_string(category_ini).expect("category should exist"),
-            "[ModInfo]\nName=IniTool Category 01\nDescription=Songs categorized by 01 Artist: A/B.\nAuthor=GhwtDeIniTool\nVersion=1.0\n\n[CategoryInfo]\nName=01 Artist: A/B\nChecksum=IniToolCategory01\nLogo=\n"
+            "[ModInfo]\nName=IniTool Category 01\nDescription=Songs categorized by 01 Artist: A/B.\nAuthor=GhwtDeIniTool\nVersion=1.0\n\n[CategoryInfo]\nName=01 Artist: A/B\nChecksum=IniToolCategory01\nLogo=gamelogo_gh1\n"
         );
         assert!(
             fs::read_to_string(project.mods_dir.join("Songs/000/song.ini"))
@@ -4762,6 +4790,57 @@ mod tests {
         assert_eq!(
             write_project_settings_to_ini(&settings),
             "[project]\ndisclaimer_accepted=true\nmods_dir=/tmp/MODS\nofficial_gamelogos_dir=/tmp/IMAGES/GAMELOGOS\nkeep_original_song_ini=false\n"
+        );
+    }
+
+    #[test]
+    fn settings_writer_keeps_windows_backslashes_readable() {
+        let settings = StoredProjectSettings {
+            disclaimer_accepted: true,
+            mods_dir: Some("C:\\Games\\GHWT\\DATA\\MODS".to_string()),
+            official_gamelogos_dir: Some("C:\\Games\\GHWT\\DATA\\IMAGES\\GAMELOGOS".to_string()),
+            keep_original_song_ini: true,
+        };
+
+        assert_eq!(
+            write_project_settings_to_ini(&settings),
+            "[project]\ndisclaimer_accepted=true\nmods_dir=C:\\Games\\GHWT\\DATA\\MODS\nofficial_gamelogos_dir=C:\\Games\\GHWT\\DATA\\IMAGES\\GAMELOGOS\nkeep_original_song_ini=true\n"
+        );
+    }
+
+    #[test]
+    fn settings_reader_decodes_legacy_escaped_backslashes() {
+        let settings = read_project_settings_from_ini(
+            "[project]\nmods_dir=C:\\\\Games\\\\GHWT\\\\DATA\\\\MODS\n",
+        );
+
+        assert_eq!(
+            settings.mods_dir.as_deref(),
+            Some("C:\\Games\\GHWT\\DATA\\MODS")
+        );
+    }
+
+    #[test]
+    fn settings_reader_keeps_single_backslashes_literal() {
+        let settings = read_project_settings_from_ini("[project]\nmods_dir=C:\\new\\MODS\n");
+
+        assert_eq!(settings.mods_dir.as_deref(), Some("C:\\new\\MODS"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn settings_normalize_windows_extended_paths() {
+        assert_eq!(
+            normalize_settings_path_string(r"\\?\C:\Games\GHWT".to_string()),
+            r"C:\Games\GHWT"
+        );
+        assert_eq!(
+            normalize_settings_path_string(r"\\?\UNC\server\share\MODS".to_string()),
+            r"\\server\share\MODS"
+        );
+        assert_eq!(
+            normalize_settings_path_string(r"C:\Games\GHWT".to_string()),
+            r"C:\Games\GHWT"
         );
     }
 
