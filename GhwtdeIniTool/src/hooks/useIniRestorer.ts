@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { restoreAllOriginalSongIni } from "../services/scanModsApi";
-import type { RestoreOriginalSongIniMode } from "../types/scanMods";
+import type { RestoreIniAction } from "../types/scanMods";
 
 export type RestoreIniStatus = "idle" | "selecting" | "restoring" | "error";
 
@@ -29,7 +29,7 @@ export function useIniRestorer() {
   }, []);
 
   const confirmRestore = useCallback(
-    async (mode: RestoreOriginalSongIniMode) => {
+    async (action: RestoreIniAction) => {
       if (restoreStatus !== "selecting") {
         return 0;
       }
@@ -40,11 +40,15 @@ export function useIniRestorer() {
       setRestoreToast(null);
 
       try {
-        const result = await restoreAllOriginalSongIni(mode);
+        const result = await restoreAllOriginalSongIni(action);
         const errorSummary = result.errors.length
-          ? ` | ${result.errors.length} restore errors`
+          ? ` | ${result.errors.length} operation errors`
           : "";
-        const message = `${result.files_restored} song.ini files restored${errorSummary}`;
+        const filesChanged = result.files_restored + result.files_deleted;
+        const message =
+          action === "deleteInstrumentSidecars"
+            ? `${result.files_deleted} song.instruments.ini files deleted${errorSummary}`
+            : `${result.files_restored} song.ini files restored${errorSummary}`;
 
         if (result.errors.length) {
           setIsRestoreWizardOpen(true);
@@ -55,7 +59,7 @@ export function useIniRestorer() {
             message,
             tone: "error",
           });
-          return result.files_restored;
+          return filesChanged;
         }
 
         setIsRestoreWizardOpen(false);
@@ -64,7 +68,7 @@ export function useIniRestorer() {
           message,
           tone: "success",
         });
-        return result.files_restored;
+        return filesChanged;
       } catch (err) {
         const message = String(err);
 

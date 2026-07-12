@@ -79,8 +79,9 @@ struct DeleteFilesResult {
 }
 
 #[derive(Default, Serialize)]
-struct RestoreOriginalSongIniResult {
+struct RestoreIniResult {
     files_restored: usize,
+    files_deleted: usize,
     errors: Vec<String>,
 }
 
@@ -236,9 +237,10 @@ struct SongIniDeleteResult {
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-enum RestoreOriginalSongIniMode {
+enum RestoreIniAction {
     AfterFormatIssueFixes,
     BeforeFormatIssueFix,
+    DeleteInstrumentSidecars,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
@@ -478,11 +480,11 @@ fn restore_original_song_ini(
 
 #[tauri::command]
 fn restore_all_original_song_ini(
-    mode: RestoreOriginalSongIniMode,
+    action: RestoreIniAction,
     store: tauri::State<'_, SongIniStore>,
-) -> Result<RestoreOriginalSongIniResult, String> {
+) -> Result<RestoreIniResult, String> {
     let settings = scan_settings()?;
-    restore_all_original_song_ini_paths(&settings, mode, &store)
+    restore_all_ini_paths(&settings, action, &store)
 }
 
 #[tauri::command]
@@ -1748,19 +1750,37 @@ fn restore_original_song_ini_path(
     refreshed_song_ini_result(settings, relative_path, backup_contents, parsed_song, store)
 }
 
-fn restore_all_original_song_ini_paths(
+fn restore_all_ini_paths(
     settings: &ScanSettings,
-    mode: RestoreOriginalSongIniMode,
+    action: RestoreIniAction,
     store: &SongIniStore,
-) -> Result<RestoreOriginalSongIniResult, String> {
+) -> Result<RestoreIniResult, String> {
     let mods_dir = &settings.mods_dir;
-    let song_ini_paths = find_song_ini_files(mods_dir)?;
-    let mut result = RestoreOriginalSongIniResult::default();
+
+    if action == RestoreIniAction::DeleteInstrumentSidecars {
+        let instrument_sidecar_paths = find_instrument_sidecar_files(mods_dir)?;
+        let mut result = RestoreIniResult::default();
+
+        delete_instrument_sidecars(&instrument_sidecar_paths, &mut result);
+        replace_song_ini_store(store, Vec::new())?;
+        return Ok(result);
+    }
+
+    let excluded_song_ini_paths = find_excluded_song_ini_files(mods_dir)?;
+    let mut result = RestoreIniResult::default();
     let mut restored_paths = HashSet::new();
 
+    restore_all_from_excluded_song_ini_files(
+        &excluded_song_ini_paths,
+        mods_dir,
+        &mut result,
+        &mut restored_paths,
+    );
+
+    let song_ini_paths = find_song_ini_files(mods_dir)?;
     restore_all_from_original_backups(&song_ini_paths, mods_dir, &mut result, &mut restored_paths);
 
-    if mode == RestoreOriginalSongIniMode::BeforeFormatIssueFix {
+    if action == RestoreIniAction::BeforeFormatIssueFix {
         restore_all_from_faulty_original_backups(
             &song_ini_paths,
             mods_dir,
@@ -1774,10 +1794,57 @@ fn restore_all_original_song_ini_paths(
     Ok(result)
 }
 
+fn delete_instrument_sidecars(instrument_sidecar_paths: &[PathBuf], result: &mut RestoreIniResult) {
+    for instrument_sidecar_path in instrument_sidecar_paths {
+        match remove_existing_file(instrument_sidecar_path) {
+            Ok(()) => result.files_deleted += 1,
+            Err(err) => result.errors.push(err),
+        }
+    }
+}
+
+fn restore_all_from_excluded_song_ini_files(
+    excluded_song_ini_paths: &[PathBuf],
+    mods_dir: &Path,
+    result: &mut RestoreIniResult,
+    restored_paths: &mut HashSet<String>,
+) {
+    for excluded_song_ini_path in excluded_song_ini_paths {
+        let song_ini_path = excluded_song_ini_path.with_file_name("song.ini");
+        let relative_path = match mods_relative_path(mods_dir, &song_ini_path) {
+            Ok(relative_path) => relative_path,
+            Err(err) => {
+                result.errors.push(err);
+                continue;
+            }
+        };
+
+        if song_ini_path.exists() {
+            result.errors.push(format!(
+                "Failed to reactivate {} because {} already exists.",
+                excluded_song_ini_path.display(),
+                song_ini_path.display()
+            ));
+            continue;
+        }
+
+        if let Err(err) = fs::rename(excluded_song_ini_path, &song_ini_path) {
+            result.errors.push(format!(
+                "Failed to reactivate {} as {}: {err}",
+                excluded_song_ini_path.display(),
+                song_ini_path.display()
+            ));
+            continue;
+        }
+
+        restored_paths.insert(relative_path);
+    }
+}
+
 fn restore_all_from_original_backups(
     song_ini_paths: &[PathBuf],
     mods_dir: &Path,
-    result: &mut RestoreOriginalSongIniResult,
+    result: &mut RestoreIniResult,
     restored_paths: &mut HashSet<String>,
 ) {
     for song_ini_path in song_ini_paths {
@@ -1808,7 +1875,7 @@ fn restore_all_from_original_backups(
 fn restore_all_from_faulty_original_backups(
     song_ini_paths: &[PathBuf],
     mods_dir: &Path,
-    result: &mut RestoreOriginalSongIniResult,
+    result: &mut RestoreIniResult,
     restored_paths: &mut HashSet<String>,
 ) {
     for song_ini_path in song_ini_paths {
@@ -3705,6 +3772,20 @@ fn find_song_ini_files(mods_dir: &Path) -> Result<Vec<PathBuf>, String> {
     Ok(song_ini_paths)
 }
 
+fn find_excluded_song_ini_files(mods_dir: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut excluded_song_ini_paths = Vec::new();
+    collect_excluded_song_ini_files(mods_dir, &mut excluded_song_ini_paths)?;
+    excluded_song_ini_paths.sort();
+    Ok(excluded_song_ini_paths)
+}
+
+fn find_instrument_sidecar_files(mods_dir: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut instrument_sidecar_paths = Vec::new();
+    collect_instrument_sidecar_files(mods_dir, &mut instrument_sidecar_paths)?;
+    instrument_sidecar_paths.sort();
+    Ok(instrument_sidecar_paths)
+}
+
 fn collect_song_ini_files(dir: &Path, song_ini_paths: &mut Vec<PathBuf>) -> Result<(), String> {
     let entries = fs::read_dir(dir)
         .map_err(|err| format!("Failed to read folder {}: {err}", dir.display()))?;
@@ -3727,10 +3808,72 @@ fn collect_song_ini_files(dir: &Path, song_ini_paths: &mut Vec<PathBuf>) -> Resu
     Ok(())
 }
 
+fn collect_excluded_song_ini_files(
+    dir: &Path,
+    excluded_song_ini_paths: &mut Vec<PathBuf>,
+) -> Result<(), String> {
+    let entries = fs::read_dir(dir)
+        .map_err(|err| format!("Failed to read folder {}: {err}", dir.display()))?;
+
+    for entry in entries {
+        let entry =
+            entry.map_err(|err| format!("Failed to read entry in {}: {err}", dir.display()))?;
+        let path = entry.path();
+        let file_type = entry
+            .file_type()
+            .map_err(|err| format!("Failed to inspect {}: {err}", path.display()))?;
+
+        if file_type.is_dir() {
+            collect_excluded_song_ini_files(&path, excluded_song_ini_paths)?;
+        } else if file_type.is_file() && is_excluded_song_ini(&path) {
+            excluded_song_ini_paths.push(path);
+        }
+    }
+
+    Ok(())
+}
+
+fn collect_instrument_sidecar_files(
+    dir: &Path,
+    instrument_sidecar_paths: &mut Vec<PathBuf>,
+) -> Result<(), String> {
+    let entries = fs::read_dir(dir)
+        .map_err(|err| format!("Failed to read folder {}: {err}", dir.display()))?;
+
+    for entry in entries {
+        let entry =
+            entry.map_err(|err| format!("Failed to read entry in {}: {err}", dir.display()))?;
+        let path = entry.path();
+        let file_type = entry
+            .file_type()
+            .map_err(|err| format!("Failed to inspect {}: {err}", path.display()))?;
+
+        if file_type.is_dir() {
+            collect_instrument_sidecar_files(&path, instrument_sidecar_paths)?;
+        } else if file_type.is_file() && is_instrument_sidecar(&path) {
+            instrument_sidecar_paths.push(path);
+        }
+    }
+
+    Ok(())
+}
+
 fn is_song_ini(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
         .is_some_and(|name| name.eq_ignore_ascii_case("song.ini"))
+}
+
+fn is_excluded_song_ini(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.eq_ignore_ascii_case("song.excluded.ini"))
+}
+
+fn is_instrument_sidecar(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.eq_ignore_ascii_case(INSTRUMENT_SIDECAR_FILE_NAME))
 }
 
 fn is_disabled_song_ini(path: &Path) -> bool {
@@ -5888,9 +6031,9 @@ mod tests {
         scan_song_ini_files_paths(&test_scan_settings(&project), &store)
             .expect("scan should populate store");
 
-        let result = restore_all_original_song_ini_paths(
+        let result = restore_all_ini_paths(
             &test_scan_settings(&project),
-            RestoreOriginalSongIniMode::AfterFormatIssueFixes,
+            RestoreIniAction::AfterFormatIssueFixes,
             &store,
         )
         .expect("restore should pass");
@@ -5904,6 +6047,64 @@ mod tests {
             valid_song_ini("Original", "original_checksum")
         );
         assert!(store.0.lock().expect("store should lock").is_empty());
+    }
+
+    #[test]
+    fn song_restore_all_reactivates_excluded_song_without_backup() {
+        let project = TestProject::new("song-restore-all-reactivates-excluded");
+        let song_ini_path = project.mods_dir.join("Nested/song.ini");
+        let excluded_path = project.mods_dir.join("Nested/SONG.EXCLUDED.INI");
+        let excluded_contents = valid_song_ini("Excluded", "excluded_checksum");
+        write_test_file_contents(&excluded_path, &excluded_contents);
+        let store = SongIniStore::default();
+
+        let result = restore_all_ini_paths(
+            &test_scan_settings(&project),
+            RestoreIniAction::AfterFormatIssueFixes,
+            &store,
+        )
+        .expect("restore should pass");
+
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.files_restored, 1);
+        assert!(!excluded_path.exists());
+        assert_eq!(
+            fs::read_to_string(song_ini_path).expect("song.ini should read"),
+            excluded_contents
+        );
+    }
+
+    #[test]
+    fn song_restore_all_reactivates_excluded_song_then_restores_original_backup() {
+        let project = TestProject::new("song-restore-all-excluded-original");
+        let song_ini_path = project.mods_dir.join("song.ini");
+        let excluded_path = project.mods_dir.join("song.excluded.ini");
+        let original_path = project.mods_dir.join("song.original.ini");
+        write_test_file_contents(
+            &excluded_path,
+            valid_song_ini("Excluded", "excluded_checksum").as_str(),
+        );
+        write_test_file_contents(
+            &original_path,
+            valid_song_ini("Original", "original_checksum").as_str(),
+        );
+        let store = SongIniStore::default();
+
+        let result = restore_all_ini_paths(
+            &test_scan_settings(&project),
+            RestoreIniAction::AfterFormatIssueFixes,
+            &store,
+        )
+        .expect("restore should pass");
+
+        assert_eq!(result.files_restored, 1);
+        assert!(result.errors.is_empty());
+        assert!(!excluded_path.exists());
+        assert!(!original_path.exists());
+        assert_eq!(
+            fs::read_to_string(song_ini_path).expect("song.ini should read"),
+            valid_song_ini("Original", "original_checksum")
+        );
     }
 
     #[test]
@@ -5924,15 +6125,52 @@ mod tests {
         write_test_file_contents(&faulty_path, faulty_contents);
         let store = SongIniStore::default();
 
-        let result = restore_all_original_song_ini_paths(
+        let result = restore_all_ini_paths(
             &test_scan_settings(&project),
-            RestoreOriginalSongIniMode::BeforeFormatIssueFix,
+            RestoreIniAction::BeforeFormatIssueFix,
             &store,
         )
         .expect("restore should pass");
 
         assert_eq!(result.files_restored, 1);
         assert!(result.errors.is_empty());
+        assert!(!original_path.exists());
+        assert!(!faulty_path.exists());
+        assert_eq!(
+            fs::read_to_string(song_ini_path).expect("song.ini should read"),
+            faulty_contents
+        );
+    }
+
+    #[test]
+    fn song_restore_all_before_format_reactivates_excluded_song_then_restores_faulty_backup() {
+        let project = TestProject::new("song-restore-all-excluded-faulty");
+        let song_ini_path = project.mods_dir.join("song.ini");
+        let excluded_path = project.mods_dir.join("song.excluded.ini");
+        let original_path = project.mods_dir.join("song.original.ini");
+        let faulty_path = project.mods_dir.join("song.original.faulty.ini");
+        let faulty_contents = "[SongInfo\nTitle=Broken Before Fix\n";
+        write_test_file_contents(
+            &excluded_path,
+            valid_song_ini("Excluded", "excluded_checksum").as_str(),
+        );
+        write_test_file_contents(
+            &original_path,
+            valid_song_ini("Original", "original_checksum").as_str(),
+        );
+        write_test_file_contents(&faulty_path, faulty_contents);
+        let store = SongIniStore::default();
+
+        let result = restore_all_ini_paths(
+            &test_scan_settings(&project),
+            RestoreIniAction::BeforeFormatIssueFix,
+            &store,
+        )
+        .expect("restore should pass");
+
+        assert_eq!(result.files_restored, 1);
+        assert!(result.errors.is_empty());
+        assert!(!excluded_path.exists());
         assert!(!original_path.exists());
         assert!(!faulty_path.exists());
         assert_eq!(
@@ -5956,9 +6194,9 @@ mod tests {
         );
         let store = SongIniStore::default();
 
-        let result = restore_all_original_song_ini_paths(
+        let result = restore_all_ini_paths(
             &test_scan_settings(&project),
-            RestoreOriginalSongIniMode::BeforeFormatIssueFix,
+            RestoreIniAction::BeforeFormatIssueFix,
             &store,
         )
         .expect("restore should pass");
@@ -5985,9 +6223,9 @@ mod tests {
         write_test_file_contents(&backup_path, backup_contents);
         let store = SongIniStore::default();
 
-        let result = restore_all_original_song_ini_paths(
+        let result = restore_all_ini_paths(
             &test_scan_settings(&project),
-            RestoreOriginalSongIniMode::AfterFormatIssueFixes,
+            RestoreIniAction::AfterFormatIssueFixes,
             &store,
         )
         .expect("restore should pass");
@@ -5999,6 +6237,63 @@ mod tests {
             fs::read_to_string(song_ini_path).expect("song.ini should read"),
             backup_contents
         );
+    }
+
+    #[test]
+    fn restore_ini_deletes_recursive_instrument_sidecars_case_insensitively() {
+        let project = TestProject::new("restore-ini-delete-instrument-sidecars");
+        let active_song_ini = project.mods_dir.join("Active/song.ini");
+        let active_sidecar = project.mods_dir.join("Active/song.instruments.ini");
+        let excluded_song_ini = project.mods_dir.join("Excluded/song.excluded.ini");
+        let excluded_sidecar = project.mods_dir.join("Excluded/SONG.INSTRUMENTS.INI");
+        let unrelated_file = project.mods_dir.join("Excluded/notes.ini");
+        write_test_file_contents(
+            &active_song_ini,
+            valid_song_ini("Active", "active_checksum").as_str(),
+        );
+        write_test_file_contents(&active_sidecar, "[Cache]\n");
+        write_test_file_contents(
+            &excluded_song_ini,
+            valid_song_ini("Excluded", "excluded_checksum").as_str(),
+        );
+        write_test_file_contents(&excluded_sidecar, "[Cache]\n");
+        write_test_file_contents(&unrelated_file, "keep");
+        let store = SongIniStore::default();
+
+        let result = restore_all_ini_paths(
+            &test_scan_settings(&project),
+            RestoreIniAction::DeleteInstrumentSidecars,
+            &store,
+        )
+        .expect("sidecar deletion should pass");
+
+        assert_eq!(result.files_restored, 0);
+        assert_eq!(result.files_deleted, 2);
+        assert!(result.errors.is_empty());
+        assert!(active_song_ini.exists());
+        assert!(excluded_song_ini.exists());
+        assert!(!active_sidecar.exists());
+        assert!(!excluded_sidecar.exists());
+        assert!(unrelated_file.exists());
+    }
+
+    #[test]
+    fn restore_ini_deletes_no_instrument_sidecars_when_none_exist() {
+        let project = TestProject::new("restore-ini-delete-no-instrument-sidecars");
+        write_test_file_contents(&project.mods_dir.join("song.ini"), "[SongInfo]\n");
+        let store = SongIniStore::default();
+
+        let result = restore_all_ini_paths(
+            &test_scan_settings(&project),
+            RestoreIniAction::DeleteInstrumentSidecars,
+            &store,
+        )
+        .expect("sidecar deletion should pass");
+
+        assert_eq!(result.files_restored, 0);
+        assert_eq!(result.files_deleted, 0);
+        assert!(result.errors.is_empty());
+        assert!(project.mods_dir.join("song.ini").exists());
     }
 
     #[test]

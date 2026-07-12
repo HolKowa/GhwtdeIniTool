@@ -108,9 +108,11 @@ Current frontend behavior:
   review step. The pattern defaults to
   `song*.ini,*_song.pak.xen,*.fsb.xen,category*.ini,*.img.xen,Readme.txt`
   each time and is not saved.
-- The Restore INI files button opens a dialog for bulk restoring active
-  `song.ini` files from sibling backups with plain file copy/delete operations,
-  without parsing backup contents. The default mode restores
+- The Restore INI files button opens a dialog with separate actions to restore
+  active `song.ini` files or delete recursive `song.instruments.ini` sidecars.
+  Restore actions first reactivate recursive `song.excluded.ini` files as
+  `song.ini`, then use sibling backups with plain file copy/delete operations,
+  without parsing backup contents. The default restore action restores
   `song.original.ini` backups and leaves `song.original.faulty.ini` in place.
   The pre-format-fix mode first consumes normal `song.original.ini` backups,
   then consumes `song.original.faulty.ini` backups so the pre-fix contents

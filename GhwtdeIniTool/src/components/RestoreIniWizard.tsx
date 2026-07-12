@@ -1,13 +1,13 @@
 import { useState } from "react";
 
 import type { RestoreIniStatus } from "../hooks/useIniRestorer";
-import type { RestoreOriginalSongIniMode } from "../types/scanMods";
+import type { RestoreIniAction } from "../types/scanMods";
 
 type RestoreIniWizardProps = {
   error: string;
   errors: string[];
   onCancel: () => void;
-  onConfirm: (mode: RestoreOriginalSongIniMode) => void;
+  onConfirm: (action: RestoreIniAction) => void;
   status: RestoreIniStatus;
 };
 
@@ -18,7 +18,7 @@ export function RestoreIniWizard({
   onConfirm,
   status,
 }: RestoreIniWizardProps) {
-  const [mode, setMode] = useState<RestoreOriginalSongIniMode>(
+  const [action, setAction] = useState<RestoreIniAction>(
     "afterFormatIssueFixes",
   );
   const isRestoring = status === "restoring";
@@ -34,7 +34,7 @@ export function RestoreIniWizard({
         <div className="scan-wizard-header">
           <div>
             <h2 id="restore-ini-title">
-              Restore all song.ini files to original
+              Choose INI action
             </h2>
           </div>
           <button
@@ -53,29 +53,40 @@ export function RestoreIniWizard({
             <label className="restore-mode-option">
               <input
                 type="radio"
-                name="restore-ini-mode"
+                name="restore-ini-action"
                 value="beforeFormatIssueFix"
-                checked={mode === "beforeFormatIssueFix"}
+                checked={action === "beforeFormatIssueFix"}
                 disabled={isRestoring}
-                onChange={() => setMode("beforeFormatIssueFix")}
+                onChange={() => setAction("beforeFormatIssueFix")}
               />
-              <span>Before format issue fix</span>
+              <span>Restore original song.ini (before format fixes)</span>
             </label>
             <label className="restore-mode-option">
               <input
                 type="radio"
-                name="restore-ini-mode"
+                name="restore-ini-action"
                 value="afterFormatIssueFixes"
-                checked={mode === "afterFormatIssueFixes"}
+                checked={action === "afterFormatIssueFixes"}
                 disabled={isRestoring}
-                onChange={() => setMode("afterFormatIssueFixes")}
+                onChange={() => setAction("afterFormatIssueFixes")}
               />
-              <span>After format issue fixes</span>
+              <span>Restore original song.ini (after format fixes)</span>
+            </label>
+            <label className="restore-mode-option">
+              <input
+                type="radio"
+                name="restore-ini-action"
+                value="deleteInstrumentSidecars"
+                checked={action === "deleteInstrumentSidecars"}
+                disabled={isRestoring}
+                onChange={() => setAction("deleteInstrumentSidecars")}
+              />
+              <span>Delete song.instruments.ini files</span>
             </label>
           </div>
 
           {isRestoring && (
-            <p className="scan-wizard-muted">Restoring song.ini files...</p>
+            <p className="scan-wizard-muted">Processing INI files...</p>
           )}
           {status === "error" && (
             <div className="restore-error-details">
@@ -95,10 +106,10 @@ export function RestoreIniWizard({
           <button
             className="primary-btn"
             type="button"
-            onClick={() => onConfirm(mode)}
+            onClick={() => onConfirm(action)}
             disabled={isRestoring}
           >
-            {isRestoring ? "Restoring..." : "Finish"}
+            {isRestoring ? "Processing..." : "Run action"}
           </button>
         </div>
       </section>

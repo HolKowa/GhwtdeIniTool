@@ -8,12 +8,14 @@ export type DeleteFilesResult = {
   errors: string[];
 };
 
-export type RestoreOriginalSongIniMode =
+export type RestoreIniAction =
   | "afterFormatIssueFixes"
-  | "beforeFormatIssueFix";
+  | "beforeFormatIssueFix"
+  | "deleteInstrumentSidecars";
 
-export type RestoreOriginalSongIniResult = {
+export type RestoreIniResult = {
   files_restored: number;
+  files_deleted: number;
   errors: string[];
 };
 

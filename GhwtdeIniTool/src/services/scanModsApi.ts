@@ -9,8 +9,8 @@ import type {
   GameIconSongFixPreview,
   InstrumentAnalyzeMode,
   InstrumentAnalyzeResult,
-  RestoreOriginalSongIniMode,
-  RestoreOriginalSongIniResult,
+  RestoreIniAction,
+  RestoreIniResult,
   ScannedSongMetadata,
   SongIniDeleteResult,
   SongIniDisableResult,
@@ -89,9 +89,9 @@ export function restoreOriginalSongIni(relativePath: string) {
   });
 }
 
-export function restoreAllOriginalSongIni(mode: RestoreOriginalSongIniMode) {
-  return invoke<RestoreOriginalSongIniResult>("restore_all_original_song_ini", {
-    mode,
+export function restoreAllOriginalSongIni(action: RestoreIniAction) {
+  return invoke<RestoreIniResult>("restore_all_original_song_ini", {
+    action,
   });
 }
 
