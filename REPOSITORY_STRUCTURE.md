@@ -281,7 +281,9 @@ Current backend behavior:
   matching section count, and matched QB filename when known in a
   frontend-ready serialized shape.
 - Stores project settings in `ghwtdeinitool.ini` next to the executable under a
-  `[project]` section.
+  `[project]` section. Windows folder paths use conventional readable forms
+  such as `C:\Games\GHWT\DATA\MODS`, without the `\\?\` prefix or escaped
+  backslashes.
 - Reads and writes `mods_dir`, `official_gamelogos_dir`, and
   `keep_original_song_ini`. Missing `official_gamelogos_dir` values default to
   unset, missing `keep_original_song_ini` values default to `true`, and legacy
