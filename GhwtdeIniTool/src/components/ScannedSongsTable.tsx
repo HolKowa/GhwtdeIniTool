@@ -11,6 +11,7 @@ type ScannedSongsTableProps = {
   duplicateChecksumGroups: DuplicateChecksumGroup[];
   includedSongPaths: string[];
   onCopyFolderPath: (absolutePath: string) => void;
+  onCategorizationStateChange: (state: CategorizationTableState) => void;
   onRestoreOriginal: (relativePath: string, isIncluded: boolean) => Promise<void>;
   onSaveMetadata: (
     relativePath: string,
@@ -22,6 +23,12 @@ type ScannedSongsTableProps = {
   restoringSongPaths: string[];
   savingSongPaths: string[];
   songs: ScannedSong[];
+};
+
+export type CategorizationTableState = {
+  hasActiveFilters: boolean;
+  hasUnsavedSongChanges: boolean;
+  orderedSongPaths: string[];
 };
 
 type MetadataColumnKey = "artist" | "title" | "year" | "genre" | "game_icon";
@@ -108,6 +115,7 @@ export function ScannedSongsTable({
   duplicateChecksumGroups,
   includedSongPaths,
   onCopyFolderPath,
+  onCategorizationStateChange,
   onRestoreOriginal,
   onSaveMetadata,
   onSetSongIncluded,
@@ -206,6 +214,26 @@ export function ScannedSongsTable({
     return options;
   }, [songs]);
 
+  const sortedSongs = useMemo(() => {
+    const nextSongs = [...songs];
+
+    nextSongs.sort((left, right) => {
+      const direction = sortDirection === "asc" ? 1 : -1;
+      const comparison = compareColumnValues(left, right, sortKey);
+
+      if (comparison !== 0) {
+        return comparison * direction;
+      }
+
+      return left.relative_path.localeCompare(right.relative_path) * direction;
+    });
+
+    return nextSongs;
+  }, [songs, sortDirection, sortKey]);
+  const hasActiveFilters =
+    includeFilter !== "all" ||
+    columns.some((column) => filters[column.key].trim().length > 0);
+  const hasUnsavedSongChanges = songs.some((song) => isRowDirty(song));
   const filteredSongs = useMemo(() => {
     const activeFilters = columns
       .map((column) => ({
@@ -215,7 +243,7 @@ export function ScannedSongsTable({
       }))
       .filter((filter) => filter.value.length > 0);
 
-    const nextSongs = songs.filter((song) => {
+    return sortedSongs.filter((song) => {
       const isIncluded = includedSongPathSet.has(song.relative_path);
 
       if (includeFilter === "included" && !isIncluded) {
@@ -231,19 +259,7 @@ export function ScannedSongsTable({
       );
     });
 
-    nextSongs.sort((left, right) => {
-      const direction = sortDirection === "asc" ? 1 : -1;
-      const comparison = compareColumnValues(left, right, sortKey);
-
-      if (comparison !== 0) {
-        return comparison * direction;
-      }
-
-      return left.relative_path.localeCompare(right.relative_path) * direction;
-    });
-
-    return nextSongs;
-  }, [filters, includeFilter, includedSongPathSet, songs, sortDirection, sortKey]);
+  }, [filters, includeFilter, includedSongPathSet, sortedSongs]);
   const filteredSongPathSet = useMemo(
     () => new Set(filteredSongs.map((song) => song.relative_path)),
     [filteredSongs],
@@ -356,6 +372,19 @@ export function ScannedSongsTable({
       window.removeEventListener("scroll", closeContextMenu, true);
     };
   }, [contextMenu]);
+
+  useEffect(() => {
+    onCategorizationStateChange({
+      hasActiveFilters,
+      hasUnsavedSongChanges,
+      orderedSongPaths: sortedSongs.map((song) => song.relative_path),
+    });
+  }, [
+    hasActiveFilters,
+    hasUnsavedSongChanges,
+    onCategorizationStateChange,
+    sortedSongs,
+  ]);
 
   function updateFilter(key: SortKey, value: string) {
     setFilters((currentFilters) => ({

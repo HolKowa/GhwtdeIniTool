@@ -40,6 +40,8 @@ Important files:
 - `GhwtdeIniTool/src/App.css` contains the current app styling.
 - `GhwtdeIniTool/src/components/CleanModsWizard.tsx` renders the two-step MODS
   cleanup wizard for keep-pattern entry and delete confirmation.
+- `GhwtdeIniTool/src/components/CategorizeWizard.tsx` renders the first,
+  informational step of the future song categorization workflow.
 - `GhwtdeIniTool/src/components/ExperimentalWarningDialog.tsx` renders the
   read-only experimental-use disclaimer dialog.
 - `GhwtdeIniTool/src/components/FixGameIconsWizard.tsx` renders the custom
@@ -185,8 +187,11 @@ Current frontend behavior:
   table header shows included, visible, and total row counts, duplicate checksum
   rows are faintly highlighted, and re-including multiple songs from the same
   duplicate group reopens the duplicate resolver directly on the conflict step.
-  The top action row includes a disabled Categorize button alongside Analyze
-  instruments and Fix GameIcons until backend categorization is implemented.
+  The top action row includes Categorize alongside Analyze instruments and Fix
+  GameIcons. Categorize currently opens only its first informational step: it
+  reports the table sort order, active filters, unsaved metadata edits, the
+  selected-song cap, and the projected 200-song categories. Its Next button is
+  disabled until the later filesystem categorization step is implemented.
 - The settings dialog lets the user choose a MODS folder, choose an official
   GAMELOGOS folder after MODS is set, toggle whether original `song.ini` files
   are kept before their first edit, and accept a one-time experimental-use

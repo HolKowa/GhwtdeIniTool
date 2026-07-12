@@ -859,6 +859,66 @@ td.scanned-songs-action-column {
   width: min(66rem, calc(100vw - 3rem));
 }
 
+.categorize-panel {
+  width: min(42rem, calc(100vw - 3rem));
+  height: auto;
+  max-height: min(80vh, calc(100vh - 3rem));
+}
+
+.categorize-wizard-body {
+  display: grid;
+  gap: 1rem;
+}
+
+.categorize-info,
+.categorize-summary {
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.categorize-info ul,
+.categorize-summary ul,
+.categorize-cap-advisory-list,
+.categorize-cap-advisory {
+  margin: 0;
+}
+
+.categorize-info ul,
+.categorize-summary ul,
+.categorize-cap-advisory-list {
+  display: grid;
+  gap: 0.6rem;
+  padding-left: 1.25rem;
+}
+
+.categorize-cap-field {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.categorize-cap-field input {
+  width: 12rem;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid #c7c7c7;
+  border-radius: 5px;
+  background: #ffffff;
+  color: #1f1f1f;
+  font: inherit;
+  font-weight: 400;
+}
+
+.categorize-cap-advisory {
+  color: #565656;
+  font-size: 0.86rem;
+  line-height: 1.4;
+}
+
+.categorize-warning {
+  color: #b71c1c;
+}
+
 .game-icon-info {
   padding: 0.75rem;
   border: 1px solid #d9d9d9;
@@ -1664,6 +1724,20 @@ td.scanned-songs-action-column {
   }
 
   .scan-wizard-error {
+    color: #ffcdd2;
+  }
+
+  .categorize-cap-field input {
+    border-color: #555;
+    background: #1a1a1a;
+    color: #f6f6f6;
+  }
+
+  .categorize-cap-advisory {
+    color: #c8c8c8;
+  }
+
+  .categorize-warning {
     color: #ffcdd2;
   }
 

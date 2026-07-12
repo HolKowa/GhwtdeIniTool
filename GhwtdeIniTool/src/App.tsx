@@ -1,13 +1,17 @@
 import { useEffect, useState } from "react";
 
 import { CleanModsWizard } from "./components/CleanModsWizard";
+import { CategorizeWizard } from "./components/CategorizeWizard";
 import { ExperimentalWarningDialog } from "./components/ExperimentalWarningDialog";
 import { FixGameIconsWizard } from "./components/FixGameIconsWizard";
 import { InstrumentAnalyzeWizard } from "./components/InstrumentAnalyzeWizard";
 import { RestoreIniWizard } from "./components/RestoreIniWizard";
 import { ScanToast } from "./components/ScanToast";
 import { ScanWizard } from "./components/ScanWizard";
-import { ScannedSongsTable } from "./components/ScannedSongsTable";
+import {
+  ScannedSongsTable,
+  type CategorizationTableState,
+} from "./components/ScannedSongsTable";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { UpdateDialog } from "./components/UpdateDialog";
 import { useAppUpdater } from "./hooks/useAppUpdater";
@@ -20,6 +24,13 @@ import "./App.css";
 function App() {
   const [isExperimentalWarningOpen, setIsExperimentalWarningOpen] =
     useState(false);
+  const [isCategorizeWizardOpen, setIsCategorizeWizardOpen] = useState(false);
+  const [categorizationTableState, setCategorizationTableState] =
+    useState<CategorizationTableState>({
+      hasActiveFilters: false,
+      hasUnsavedSongChanges: false,
+      orderedSongPaths: [],
+    });
   const {
     checkForUpdates,
     downloadProgress,
@@ -158,11 +169,13 @@ function App() {
     isCleanWizardOpen ||
     isScanWizardOpen ||
     isInstrumentWizardOpen ||
-    isGameIconWizardOpen;
+    isGameIconWizardOpen ||
+    isCategorizeWizardOpen;
   const hasScannedSongs = hasCompletedSongScan && Boolean(songIniScanResult);
   const canAnalyzeInstruments =
     hasScannedSongs && !isWorkflowOpen;
   const canFixGameIcons = hasScannedSongs && !isWorkflowOpen;
+  const canCategorize = hasScannedSongs && !isWorkflowOpen;
   const activeToast = restoreToast ?? cleanToast ?? scanToast;
   const dismissActiveToast = restoreToast
     ? dismissRestoreToast
@@ -269,8 +282,15 @@ function App() {
           <button
             className="categorize-button"
             type="button"
-            disabled
-            title="Backend categorization is not implemented yet"
+            onClick={() => setIsCategorizeWizardOpen(true)}
+            disabled={
+              !canCategorize ||
+              isScanBusy ||
+              isCleanBusy ||
+              isRestoreBusy ||
+              isInstrumentAnalyzeBusy ||
+              isGameIconBusy
+            }
           >
             Categorize
           </button>
@@ -281,6 +301,7 @@ function App() {
         <ScannedSongsTable
           duplicateChecksumGroups={songIniScanResult.duplicate_checksum_groups}
           includedSongPaths={includedSongPaths}
+          onCategorizationStateChange={setCategorizationTableState}
           onCopyFolderPath={copyContentIssuePath}
           onRestoreOriginal={restoreScannedSongOriginal}
           onSaveMetadata={saveScannedSongMetadata}
@@ -419,6 +440,18 @@ function App() {
           onPreviewFixes={previewGameIconSongFixRows}
           result={gameIconCategoryResult}
           status={gameIconCategoryStatus}
+        />
+      )}
+
+      {isCategorizeWizardOpen && (
+        <CategorizeWizard
+          hasActiveFilters={categorizationTableState.hasActiveFilters}
+          hasUnsavedSongChanges={
+            categorizationTableState.hasUnsavedSongChanges
+          }
+          includedSongCount={includedSongPaths.length}
+          modsDir={settings?.mods_dir ?? null}
+          onClose={() => setIsCategorizeWizardOpen(false)}
         />
       )}
 
