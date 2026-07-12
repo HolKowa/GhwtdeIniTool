@@ -1,0 +1,39 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "ghwtdeinitool",
+  "version": "0.0.1",
+  "identifier": "com.vscode.ghwtdeinitool",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "GhwtDeIniTool",
+        "width": 1920,
+        "height": 1080,
+        "maximized": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/icon.png", "icons/icon.ico"],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIzNEU1NjIwQzNBQTJGN0QKUldSOUw2ckRJRlpPc3lrNkZZaXMxbFpTNWE1U3BLdmtqeWRIMDIwUDNnM05PWUtNVld2Wk9NUjkK",
+      "endpoints": [
+        "https://example.com/ghwtdeinitool/latest.json"
+      ]
+    }
+  }
+}
