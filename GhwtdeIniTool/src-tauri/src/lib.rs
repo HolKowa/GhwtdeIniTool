@@ -851,7 +851,7 @@ fn categorize_songs_paths(
         fs::create_dir(&folder)
             .map_err(|err| format!("Failed to create {}: {err}", folder.display()))?;
         let contents = format!(
-            "[ModInfo]\nName=IniTool Category {category_number:02}\nDescription=Songs categorized by {category_name}.\nAuthor=GhwtDeIniTool\nVersion=1.0\n\n[CategoryInfo]\nName={category_name}\nChecksum={checksum}\nLogo=\n"
+            "[ModInfo]\nName=IniTool Category {category_number:02}\nDescription=Songs categorized by {category_name}.\nAuthor=GhwtDeIniTool\nVersion=1.0\n\n[CategoryInfo]\nName={category_name}\nChecksum={checksum}\nLogo=gamelogo_gh1\n"
         );
         let category_ini = folder.join("category.ini");
         fs::write(&category_ini, contents)
@@ -4697,7 +4697,7 @@ mod tests {
             .join("IniToolCategories/Category_01_Artist_AB/category.ini");
         assert_eq!(
             fs::read_to_string(category_ini).expect("category should exist"),
-            "[ModInfo]\nName=IniTool Category 01\nDescription=Songs categorized by 01 Artist: A/B.\nAuthor=GhwtDeIniTool\nVersion=1.0\n\n[CategoryInfo]\nName=01 Artist: A/B\nChecksum=IniToolCategory01\nLogo=\n"
+            "[ModInfo]\nName=IniTool Category 01\nDescription=Songs categorized by 01 Artist: A/B.\nAuthor=GhwtDeIniTool\nVersion=1.0\n\n[CategoryInfo]\nName=01 Artist: A/B\nChecksum=IniToolCategory01\nLogo=gamelogo_gh1\n"
         );
         assert!(
             fs::read_to_string(project.mods_dir.join("Songs/000/song.ini"))
