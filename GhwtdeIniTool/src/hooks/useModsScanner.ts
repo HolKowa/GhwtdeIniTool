@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import {
   analyzeScannedSongInstruments,
   applyGameIconSongFixes,
+  categorizeSongs,
   deleteSongIniConflictFile,
   disableSongIniFile,
   enableSongIniFile,
@@ -20,6 +21,8 @@ import {
 } from "../services/scanModsApi";
 import type {
   FaultySongIniFile,
+  CategorizeSongsInput,
+  CategorizeSongsResult,
   GameIconCategoryScanResult,
   GameIconSongFixApplyResult,
   GameIconSongFixInput,
@@ -66,6 +69,8 @@ export type GameIconCategoryStatus =
   | "previewing"
   | "applying"
   | "error";
+
+export type CategorizeSongsStatus = "idle" | "categorizing" | "error";
 
 function waitForNextFrame() {
   return new Promise<void>((resolve) => {
@@ -150,6 +155,9 @@ export function useModsScanner() {
   const [gameIconSongFixPreview, setGameIconSongFixPreview] =
     useState<GameIconSongFixPreview | null>(null);
   const [gameIconCategoryError, setGameIconCategoryError] = useState("");
+  const [categorizeSongsStatus, setCategorizeSongsStatus] =
+    useState<CategorizeSongsStatus>("idle");
+  const [categorizeSongsError, setCategorizeSongsError] = useState("");
   const knownIncludedSongPathSetRef = useRef(new Set<string>());
 
   const scanMods = useCallback(async () => {
@@ -266,6 +274,26 @@ export function useModsScanner() {
     },
     [],
   );
+
+  const applyCategorizeSongsResult = useCallback((result: CategorizeSongsResult) => {
+    setSongIniScanResult((currentResult) =>
+      currentResult === null
+        ? currentResult
+        : {
+            ...currentResult,
+            songs_parsed: result.songs_parsed,
+            songs: result.songs,
+            duplicate_checksum_groups: result.duplicate_checksum_groups,
+            song_ini_folder_conflicts: result.song_ini_folder_conflicts,
+            content_file_issues: result.content_file_issues,
+          },
+    );
+    setIncludedSongPaths(
+      result.songs
+        .filter((song) => song.is_included)
+        .map((song) => song.relative_path),
+    );
+  }, []);
 
   const validateSongIni = useCallback(
     async (relativePath: string, contents: string) => {
@@ -912,6 +940,30 @@ export function useModsScanner() {
     [applyGameIconSongFixApplyResult],
   );
 
+  const applyCategorization = useCallback(
+    async (input: CategorizeSongsInput) => {
+      setCategorizeSongsStatus("categorizing");
+      setCategorizeSongsError("");
+
+      try {
+        await waitForNextFrame();
+        const result = await categorizeSongs(input);
+
+        applyCategorizeSongsResult(result);
+        setCategorizeSongsStatus("idle");
+        setScanToast({
+          message: `${result.categorized} songs categorized; ${result.excluded} excluded`,
+          tone: "success",
+        });
+      } catch (err) {
+        setCategorizeSongsError(String(err));
+        setCategorizeSongsStatus("error");
+        throw err;
+      }
+    },
+    [applyCategorizeSongsResult],
+  );
+
   const analyzeInstruments = useCallback(async (mode: InstrumentAnalyzeMode) => {
     setInstrumentAnalyzeStatus("analyzing");
     setInstrumentAnalyzeProgress(null);
@@ -1064,8 +1116,11 @@ export function useModsScanner() {
 
   return {
     analyzeInstruments,
+    applyCategorization,
     applyGameIconSongFixRows,
     cancelScan,
+    categorizeSongsError,
+    categorizeSongsStatus,
     cancelInstrumentAnalyzer,
     clearCompletedSongScan,
     clearSongIniValidationError,

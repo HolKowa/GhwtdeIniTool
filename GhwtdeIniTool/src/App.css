@@ -860,14 +860,21 @@ td.scanned-songs-action-column {
 }
 
 .categorize-panel {
-  width: min(42rem, calc(100vw - 3rem));
-  height: auto;
-  max-height: min(80vh, calc(100vh - 3rem));
+  width: min(80vw, calc(100vw - 3rem));
+  height: min(80vh, calc(100vh - 3rem));
 }
 
 .categorize-wizard-body {
   display: grid;
+  align-content: start;
+  grid-auto-rows: max-content;
   gap: 1rem;
+}
+
+.categorize-step-two-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .categorize-bullet-list {
@@ -909,6 +916,48 @@ td.scanned-songs-action-column {
   display: block;
   margin-top: 0.2rem;
   overflow-wrap: anywhere;
+}
+
+.categorize-preview-list {
+  display: grid;
+  align-content: start;
+  grid-auto-rows: max-content;
+  flex: 1;
+  min-width: 0;
+  gap: 0.65rem;
+  min-height: 0;
+  width: 100%;
+  box-sizing: border-box;
+  padding-right: 0.5rem;
+  scrollbar-gutter: stable;
+  overflow: auto;
+}
+
+.categorize-preview {
+  display: grid;
+  min-width: 0;
+  gap: 0.25rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  font-size: 0.84rem;
+}
+
+.categorize-preview > div {
+  display: grid;
+  grid-template-columns: 9.5rem minmax(0, 1fr);
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.categorize-preview strong {
+  font-weight: 600;
+}
+
+.categorize-preview > div:last-child span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #565656;
 }
 
 .game-icon-info {

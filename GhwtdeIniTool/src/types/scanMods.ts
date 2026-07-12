@@ -12,6 +12,23 @@ export type IniToolCategoriesPreview = {
   has_non_category_files: boolean;
 };
 
+export type CategorizeSongsInput = {
+  ordered_song_paths: string[];
+  included_song_paths: string[];
+  maximum_song_cap: number;
+  category_names: string[];
+};
+
+export type CategorizeSongsResult = {
+  categorized: number;
+  excluded: number;
+  songs_parsed: number;
+  songs: ScannedSong[];
+  duplicate_checksum_groups: DuplicateChecksumGroup[];
+  song_ini_folder_conflicts: SongIniFolderConflict[];
+  content_file_issues: SongContentIssue[];
+};
+
 export type RestoreIniAction =
   | "afterFormatIssueFixes"
   | "beforeFormatIssueFix"

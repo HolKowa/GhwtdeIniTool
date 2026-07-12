@@ -3,6 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   DeleteFilesPreview,
   DeleteFilesResult,
+  CategorizeSongsInput,
+  CategorizeSongsResult,
   GameIconCategoryScanResult,
   GameIconSongFixApplyResult,
   GameIconSongFixInput,
@@ -34,6 +36,10 @@ export function deleteKeepOnlyFiles(filesToDelete: string[]) {
 
 export function previewIniToolCategories() {
   return invoke<IniToolCategoriesPreview>("preview_ini_tool_categories");
+}
+
+export function categorizeSongs(input: CategorizeSongsInput) {
+  return invoke<CategorizeSongsResult>("categorize_songs", { input });
 }
 
 export function scanSongIniFiles() {

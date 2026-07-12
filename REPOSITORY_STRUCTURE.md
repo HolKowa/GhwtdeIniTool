@@ -40,8 +40,8 @@ Important files:
 - `GhwtdeIniTool/src/App.css` contains the current app styling.
 - `GhwtdeIniTool/src/components/CleanModsWizard.tsx` renders the two-step MODS
   cleanup wizard for keep-pattern entry and delete confirmation.
-- `GhwtdeIniTool/src/components/CategorizeWizard.tsx` renders the first,
-  informational step of the future song categorization workflow.
+- `GhwtdeIniTool/src/components/CategorizeWizard.tsx` renders the two-step
+  song categorization preview and confirmation workflow.
 - `GhwtdeIniTool/src/components/ExperimentalWarningDialog.tsx` renders the
   read-only experimental-use disclaimer dialog.
 - `GhwtdeIniTool/src/components/FixGameIconsWizard.tsx` renders the custom
@@ -65,8 +65,8 @@ Important files:
 - `GhwtdeIniTool/src/hooks/useIniRestorer.ts` owns bulk `song.ini` restore
   dialog state.
 - `GhwtdeIniTool/src/hooks/useModsScanner.ts` owns `song.ini` scan, step-one
-  undo snapshots, instrument analysis action state, and GameIcon category
-  fixing state.
+  undo snapshots, instrument analysis, song categorization, and GameIcon
+  category fixing state.
 - `GhwtdeIniTool/src/hooks/useAppUpdater.ts` owns updater state and actions.
 - `GhwtdeIniTool/src/services/projectSettingsApi.ts` wraps the Tauri settings
   commands.

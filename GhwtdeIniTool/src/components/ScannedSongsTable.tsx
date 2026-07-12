@@ -29,11 +29,13 @@ export type CategorizationTableState = {
   hasActiveFilters: boolean;
   hasUnsavedSongChanges: boolean;
   orderedSongPaths: string[];
+  sortKey: CategorizationSortKey;
 };
 
 type MetadataColumnKey = "artist" | "title" | "year" | "genre" | "game_icon";
 type InstrumentColumnKey = keyof ScannedSong["instruments"];
-type SortKey = MetadataColumnKey | InstrumentColumnKey;
+export type CategorizationSortKey = MetadataColumnKey | InstrumentColumnKey;
+type SortKey = CategorizationSortKey;
 type SortDirection = "asc" | "desc";
 type IncludeFilter = "all" | "included" | "excluded";
 type MetadataDropdownFilterKey = "year" | "genre" | "game_icon";
@@ -378,11 +380,13 @@ export function ScannedSongsTable({
       hasActiveFilters,
       hasUnsavedSongChanges,
       orderedSongPaths: sortedSongs.map((song) => song.relative_path),
+      sortKey,
     });
   }, [
     hasActiveFilters,
     hasUnsavedSongChanges,
     onCategorizationStateChange,
+    sortKey,
     sortedSongs,
   ]);
 

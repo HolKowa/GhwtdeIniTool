@@ -83,6 +83,25 @@ struct IniToolCategoriesPreview {
     has_non_category_files: bool,
 }
 
+#[derive(Deserialize)]
+struct CategorizeSongsInput {
+    ordered_song_paths: Vec<String>,
+    included_song_paths: Vec<String>,
+    maximum_song_cap: usize,
+    category_names: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct CategorizeSongsResult {
+    categorized: usize,
+    excluded: usize,
+    songs_parsed: usize,
+    songs: Vec<ScannedSong>,
+    duplicate_checksum_groups: Vec<DuplicateChecksumGroup>,
+    song_ini_folder_conflicts: Vec<SongIniFolderConflict>,
+    content_file_issues: Vec<SongContentIssue>,
+}
+
 #[derive(Default, Serialize)]
 struct RestoreIniResult {
     files_restored: usize,
@@ -407,6 +426,15 @@ fn preview_ini_tool_categories() -> Result<IniToolCategoriesPreview, String> {
 }
 
 #[tauri::command]
+fn categorize_songs(
+    input: CategorizeSongsInput,
+    store: tauri::State<'_, SongIniStore>,
+) -> Result<CategorizeSongsResult, String> {
+    let settings = scan_settings()?;
+    categorize_songs_paths(&settings, input, &store)
+}
+
+#[tauri::command]
 fn scan_song_ini_files(
     app: tauri::AppHandle,
     store: tauri::State<'_, SongIniStore>,
@@ -728,6 +756,178 @@ fn contains_non_category_file(dir: &Path) -> Result<bool, String> {
     }
 
     Ok(false)
+}
+
+fn categorize_songs_paths(
+    settings: &ScanSettings,
+    input: CategorizeSongsInput,
+    store: &SongIniStore,
+) -> Result<CategorizeSongsResult, String> {
+    const SONGS_PER_CATEGORY: usize = 200;
+    const MAXIMUM_SONG_CAP: usize = 19_800;
+
+    if input.maximum_song_cap == 0 || input.maximum_song_cap > MAXIMUM_SONG_CAP {
+        return Err("Enter a whole number from 1 through 19800.".to_string());
+    }
+
+    let stored_songs = stored_parsed_songs(store)?;
+    let stored_paths = stored_songs
+        .iter()
+        .map(|song| song.relative_path.as_str())
+        .collect::<HashSet<_>>();
+    let ordered_paths = input.ordered_song_paths.iter().collect::<HashSet<_>>();
+    if ordered_paths.len() != input.ordered_song_paths.len()
+        || ordered_paths.len() != stored_paths.len()
+        || !ordered_paths
+            .iter()
+            .all(|path| stored_paths.contains(path.as_str()))
+    {
+        return Err(
+            "The scanned song order is stale. Scan MODS again before categorizing.".to_string(),
+        );
+    }
+
+    let included_paths = input.included_song_paths.iter().collect::<HashSet<_>>();
+    if included_paths.len() != input.included_song_paths.len()
+        || !included_paths
+            .iter()
+            .all(|path| stored_paths.contains(path.as_str()))
+    {
+        return Err(
+            "The included song list is stale. Scan MODS again before categorizing.".to_string(),
+        );
+    }
+
+    let categorized_paths = input
+        .ordered_song_paths
+        .iter()
+        .filter(|path| included_paths.contains(path))
+        .take(input.maximum_song_cap)
+        .cloned()
+        .collect::<Vec<_>>();
+    let category_count = categorized_paths.len().div_ceil(SONGS_PER_CATEGORY);
+    if input.category_names.len() != category_count {
+        return Err("The category preview is stale. Return to step 1 and try again.".to_string());
+    }
+
+    let categories_dir = settings.mods_dir.join("IniToolCategories");
+    if categories_dir.exists() && !categories_dir.is_dir() {
+        return Err(format!(
+            "{} exists but is not a folder.",
+            categories_dir.display()
+        ));
+    }
+    if categories_dir.exists() {
+        for entry in fs::read_dir(&categories_dir)
+            .map_err(|err| format!("Failed to read {}: {err}", categories_dir.display()))?
+        {
+            let path = entry
+                .map_err(|err| {
+                    format!(
+                        "Failed to read entry in {}: {err}",
+                        categories_dir.display()
+                    )
+                })?
+                .path();
+            if path.is_dir() {
+                fs::remove_dir_all(&path)
+            } else {
+                fs::remove_file(&path)
+            }
+            .map_err(|err| format!("Failed to delete {}: {err}", path.display()))?;
+        }
+    } else {
+        fs::create_dir_all(&categories_dir)
+            .map_err(|err| format!("Failed to create {}: {err}", categories_dir.display()))?;
+    }
+
+    for (index, category_name) in input.category_names.iter().enumerate() {
+        let category_number = index + 1;
+        let checksum = format!("IniToolCategory{category_number:02}");
+        let folder = categories_dir.join(format!(
+            "Category_{}",
+            sanitize_category_folder_name(category_name)
+        ));
+        fs::create_dir(&folder)
+            .map_err(|err| format!("Failed to create {}: {err}", folder.display()))?;
+        let contents = format!(
+            "[ModInfo]\nName=IniTool Category {category_number:02}\nDescription=Songs categorized by {category_name}.\nAuthor=GhwtDeIniTool\nVersion=1.0\n\n[CategoryInfo]\nName={category_name}\nChecksum={checksum}\nLogo=\n"
+        );
+        let category_ini = folder.join("category.ini");
+        fs::write(&category_ini, contents)
+            .map_err(|err| format!("Failed to write {}: {err}", category_ini.display()))?;
+    }
+
+    let categorized_path_set = categorized_paths.iter().collect::<HashSet<_>>();
+    for song in stored_songs {
+        let path = checked_mods_relative_path(&settings.mods_dir, &song.relative_path)?;
+        let is_categorized = categorized_path_set.contains(&song.relative_path);
+        let target_path = song_ini_path_for_inclusion(&path, is_categorized);
+        let contents = fs::read_to_string(&path)
+            .map_err(|err| format!("Failed to read {}: {err}", path.display()))?;
+        let updated_contents = if is_categorized {
+            let category_index = categorized_paths
+                .iter()
+                .position(|candidate| candidate == &song.relative_path)
+                .expect("categorized song path must exist")
+                / SONGS_PER_CATEGORY;
+            let category_checksum = format!("IniToolCategory{:02}", category_index + 1);
+            update_song_ini_values(
+                &normalize_song_ini_key_case(&contents),
+                &[("GameCategory", category_checksum.as_str())],
+            )
+        } else {
+            normalize_song_ini_key_case(&contents)
+        };
+        write_scanned_song_ini_file(
+            &path,
+            &target_path,
+            &updated_contents,
+            settings.keep_original_song_ini,
+        )?;
+    }
+
+    let scan = scan_song_ini_files_paths_with_progress(settings, store, |_| {})?;
+    Ok(CategorizeSongsResult {
+        categorized: categorized_paths.len(),
+        excluded: scan.songs.len() - categorized_paths.len(),
+        songs_parsed: scan.songs_parsed,
+        songs: scan.songs,
+        duplicate_checksum_groups: scan.duplicate_checksum_groups,
+        song_ini_folder_conflicts: scan.song_ini_folder_conflicts,
+        content_file_issues: scan.content_file_issues,
+    })
+}
+
+fn sanitize_category_folder_name(value: &str) -> String {
+    let sanitized = value
+        .chars()
+        .filter(|character| {
+            !character.is_control()
+                && !matches!(
+                    character,
+                    '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|'
+                )
+        })
+        .fold(String::new(), |mut output, character| {
+            if character.is_whitespace() {
+                if !output.ends_with('_') {
+                    output.push('_');
+                }
+            } else {
+                output.push(character);
+            }
+            output
+        });
+    let sanitized = sanitized.trim_matches(|character: char| {
+        character == '_' || character == '.' || character.is_whitespace()
+    });
+
+    if sanitized.is_empty() {
+        "empty".to_string()
+    } else {
+        sanitized.to_string()
+    }
 }
 
 fn scan_song_ini_files_paths_with_progress<F>(
@@ -2329,9 +2529,13 @@ fn update_song_ini_metadata_contents(
         ("Genre", metadata.genre.as_str()),
         ("GameIcon", metadata.game_icon.as_str()),
     ];
+    update_song_ini_values(contents, &updates)
+}
+
+fn update_song_ini_values(contents: &str, updates: &[(&str, &str)]) -> String {
     let mut updated_contents = String::with_capacity(contents.len());
     let mut in_song_info = false;
-    let mut found_keys: HashSet<&str> = HashSet::new();
+    let mut found_keys: HashSet<String> = HashSet::new();
     let append_line_ending = first_line_ending(contents).unwrap_or("\n");
     let mut appended_missing_keys = false;
 
@@ -2375,7 +2579,7 @@ fn update_song_ini_metadata_contents(
                     updated_contents.push('=');
                     updated_contents.push_str(value);
                     updated_contents.push_str(line_ending);
-                    found_keys.insert(*canonical_key);
+                    found_keys.insert((*canonical_key).to_string());
                     continue;
                 }
             }
@@ -2399,8 +2603,8 @@ fn update_song_ini_metadata_contents(
 
 fn append_missing_metadata_keys(
     contents: &mut String,
-    updates: &[(&'static str, &str)],
-    found_keys: &HashSet<&str>,
+    updates: &[(&str, &str)],
+    found_keys: &HashSet<String>,
     line_ending: &str,
 ) {
     if !contents.is_empty() && !contents.ends_with('\n') {
@@ -2408,7 +2612,7 @@ fn append_missing_metadata_keys(
     }
 
     for (key, value) in updates {
-        if found_keys.contains(key) {
+        if found_keys.contains(*key) {
             continue;
         }
 
@@ -4422,6 +4626,87 @@ mod tests {
             mods_dir: project.mods_dir.clone(),
             official_gamelogos_dir: None,
             keep_original_song_ini: false,
+        }
+    }
+
+    #[test]
+    fn categorize_songs_creates_sanitized_category_folders_and_updates_song_files() {
+        let project = TestProject::new("categorize-songs");
+        let settings = test_scan_settings_without_song_ini_backup(&project);
+        let store = SongIniStore::default();
+        let mut ordered_paths = Vec::new();
+        write_test_file_contents(
+            &project.mods_dir.join("IniToolCategories/Old/nested.txt"),
+            "old category content",
+        );
+
+        for index in 0..201 {
+            let relative_path = format!("Songs/{index:03}/song.ini");
+            write_test_file_contents(
+                &project.mods_dir.join(&relative_path),
+                valid_song_ini(&format!("Song {index}"), &format!("checksum_{index}")).as_str(),
+            );
+            ordered_paths.push(relative_path);
+        }
+
+        scan_song_ini_files_paths(&settings, &store).expect("scan should succeed");
+        let result = categorize_songs_paths(
+            &settings,
+            CategorizeSongsInput {
+                ordered_song_paths: ordered_paths.clone(),
+                included_song_paths: ordered_paths,
+                maximum_song_cap: 200,
+                category_names: vec!["01 Artist: A/B".to_string()],
+            },
+            &store,
+        )
+        .expect("categorization should succeed");
+
+        assert_eq!(result.categorized, 200);
+        assert_eq!(result.excluded, 1);
+        let category_ini = project
+            .mods_dir
+            .join("IniToolCategories/Category_01_Artist_AB/category.ini");
+        assert_eq!(
+            fs::read_to_string(category_ini).expect("category should exist"),
+            "[ModInfo]\nName=IniTool Category 01\nDescription=Songs categorized by 01 Artist: A/B.\nAuthor=GhwtDeIniTool\nVersion=1.0\n\n[CategoryInfo]\nName=01 Artist: A/B\nChecksum=IniToolCategory01\nLogo=\n"
+        );
+        assert!(
+            fs::read_to_string(project.mods_dir.join("Songs/000/song.ini"))
+                .expect("categorized song should exist")
+                .contains("GameCategory=IniToolCategory01")
+        );
+        assert!(project
+            .mods_dir
+            .join("Songs/200/song.excluded.ini")
+            .is_file());
+        assert!(!project
+            .mods_dir
+            .join("IniToolCategories/Old/nested.txt")
+            .exists());
+    }
+
+    #[test]
+    fn categorize_songs_rejects_caps_outside_two_digit_category_limit() {
+        let project = TestProject::new("categorize-cap-limit");
+        let settings = test_scan_settings(&project);
+        let store = SongIniStore::default();
+
+        for maximum_song_cap in [0, 19_801] {
+            let error = match categorize_songs_paths(
+                &settings,
+                CategorizeSongsInput {
+                    ordered_song_paths: Vec::new(),
+                    included_song_paths: Vec::new(),
+                    maximum_song_cap,
+                    category_names: Vec::new(),
+                },
+                &store,
+            ) {
+                Ok(_) => panic!("out-of-range cap should be rejected"),
+                Err(error) => error,
+            };
+            assert_eq!(error, "Enter a whole number from 1 through 19800.");
         }
     }
 
@@ -7739,6 +8024,7 @@ pub fn run() {
             preview_keep_only_files_delete,
             delete_keep_only_files,
             preview_ini_tool_categories,
+            categorize_songs,
             scan_song_ini_files,
             validate_song_ini_file,
             undo_song_ini_repair,

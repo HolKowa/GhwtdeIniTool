@@ -30,6 +30,7 @@ function App() {
       hasActiveFilters: false,
       hasUnsavedSongChanges: false,
       orderedSongPaths: [],
+      sortKey: "artist",
     });
   const {
     checkForUpdates,
@@ -78,9 +79,12 @@ function App() {
   } = useIniRestorer();
   const {
     analyzeInstruments,
+    applyCategorization,
     applyGameIconSongFixRows,
     cancelInstrumentAnalyzer,
     cancelScan,
+    categorizeSongsError,
+    categorizeSongsStatus,
     clearCompletedSongScan,
     clearSongIniValidationError,
     closeInstrumentAnalyzer,
@@ -309,7 +313,7 @@ function App() {
           onSetSongsIncluded={setSongsIncluded}
           restoringSongPaths={restoringScannedSongPaths}
           savingSongPaths={savingScannedSongPaths}
-          songs={songIniScanResult.songs}
+          songs={songIniScanResult?.songs ?? []}
         />
       )}
 
@@ -445,13 +449,20 @@ function App() {
 
       {isCategorizeWizardOpen && (
         <CategorizeWizard
+          error={categorizeSongsError}
           hasActiveFilters={categorizationTableState.hasActiveFilters}
           hasUnsavedSongChanges={
             categorizationTableState.hasUnsavedSongChanges
           }
           includedSongCount={includedSongPaths.length}
+          includedSongPaths={includedSongPaths}
           modsDir={settings?.mods_dir ?? null}
+          onApply={applyCategorization}
           onClose={() => setIsCategorizeWizardOpen(false)}
+          orderedSongPaths={categorizationTableState.orderedSongPaths}
+          songs={songIniScanResult?.songs ?? []}
+          sortKey={categorizationTableState.sortKey}
+          status={categorizeSongsStatus}
         />
       )}
 
