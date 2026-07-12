@@ -40,6 +40,8 @@ Important files:
 - `GhwtdeIniTool/src/App.css` contains the current app styling.
 - `GhwtdeIniTool/src/components/CleanModsWizard.tsx` renders the two-step MODS
   cleanup wizard for keep-pattern entry and delete confirmation.
+- `GhwtdeIniTool/src/components/ExperimentalWarningDialog.tsx` renders the
+  read-only experimental-use disclaimer dialog.
 - `GhwtdeIniTool/src/components/FixGameIconsWizard.tsx` renders the custom
   GameIcon category scan/fix wizard.
 - `GhwtdeIniTool/src/components/InstrumentAnalyzeWizard.tsx` renders the
@@ -92,11 +94,14 @@ Current frontend behavior:
 - If the updater check fails, the frontend currently treats it as no update and
   does not show an error dialog.
 - Settings are loaded from the Rust `load_project_settings` command.
-- If no MODS folder or official GAMELOGOS folder is configured, or either
-  configured folder is unavailable, settings status becomes `needs-folder` and
-  the settings dialog opens automatically. The dialog cannot be closed until
-  both required folders are available.
+- If no MODS folder or official GAMELOGOS folder is configured, either
+  configured folder is unavailable, or the first-run disclaimer has not been
+  accepted, settings status becomes `needs-folder` and the settings dialog
+  opens automatically. The dialog cannot be closed until both required folders
+  are available and the disclaimer is accepted.
 - The settings button can reopen the dialog after startup.
+- A persistent red experimental-risk warning appears beside Settings; selecting
+  it opens a read-only dialog with the experimental-use disclaimer text.
 - The Clean MODS folder button opens a two-step wizard that asks for a
   keep-pattern, previews MODS files that do not match it, allows returning from
   preview to edit the pattern, and deletes only after the user finishes the
@@ -174,8 +179,9 @@ Current frontend behavior:
   The top action row includes a disabled Categorize button alongside Analyze
   instruments and Fix GameIcons until backend categorization is implemented.
 - The settings dialog lets the user choose a MODS folder, choose an official
-  GAMELOGOS folder after MODS is set, and toggle whether original `song.ini`
-  files are kept before their first edit.
+  GAMELOGOS folder after MODS is set, toggle whether original `song.ini` files
+  are kept before their first edit, and accept a one-time experimental-use
+  disclaimer before workflows can be used.
 - When a MODS folder is saved, settings try to auto-fill the official GAMELOGOS
   folder by replacing each exact `MODS` path component with `IMAGES`, nearest
   first, appending `GAMELOGOS`, dropping folders below the matched `MODS`

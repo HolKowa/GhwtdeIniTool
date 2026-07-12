@@ -49,6 +49,7 @@ const SONG_INFO_KEYS: &[&str] = &[
 
 #[derive(Serialize)]
 struct ProjectSettings {
+    disclaimer_accepted: bool,
     mods_dir: Option<String>,
     mods_dir_available: bool,
     official_gamelogos_dir: Option<String>,
@@ -59,6 +60,7 @@ struct ProjectSettings {
 
 #[derive(Deserialize)]
 struct ProjectSettingsInput {
+    disclaimer_accepted: Option<bool>,
     mods_dir: Option<String>,
     official_gamelogos_dir: Option<String>,
     keep_original_song_ini: Option<bool>,
@@ -335,6 +337,7 @@ struct SongScanProgress {
 }
 
 struct StoredProjectSettings {
+    disclaimer_accepted: bool,
     mods_dir: Option<String>,
     official_gamelogos_dir: Option<String>,
     keep_original_song_ini: bool,
@@ -572,6 +575,7 @@ fn project_settings(settings_path: PathBuf, settings: StoredProjectSettings) -> 
         .is_some_and(|path| PathBuf::from(path).is_dir());
 
     ProjectSettings {
+        disclaimer_accepted: settings.disclaimer_accepted,
         mods_dir: settings.mods_dir,
         mods_dir_available,
         official_gamelogos_dir: settings.official_gamelogos_dir,
@@ -3773,6 +3777,9 @@ fn read_project_settings_from_ini(contents: &str) -> StoredProjectSettings {
         let value = unescape_ini_value(value.trim());
 
         match key.trim() {
+            "disclaimer_accepted" => {
+                settings.disclaimer_accepted = parse_ini_bool(&value).unwrap_or(false)
+            }
             "mods_dir" => settings.mods_dir = (!value.is_empty()).then_some(value),
             "official_gamelogos_dir" => {
                 settings.official_gamelogos_dir = (!value.is_empty()).then_some(value)
@@ -3789,7 +3796,8 @@ fn read_project_settings_from_ini(contents: &str) -> StoredProjectSettings {
 
 fn write_project_settings_to_ini(settings: &StoredProjectSettings) -> String {
     format!(
-        "[project]\nmods_dir={}\nofficial_gamelogos_dir={}\nkeep_original_song_ini={}\n",
+        "[project]\ndisclaimer_accepted={}\nmods_dir={}\nofficial_gamelogos_dir={}\nkeep_original_song_ini={}\n",
+        settings.disclaimer_accepted,
         escape_ini_value(settings.mods_dir.as_deref().unwrap_or("")),
         escape_ini_value(settings.official_gamelogos_dir.as_deref().unwrap_or("")),
         settings.keep_original_song_ini
@@ -3812,6 +3820,7 @@ fn validate_project_settings(
     };
 
     Ok(StoredProjectSettings {
+        disclaimer_accepted: settings.disclaimer_accepted.unwrap_or(false),
         mods_dir: Some(mods_dir.to_string_lossy().into_owned()),
         official_gamelogos_dir: official_gamelogos_dir
             .map(|path| path.to_string_lossy().into_owned()),
@@ -3941,6 +3950,7 @@ fn settings_error(err: io::Error) -> String {
 impl Default for StoredProjectSettings {
     fn default() -> Self {
         Self {
+            disclaimer_accepted: false,
             mods_dir: None,
             official_gamelogos_dir: None,
             keep_original_song_ini: true,
@@ -4007,6 +4017,7 @@ mod tests {
     fn settings_default_to_keeping_original_song_ini() {
         let settings = read_project_settings_from_ini("[project]\nmods_dir=/tmp/MODS\n");
 
+        assert!(!settings.disclaimer_accepted);
         assert_eq!(settings.mods_dir.as_deref(), Some("/tmp/MODS"));
         assert_eq!(settings.official_gamelogos_dir, None);
         assert!(settings.keep_original_song_ini);
@@ -4034,8 +4045,18 @@ mod tests {
     }
 
     #[test]
-    fn settings_writer_includes_keep_original_song_ini() {
+    fn settings_parse_disclaimer_accepted() {
+        let settings = read_project_settings_from_ini(
+            "[project]\nmods_dir=/tmp/MODS\ndisclaimer_accepted=true\n",
+        );
+
+        assert!(settings.disclaimer_accepted);
+    }
+
+    #[test]
+    fn settings_writer_includes_disclaimer_accepted() {
         let settings = StoredProjectSettings {
+            disclaimer_accepted: true,
             mods_dir: Some("/tmp/MODS".to_string()),
             official_gamelogos_dir: Some("/tmp/IMAGES/GAMELOGOS".to_string()),
             keep_original_song_ini: false,
@@ -4043,7 +4064,7 @@ mod tests {
 
         assert_eq!(
             write_project_settings_to_ini(&settings),
-            "[project]\nmods_dir=/tmp/MODS\nofficial_gamelogos_dir=/tmp/IMAGES/GAMELOGOS\nkeep_original_song_ini=false\n"
+            "[project]\ndisclaimer_accepted=true\nmods_dir=/tmp/MODS\nofficial_gamelogos_dir=/tmp/IMAGES/GAMELOGOS\nkeep_original_song_ini=false\n"
         );
     }
 
@@ -4135,6 +4156,7 @@ mod tests {
 
         let settings = validate_project_settings(
             ProjectSettingsInput {
+                disclaimer_accepted: Some(true),
                 mods_dir: Some(mods_dir.to_string_lossy().into_owned()),
                 official_gamelogos_dir: Some(manual_gamelogos_dir.to_string_lossy().into_owned()),
                 keep_original_song_ini: Some(false),
@@ -4153,6 +4175,7 @@ mod tests {
                     .as_ref()
             )
         );
+        assert!(settings.disclaimer_accepted);
         assert!(!settings.keep_original_song_ini);
     }
 
@@ -4174,6 +4197,7 @@ mod tests {
         fs::create_dir_all(&new_auto_gamelogos_dir).expect("new gamelogos dir should be created");
 
         let previous_settings = StoredProjectSettings {
+            disclaimer_accepted: true,
             mods_dir: Some(previous_mods_dir.to_string_lossy().into_owned()),
             official_gamelogos_dir: Some(
                 previous_auto_gamelogos_dir.to_string_lossy().into_owned(),
@@ -4182,6 +4206,7 @@ mod tests {
         };
         let settings = validate_project_settings(
             ProjectSettingsInput {
+                disclaimer_accepted: Some(true),
                 mods_dir: Some(new_mods_dir.to_string_lossy().into_owned()),
                 official_gamelogos_dir: Some(
                     previous_auto_gamelogos_dir.to_string_lossy().into_owned(),
@@ -4209,6 +4234,7 @@ mod tests {
         let project = TestProject::new("missing-gamelogos");
         let settings = validate_project_settings(
             ProjectSettingsInput {
+                disclaimer_accepted: None,
                 mods_dir: Some(project.mods_dir.to_string_lossy().into_owned()),
                 official_gamelogos_dir: None,
                 keep_original_song_ini: None,

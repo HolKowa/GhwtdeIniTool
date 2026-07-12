@@ -13,6 +13,7 @@ import type { ProjectSettings } from "../types/projectSettings";
 export type SettingsStatus = "loading" | "ready" | "needs-folder" | "error";
 
 const defaultSettings: ProjectSettings = {
+  disclaimer_accepted: false,
   mods_dir: null,
   mods_dir_available: false,
   official_gamelogos_dir: null,
@@ -23,6 +24,7 @@ const defaultSettings: ProjectSettings = {
 
 function hasCompleteSetup(settings: ProjectSettings) {
   return (
+    settings.disclaimer_accepted &&
     Boolean(settings.mods_dir && settings.mods_dir_available) &&
     Boolean(
       settings.official_gamelogos_dir &&
@@ -101,6 +103,21 @@ export function useProjectSettings() {
     [persistSettings],
   );
 
+  const acceptDisclaimer = useCallback(async () => {
+    try {
+      const savedSettings = await persistSettings({
+        disclaimer_accepted: true,
+      });
+
+      if (hasCompleteSetup(savedSettings)) {
+        setIsSettingsOpen(false);
+      }
+    } catch (err) {
+      setSettingsStatus("error");
+      setSettingsError(String(err));
+    }
+  }, [persistSettings]);
+
   const loadSettings = useCallback(async () => {
     try {
       const loadedSettings = await loadProjectSettings();
@@ -121,6 +138,7 @@ export function useProjectSettings() {
   }, []);
 
   return {
+    acceptDisclaimer,
     chooseGameLogosFolder,
     chooseModsFolder,
     isSettingsOpen,

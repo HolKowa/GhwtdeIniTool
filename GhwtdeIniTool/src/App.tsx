@@ -1,6 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import { CleanModsWizard } from "./components/CleanModsWizard";
+import { ExperimentalWarningDialog } from "./components/ExperimentalWarningDialog";
 import { FixGameIconsWizard } from "./components/FixGameIconsWizard";
 import { InstrumentAnalyzeWizard } from "./components/InstrumentAnalyzeWizard";
 import { RestoreIniWizard } from "./components/RestoreIniWizard";
@@ -17,6 +18,8 @@ import { useProjectSettings } from "./hooks/useProjectSettings";
 import "./App.css";
 
 function App() {
+  const [isExperimentalWarningOpen, setIsExperimentalWarningOpen] =
+    useState(false);
   const {
     checkForUpdates,
     downloadProgress,
@@ -27,6 +30,7 @@ function App() {
     updateStatus,
   } = useAppUpdater();
   const {
+    acceptDisclaimer,
     chooseGameLogosFolder,
     chooseModsFolder,
     isSettingsOpen,
@@ -130,7 +134,9 @@ function App() {
     updateStatus === "ready" ||
     updateStatus === "error";
   const canCloseSettings = Boolean(
-    settings?.mods_dir_available && settings.official_gamelogos_dir_available,
+    settings?.disclaimer_accepted &&
+      settings.mods_dir_available &&
+      settings.official_gamelogos_dir_available,
   );
   const isScanBusy =
     scanStatus === "scanningSongs" ||
@@ -285,18 +291,28 @@ function App() {
         />
       )}
 
-      <button
-        className="settings-button"
-        type="button"
-        onClick={() => setIsSettingsOpen(true)}
-        aria-label="Open settings"
-      >
-        Settings
-      </button>
+      <div className="app-controls">
+        <button
+          className="experimental-warning-button"
+          type="button"
+          onClick={() => setIsExperimentalWarningOpen(true)}
+        >
+          Experimental software, use at your own risk!!!
+        </button>
+        <button
+          className="settings-button"
+          type="button"
+          onClick={() => setIsSettingsOpen(true)}
+          aria-label="Open settings"
+        >
+          Settings
+        </button>
+      </div>
 
       {isSettingsOpen && (
         <SettingsDialog
           canClose={canCloseSettings}
+          onAcceptDisclaimer={acceptDisclaimer}
           onChangeGameLogosFolder={chooseGameLogosFolder}
           onChangeFolder={chooseModsFolder}
           onClose={() => {
@@ -308,6 +324,12 @@ function App() {
           settings={settings}
           settingsError={settingsError}
           settingsStatus={settingsStatus}
+        />
+      )}
+
+      {isExperimentalWarningOpen && (
+        <ExperimentalWarningDialog
+          onClose={() => setIsExperimentalWarningOpen(false)}
         />
       )}
 

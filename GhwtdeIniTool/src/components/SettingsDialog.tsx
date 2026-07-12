@@ -1,8 +1,12 @@
+import { useState } from "react";
+
+import { ExperimentalDisclaimerText } from "./ExperimentalDisclaimerText";
 import type { SettingsStatus } from "../hooks/useProjectSettings";
 import type { ProjectSettings } from "../types/projectSettings";
 
 type SettingsDialogProps = {
   canClose: boolean;
+  onAcceptDisclaimer: () => void;
   onChangeGameLogosFolder: () => void;
   onChangeFolder: () => void;
   onClose: () => void;
@@ -14,6 +18,7 @@ type SettingsDialogProps = {
 
 export function SettingsDialog({
   canClose,
+  onAcceptDisclaimer,
   onChangeGameLogosFolder,
   onChangeFolder,
   onClose,
@@ -22,6 +27,7 @@ export function SettingsDialog({
   settingsError,
   settingsStatus,
 }: SettingsDialogProps) {
+  const [hasCheckedDisclaimer, setHasCheckedDisclaimer] = useState(false);
   const hasAvailableModsFolder = Boolean(
     settings?.mods_dir && settings.mods_dir_available,
   );
@@ -118,6 +124,36 @@ export function SettingsDialog({
             }
           />
         </label>
+
+        {!settings?.disclaimer_accepted && (
+          <section className="disclaimer-section" aria-labelledby="disclaimer-title">
+            <h3 id="disclaimer-title">Experimental software warning</h3>
+            <ExperimentalDisclaimerText />
+            <label className="disclaimer-checkbox-row">
+              <input
+                type="checkbox"
+                checked={hasCheckedDisclaimer}
+                disabled={isLoading}
+                onChange={(event) =>
+                  setHasCheckedDisclaimer(event.currentTarget.checked)
+                }
+              />
+              <span>
+                I understand the risks of using this experimental tool,
+                including possible data loss or unusable song files, and I am
+                responsible for keeping backups.
+              </span>
+            </label>
+            <button
+              className="primary-btn disclaimer-confirm-btn"
+              type="button"
+              disabled={!hasCheckedDisclaimer || isLoading}
+              onClick={onAcceptDisclaimer}
+            >
+              I understand — enable the application
+            </button>
+          </section>
+        )}
 
         {settingsError && <p className="settings-error">{settingsError}</p>}
       </section>
