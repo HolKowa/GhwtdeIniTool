@@ -122,7 +122,7 @@ struct SongIniScanResult {
     songs: Vec<ScannedSong>,
     faulty_files: Vec<FaultySongIniFile>,
     duplicate_checksum_groups: Vec<DuplicateChecksumGroup>,
-    disabled_song_conflicts: Vec<DisabledSongConflict>,
+    song_ini_folder_conflicts: Vec<SongIniFolderConflict>,
     content_file_issues: Vec<SongContentIssue>,
     errors: Vec<String>,
 }
@@ -137,6 +137,7 @@ struct ScannedSong {
     genre: String,
     game_icon: String,
     has_original_song_ini: bool,
+    is_included: bool,
     instruments: ScannedSongInstruments,
 }
 
@@ -190,9 +191,9 @@ struct DuplicateChecksumGroup {
 }
 
 #[derive(Clone, Debug, Serialize)]
-struct DisabledSongConflict {
-    active_path: String,
-    disabled_path: String,
+struct SongIniFolderConflict {
+    folder_path: String,
+    file_paths: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -211,7 +212,7 @@ struct SongIniValidationResult {
     songs_parsed: usize,
     songs: Vec<ScannedSong>,
     duplicate_checksum_groups: Vec<DuplicateChecksumGroup>,
-    disabled_song_conflicts: Vec<DisabledSongConflict>,
+    song_ini_folder_conflicts: Vec<SongIniFolderConflict>,
     content_file_issues: Vec<SongContentIssue>,
 }
 
@@ -219,6 +220,7 @@ struct SongIniValidationResult {
 struct SongIniDisableResult {
     relative_path: String,
     disabled_path: String,
+    is_included: bool,
     songs_parsed: usize,
 }
 
@@ -226,6 +228,7 @@ struct SongIniDisableResult {
 struct SongIniEnableResult {
     relative_path: String,
     enabled_path: String,
+    is_included: bool,
     songs_parsed: usize,
 }
 
@@ -319,7 +322,7 @@ struct GameIconSongFixApplyResult {
     songs_parsed: usize,
     songs: Vec<ScannedSong>,
     duplicate_checksum_groups: Vec<DuplicateChecksumGroup>,
-    disabled_song_conflicts: Vec<DisabledSongConflict>,
+    song_ini_folder_conflicts: Vec<SongIniFolderConflict>,
     content_file_issues: Vec<SongContentIssue>,
 }
 
@@ -460,22 +463,34 @@ fn delete_song_ini_conflict_file(
 }
 
 #[tauri::command]
-fn update_scanned_song_metadata(
+fn set_scanned_song_included(
     relative_path: String,
-    metadata: ScannedSongMetadataInput,
+    is_included: bool,
     store: tauri::State<'_, SongIniStore>,
 ) -> Result<SongIniValidationResult, String> {
     let settings = scan_settings()?;
-    update_scanned_song_metadata_path(&settings, &relative_path, metadata, &store)
+    set_scanned_song_included_path(&settings, &relative_path, is_included, &store)
+}
+
+#[tauri::command]
+fn update_scanned_song_metadata(
+    relative_path: String,
+    metadata: ScannedSongMetadataInput,
+    is_included: bool,
+    store: tauri::State<'_, SongIniStore>,
+) -> Result<SongIniValidationResult, String> {
+    let settings = scan_settings()?;
+    update_scanned_song_metadata_path(&settings, &relative_path, metadata, is_included, &store)
 }
 
 #[tauri::command]
 fn restore_original_song_ini(
     relative_path: String,
+    is_included: bool,
     store: tauri::State<'_, SongIniStore>,
 ) -> Result<SongIniValidationResult, String> {
     let settings = scan_settings()?;
-    restore_original_song_ini_path(&settings, &relative_path, &store)
+    restore_original_song_ini_path(&settings, &relative_path, is_included, &store)
 }
 
 #[tauri::command]
@@ -667,7 +682,7 @@ where
 {
     let mods_dir = &settings.mods_dir;
     emit_progress(song_scan_progress("findingSongs", 0, 0, ""));
-    let song_ini_paths = find_song_ini_files(mods_dir)?;
+    let song_ini_paths = find_scanned_song_ini_files(mods_dir)?;
     let mut result = SongIniScanResult {
         songs_found: song_ini_paths.len(),
         ..SongIniScanResult::default()
@@ -720,7 +735,7 @@ where
     result.songs_parsed = parsed_songs.len();
     result.songs = scanned_songs(mods_dir, &parsed_songs);
     result.duplicate_checksum_groups = duplicate_checksum_groups(&parsed_songs);
-    result.disabled_song_conflicts = disabled_song_conflicts(mods_dir, &song_ini_paths)?;
+    result.song_ini_folder_conflicts = song_ini_folder_conflicts(mods_dir)?;
     result.content_file_issues = song_content_issues_with_progress(
         mods_dir,
         &parsed_songs,
@@ -949,14 +964,12 @@ fn apply_game_icon_song_fixes_paths(
 
     parsed_songs.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
     replace_song_ini_store(store, parsed_songs.clone())?;
-    let song_ini_paths = find_song_ini_files(&settings.mods_dir)?;
-
     Ok(GameIconSongFixApplyResult {
         applied: seen_paths.len(),
         songs_parsed: parsed_songs.len(),
         songs: scanned_songs(&settings.mods_dir, &parsed_songs),
         duplicate_checksum_groups: duplicate_checksum_groups(&parsed_songs),
-        disabled_song_conflicts: disabled_song_conflicts(&settings.mods_dir, &song_ini_paths)?,
+        song_ini_folder_conflicts: song_ini_folder_conflicts(&settings.mods_dir)?,
         content_file_issues: song_content_issues(&settings.mods_dir, &parsed_songs)?,
     })
 }
@@ -1151,8 +1164,10 @@ fn update_song_game_icon_path(
 ) -> Result<ParsedSongIni, String> {
     let path = checked_mods_relative_path(&settings.mods_dir, relative_path)?;
 
-    if !is_song_ini(&path) {
-        return Err(format!("{relative_path} is not a song.ini file."));
+    if !is_scanned_song_ini(&path) {
+        return Err(format!(
+            "{relative_path} is not a song.ini or song.excluded.ini file."
+        ));
     }
 
     let contents = fs::read_to_string(&path)
@@ -1472,8 +1487,10 @@ fn validate_song_ini_file_path(
     let mods_dir = &settings.mods_dir;
     let path = checked_mods_relative_path(mods_dir, relative_path)?;
 
-    if !is_song_ini(&path) {
-        return Err(format!("{relative_path} is not a song.ini file."));
+    if !is_scanned_song_ini(&path) {
+        return Err(format!(
+            "{relative_path} is not a song.ini or song.excluded.ini file."
+        ));
     }
 
     let normalized_contents = normalize_song_ini_key_case(contents);
@@ -1484,15 +1501,13 @@ fn validate_song_ini_file_path(
 
     let parsed_songs = upsert_song_ini_store(store, parsed_song)?;
     let songs_parsed = parsed_songs.len();
-    let song_ini_paths = find_song_ini_files(mods_dir)?;
-
     Ok(SongIniValidationResult {
         relative_path: relative_path.to_string(),
         contents: normalized_contents,
         songs_parsed,
         songs: scanned_songs(mods_dir, &parsed_songs),
         duplicate_checksum_groups: duplicate_checksum_groups(&parsed_songs),
-        disabled_song_conflicts: disabled_song_conflicts(mods_dir, &song_ini_paths)?,
+        song_ini_folder_conflicts: song_ini_folder_conflicts(mods_dir)?,
         content_file_issues: song_content_issues(mods_dir, &parsed_songs)?,
     })
 }
@@ -1506,8 +1521,10 @@ fn undo_song_ini_repair_path(
     let mods_dir = &settings.mods_dir;
     let path = checked_mods_relative_path(mods_dir, relative_path)?;
 
-    if !is_song_ini(&path) {
-        return Err(format!("{relative_path} is not a song.ini file."));
+    if !is_scanned_song_ini(&path) {
+        return Err(format!(
+            "{relative_path} is not a song.ini or song.excluded.ini file."
+        ));
     }
 
     fs::write(&path, contents)
@@ -1515,15 +1532,13 @@ fn undo_song_ini_repair_path(
 
     let parsed_songs = remove_song_ini_from_store_with_songs(store, relative_path)?;
     let songs_parsed = parsed_songs.len();
-    let song_ini_paths = find_song_ini_files(mods_dir)?;
-
     Ok(SongIniValidationResult {
         relative_path: relative_path.to_string(),
         contents: contents.to_string(),
         songs_parsed,
         songs: scanned_songs(mods_dir, &parsed_songs),
         duplicate_checksum_groups: duplicate_checksum_groups(&parsed_songs),
-        disabled_song_conflicts: disabled_song_conflicts(mods_dir, &song_ini_paths)?,
+        song_ini_folder_conflicts: song_ini_folder_conflicts(mods_dir)?,
         content_file_issues: song_content_issues(mods_dir, &parsed_songs)?,
     })
 }
@@ -1536,8 +1551,10 @@ fn verify_song_ini_file_path(
     let mods_dir = &settings.mods_dir;
     let path = checked_mods_relative_path(mods_dir, relative_path)?;
 
-    if !is_song_ini(&path) {
-        return Err(format!("{relative_path} is not a song.ini file."));
+    if !is_scanned_song_ini(&path) {
+        return Err(format!(
+            "{relative_path} is not a song.ini or song.excluded.ini file."
+        ));
     }
 
     let contents = fs::read_to_string(&path)
@@ -1562,8 +1579,10 @@ fn disable_song_ini_file_path(
     let mods_dir = &settings.mods_dir;
     let path = checked_mods_relative_path(mods_dir, relative_path)?;
 
-    if !is_song_ini(&path) {
-        return Err(format!("{relative_path} is not a song.ini file."));
+    if !is_scanned_song_ini(&path) {
+        return Err(format!(
+            "{relative_path} is not a song.ini or song.excluded.ini file."
+        ));
     }
 
     if let Some(disabled_path) = find_sibling_disabled_song_ini(&path)? {
@@ -1592,6 +1611,7 @@ fn disable_song_ini_file_path(
     Ok(SongIniDisableResult {
         relative_path: relative_path.to_string(),
         disabled_path: mods_relative_path(mods_dir, &disabled_path)?,
+        is_included: is_song_ini(&path),
         songs_parsed,
     })
 }
@@ -1604,12 +1624,23 @@ fn enable_song_ini_file_path(
     let mods_dir = &settings.mods_dir;
     let path = checked_mods_relative_path_allow_missing(mods_dir, relative_path)?;
 
-    if !is_song_ini(&path) {
-        return Err(format!("{relative_path} is not a song.ini file."));
+    if !is_scanned_song_ini(&path) {
+        return Err(format!(
+            "{relative_path} is not a song.ini or song.excluded.ini file."
+        ));
     }
 
     if path.exists() {
         return Err(format!("{relative_path} is already enabled."));
+    }
+
+    let opposite_path = song_ini_path_for_inclusion(&path, !is_song_ini(&path));
+
+    if opposite_path.exists() {
+        return Err(format!(
+            "Cannot enable {relative_path} because {} already exists.",
+            mods_relative_path(mods_dir, &opposite_path)?
+        ));
     }
 
     let disabled_path = path.with_file_name("song.disabled.ini");
@@ -1645,6 +1676,7 @@ fn enable_song_ini_file_path(
     Ok(SongIniEnableResult {
         relative_path: relative_path.to_string(),
         enabled_path: mods_relative_path(mods_dir, &path)?,
+        is_included: is_song_ini(&path),
         songs_parsed,
     })
 }
@@ -1657,15 +1689,15 @@ fn delete_song_ini_conflict_file_path(
     let mods_dir = &settings.mods_dir;
     let path = checked_mods_relative_path(mods_dir, relative_path)?;
 
-    if !is_song_ini(&path) && !is_disabled_song_ini(&path) {
+    if !is_scanned_song_ini(&path) && !is_disabled_song_ini(&path) {
         return Err(format!(
-            "{relative_path} is not a song.ini or song.disabled.ini file."
+            "{relative_path} is not a song.ini, song.excluded.ini, or song.disabled.ini file."
         ));
     }
 
     fs::remove_file(&path).map_err(|err| format!("Failed to delete {}: {err}", path.display()))?;
 
-    let songs_parsed = if is_song_ini(&path) {
+    let songs_parsed = if is_scanned_song_ini(&path) {
         remove_song_ini_from_store(store, relative_path)?
     } else {
         store_song_count(store)?
@@ -1677,32 +1709,83 @@ fn delete_song_ini_conflict_file_path(
     })
 }
 
-fn update_scanned_song_metadata_path(
+fn set_scanned_song_included_path(
     settings: &ScanSettings,
     relative_path: &str,
-    metadata: ScannedSongMetadataInput,
+    is_included: bool,
     store: &SongIniStore,
 ) -> Result<SongIniValidationResult, String> {
     let mods_dir = &settings.mods_dir;
     let path = checked_mods_relative_path(mods_dir, relative_path)?;
 
-    if !is_song_ini(&path) {
-        return Err(format!("{relative_path} is not a song.ini file."));
+    if !is_scanned_song_ini(&path) {
+        return Err(format!(
+            "{relative_path} is not a song.ini or song.excluded.ini file."
+        ));
     }
+
+    let target_path = song_ini_path_for_inclusion(&path, is_included);
+    let target_relative_path = mods_relative_path(mods_dir, &target_path)?;
+    let contents = fs::read_to_string(&path)
+        .map_err(|err| format!("Failed to read {}: {err}", path.display()))?;
+    let normalized_contents = normalize_song_ini_key_case(&contents);
+    let parsed_song = parse_song_ini(&target_relative_path, &normalized_contents)?;
+
+    move_scanned_song_ini_to_target(&path, &target_path)?;
+
+    if path != target_path {
+        remove_song_ini_from_store_with_songs(store, relative_path)?;
+    }
+
+    refreshed_song_ini_result(
+        settings,
+        &target_relative_path,
+        normalized_contents,
+        parsed_song,
+        store,
+    )
+}
+
+fn update_scanned_song_metadata_path(
+    settings: &ScanSettings,
+    relative_path: &str,
+    metadata: ScannedSongMetadataInput,
+    is_included: bool,
+    store: &SongIniStore,
+) -> Result<SongIniValidationResult, String> {
+    let mods_dir = &settings.mods_dir;
+    let path = checked_mods_relative_path(mods_dir, relative_path)?;
+
+    if !is_scanned_song_ini(&path) {
+        return Err(format!(
+            "{relative_path} is not a song.ini or song.excluded.ini file."
+        ));
+    }
+
+    let target_path = song_ini_path_for_inclusion(&path, is_included);
+    let target_relative_path = mods_relative_path(mods_dir, &target_path)?;
 
     let contents = fs::read_to_string(&path)
         .map_err(|err| format!("Failed to read {}: {err}", path.display()))?;
     let normalized_contents = normalize_song_ini_key_case(&contents);
-    parse_song_ini(relative_path, &normalized_contents)?;
+    parse_song_ini(&target_relative_path, &normalized_contents)?;
     let updated_contents = update_song_ini_metadata_contents(&normalized_contents, &metadata);
-    let parsed_song = parse_song_ini(relative_path, &updated_contents)?;
+    let parsed_song = parse_song_ini(&target_relative_path, &updated_contents)?;
 
-    write_song_ini_file(&path, &updated_contents, settings.keep_original_song_ini)
-        .map_err(|err| format!("Failed to write {}: {err}", path.display()))?;
+    write_scanned_song_ini_file(
+        &path,
+        &target_path,
+        &updated_contents,
+        settings.keep_original_song_ini,
+    )?;
+
+    if path != target_path {
+        remove_song_ini_from_store_with_songs(store, relative_path)?;
+    }
 
     refreshed_song_ini_result(
         settings,
-        relative_path,
+        &target_relative_path,
         updated_contents,
         parsed_song,
         store,
@@ -1712,14 +1795,20 @@ fn update_scanned_song_metadata_path(
 fn restore_original_song_ini_path(
     settings: &ScanSettings,
     relative_path: &str,
+    is_included: bool,
     store: &SongIniStore,
 ) -> Result<SongIniValidationResult, String> {
     let mods_dir = &settings.mods_dir;
     let path = checked_mods_relative_path(mods_dir, relative_path)?;
 
-    if !is_song_ini(&path) {
-        return Err(format!("{relative_path} is not a song.ini file."));
+    if !is_scanned_song_ini(&path) {
+        return Err(format!(
+            "{relative_path} is not a song.ini or song.excluded.ini file."
+        ));
     }
+
+    let target_path = song_ini_path_for_inclusion(&path, is_included);
+    let target_relative_path = mods_relative_path(mods_dir, &target_path)?;
 
     let backup_path = original_song_ini_path(&path);
 
@@ -1733,21 +1822,32 @@ fn restore_original_song_ini_path(
     let backup_contents = fs::read_to_string(&backup_path)
         .map_err(|err| format!("Failed to read {}: {err}", backup_path.display()))?;
     let parsed_song = parse_song_ini(
-        relative_path,
+        &target_relative_path,
         &normalize_song_ini_key_case(&backup_contents),
     )?;
 
-    fs::copy(&backup_path, &path).map_err(|err| {
+    move_scanned_song_ini_to_target(&path, &target_path)?;
+    fs::copy(&backup_path, &target_path).map_err(|err| {
         format!(
             "Failed to restore {} from {}: {err}",
-            path.display(),
+            target_path.display(),
             backup_path.display()
         )
     })?;
     fs::remove_file(&backup_path)
         .map_err(|err| format!("Failed to remove {}: {err}", backup_path.display()))?;
 
-    refreshed_song_ini_result(settings, relative_path, backup_contents, parsed_song, store)
+    if path != target_path {
+        remove_song_ini_from_store_with_songs(store, relative_path)?;
+    }
+
+    refreshed_song_ini_result(
+        settings,
+        &target_relative_path,
+        backup_contents,
+        parsed_song,
+        store,
+    )
 }
 
 fn restore_all_ini_paths(
@@ -1937,15 +2037,13 @@ fn refreshed_song_ini_result(
     let mods_dir = &settings.mods_dir;
     let parsed_songs = upsert_song_ini_store(store, parsed_song)?;
     let songs_parsed = parsed_songs.len();
-    let song_ini_paths = find_song_ini_files(mods_dir)?;
-
     Ok(SongIniValidationResult {
         relative_path: relative_path.to_string(),
         contents,
         songs_parsed,
         songs: scanned_songs(mods_dir, &parsed_songs),
         duplicate_checksum_groups: duplicate_checksum_groups(&parsed_songs),
-        disabled_song_conflicts: disabled_song_conflicts(mods_dir, &song_ini_paths)?,
+        song_ini_folder_conflicts: song_ini_folder_conflicts(mods_dir)?,
         content_file_issues: song_content_issues(mods_dir, &parsed_songs)?,
     })
 }
@@ -1960,6 +2058,57 @@ fn write_song_ini_file(
     }
 
     fs::write(path, contents)
+}
+
+fn song_ini_path_for_inclusion(path: &Path, is_included: bool) -> PathBuf {
+    path.with_file_name(if is_included {
+        "song.ini"
+    } else {
+        "song.excluded.ini"
+    })
+}
+
+fn move_scanned_song_ini_to_target(path: &Path, target_path: &Path) -> Result<(), String> {
+    if path == target_path {
+        return Ok(());
+    }
+
+    if target_path.exists() {
+        return Err(format!(
+            "Cannot move {} to {} because the destination already exists.",
+            path.display(),
+            target_path.display()
+        ));
+    }
+
+    fs::rename(path, target_path).map_err(|err| {
+        format!(
+            "Failed to rename {} to {}: {err}",
+            path.display(),
+            target_path.display()
+        )
+    })
+}
+
+fn write_scanned_song_ini_file(
+    path: &Path,
+    target_path: &Path,
+    contents: &str,
+    keep_original_song_ini: bool,
+) -> Result<(), String> {
+    if path == target_path {
+        return write_song_ini_file(path, contents, keep_original_song_ini)
+            .map_err(|err| format!("Failed to write {}: {err}", path.display()));
+    }
+
+    if keep_original_song_ini {
+        backup_original_song_ini(path)
+            .map_err(|err| format!("Failed to back up {}: {err}", path.display()))?;
+    }
+
+    move_scanned_song_ini_to_target(path, target_path)?;
+    fs::write(target_path, contents)
+        .map_err(|err| format!("Failed to write {}: {err}", target_path.display()))
 }
 
 fn write_repaired_song_ini_file(
@@ -2311,6 +2460,7 @@ fn scanned_song(mods_dir: &Path, song: &ParsedSongIni) -> ScannedSong {
         genre: song_info_value(song, "Genre"),
         game_icon: song_info_value(song, "GameIcon"),
         has_original_song_ini: original_song_ini_path(&song_ini_path).is_file(),
+        is_included: is_song_ini(&song_ini_path),
         instruments,
     }
 }
@@ -3052,25 +3202,75 @@ fn duplicate_checksum_groups(parsed_songs: &[ParsedSongIni]) -> Vec<DuplicateChe
     groups
 }
 
-fn disabled_song_conflicts(
-    mods_dir: &Path,
-    song_ini_paths: &[PathBuf],
-) -> Result<Vec<DisabledSongConflict>, String> {
-    let mut conflicts = Vec::new();
+fn song_ini_folder_conflicts(mods_dir: &Path) -> Result<Vec<SongIniFolderConflict>, String> {
+    let mut variant_paths = Vec::new();
+    collect_song_ini_variant_files(mods_dir, &mut variant_paths)?;
+    let mut paths_by_folder = HashMap::<String, Vec<String>>::new();
 
-    for song_ini_path in song_ini_paths {
-        let Some(disabled_path) = find_sibling_disabled_song_ini(song_ini_path)? else {
-            continue;
-        };
-
-        conflicts.push(DisabledSongConflict {
-            active_path: mods_relative_path(mods_dir, song_ini_path)?,
-            disabled_path: mods_relative_path(mods_dir, &disabled_path)?,
-        });
+    for path in variant_paths {
+        let folder = mods_relative_path(mods_dir, path.parent().unwrap_or(mods_dir))?;
+        paths_by_folder
+            .entry(if folder.is_empty() {
+                ".".to_string()
+            } else {
+                folder
+            })
+            .or_default()
+            .push(mods_relative_path(mods_dir, &path)?);
     }
 
-    conflicts.sort_by(|left, right| left.active_path.cmp(&right.active_path));
+    let mut conflicts = paths_by_folder
+        .into_iter()
+        .filter_map(|(folder_path, mut file_paths)| {
+            if file_paths.len() < 2 {
+                return None;
+            }
+
+            file_paths.sort_by_key(|path| song_ini_variant_sort_key(path));
+            Some(SongIniFolderConflict {
+                folder_path,
+                file_paths,
+            })
+        })
+        .collect::<Vec<_>>();
+    conflicts.sort_by(|left, right| left.folder_path.cmp(&right.folder_path));
     Ok(conflicts)
+}
+
+fn collect_song_ini_variant_files(dir: &Path, paths: &mut Vec<PathBuf>) -> Result<(), String> {
+    let entries = fs::read_dir(dir)
+        .map_err(|err| format!("Failed to read folder {}: {err}", dir.display()))?;
+
+    for entry in entries {
+        let entry =
+            entry.map_err(|err| format!("Failed to read entry in {}: {err}", dir.display()))?;
+        let path = entry.path();
+        let file_type = entry
+            .file_type()
+            .map_err(|err| format!("Failed to inspect {}: {err}", path.display()))?;
+
+        if file_type.is_dir() {
+            collect_song_ini_variant_files(&path, paths)?;
+        } else if file_type.is_file() && (is_scanned_song_ini(&path) || is_disabled_song_ini(&path))
+        {
+            paths.push(path);
+        }
+    }
+
+    Ok(())
+}
+
+fn song_ini_variant_sort_key(path: &str) -> (u8, String) {
+    let file_name = path.rsplit('/').next().unwrap_or(path);
+    let rank = if file_name.eq_ignore_ascii_case("song.ini") {
+        0
+    } else if file_name.eq_ignore_ascii_case("song.excluded.ini") {
+        1
+    } else {
+        2
+    };
+
+    (rank, path.to_string())
 }
 
 fn find_sibling_disabled_song_ini(song_ini_path: &Path) -> Result<Option<PathBuf>, String> {
@@ -3772,6 +3972,13 @@ fn find_song_ini_files(mods_dir: &Path) -> Result<Vec<PathBuf>, String> {
     Ok(song_ini_paths)
 }
 
+fn find_scanned_song_ini_files(mods_dir: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut song_ini_paths = find_song_ini_files(mods_dir)?;
+    song_ini_paths.extend(find_excluded_song_ini_files(mods_dir)?);
+    song_ini_paths.sort();
+    Ok(song_ini_paths)
+}
+
 fn find_excluded_song_ini_files(mods_dir: &Path) -> Result<Vec<PathBuf>, String> {
     let mut excluded_song_ini_paths = Vec::new();
     collect_excluded_song_ini_files(mods_dir, &mut excluded_song_ini_paths)?;
@@ -3868,6 +4075,10 @@ fn is_excluded_song_ini(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
         .is_some_and(|name| name.eq_ignore_ascii_case("song.excluded.ini"))
+}
+
+fn is_scanned_song_ini(path: &Path) -> bool {
+    is_song_ini(path) || is_excluded_song_ini(path)
 }
 
 fn is_instrument_sidecar(path: &Path) -> bool {
@@ -5418,11 +5629,11 @@ mod tests {
 
         assert_eq!(result.songs_found, 1);
         assert_eq!(result.songs_parsed, 1);
-        assert_eq!(result.disabled_song_conflicts.len(), 1);
-        assert_eq!(result.disabled_song_conflicts[0].active_path, "song.ini");
+        assert_eq!(result.song_ini_folder_conflicts.len(), 1);
+        assert_eq!(result.song_ini_folder_conflicts[0].folder_path, ".");
         assert_eq!(
-            result.disabled_song_conflicts[0].disabled_path,
-            "song.disabled.ini"
+            result.song_ini_folder_conflicts[0].file_paths,
+            vec!["song.ini".to_string(), "song.disabled.ini".to_string()]
         );
     }
 
@@ -5620,7 +5831,7 @@ mod tests {
         let scan_result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
             .expect("scan should complete");
         assert!(scan_result.duplicate_checksum_groups.is_empty());
-        assert_eq!(scan_result.disabled_song_conflicts.len(), 1);
+        assert_eq!(scan_result.song_ini_folder_conflicts.len(), 1);
 
         let validation_result = validate_song_ini_file_path(
             &test_scan_settings(&project),
@@ -5639,10 +5850,10 @@ mod tests {
                 "Valid/song.ini".to_string()
             ]
         );
-        assert_eq!(validation_result.disabled_song_conflicts.len(), 1);
+        assert_eq!(validation_result.song_ini_folder_conflicts.len(), 1);
         assert_eq!(
-            validation_result.disabled_song_conflicts[0].active_path,
-            "Repaired/song.ini"
+            validation_result.song_ini_folder_conflicts[0].folder_path,
+            "Repaired"
         );
     }
 
@@ -5727,7 +5938,7 @@ mod tests {
 
         assert!(result
             .expect_err("non-song.ini path should be rejected")
-            .contains("notes.ini is not a song.ini file."));
+            .contains("notes.ini is not a song.ini or song.excluded.ini file."));
     }
 
     #[test]
@@ -5808,7 +6019,7 @@ mod tests {
         assert_eq!(
             verify_song_ini_file_path(&test_scan_settings(&project), "notes.txt", &store)
                 .expect_err("non-song.ini should be rejected"),
-            "notes.txt is not a song.ini file."
+            "notes.txt is not a song.ini or song.excluded.ini file."
         );
     }
 
@@ -5834,6 +6045,7 @@ mod tests {
                 genre: "Metal".to_string(),
                 game_icon: "gh3".to_string(),
             },
+            true,
             &store,
         )
         .expect("metadata update should pass");
@@ -5855,6 +6067,271 @@ mod tests {
             fs::read_to_string(project.mods_dir.join("song.original.ini"))
                 .expect("backup should read"),
             "[ModInfo]\nName=Original Mod\n\n[SongInfo]\nChecksum=metadata_checksum\nTitle=Old Title\nArtist=Old Artist\nLeaderboard=Yes\n\n[Extra]\nValue=Keep\n"
+        );
+    }
+
+    #[test]
+    fn song_scan_includes_excluded_song_ini_files_with_unchecked_rows() {
+        let project = TestProject::new("song-scan-includes-excluded");
+        write_test_file_contents(
+            &project.mods_dir.join("Active/song.ini"),
+            valid_song_ini("Active", "active_checksum").as_str(),
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("Excluded/SONG.EXCLUDED.INI"),
+            valid_song_ini("Excluded", "excluded_checksum").as_str(),
+        );
+        let store = SongIniStore::default();
+
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should pass");
+
+        assert_eq!(result.songs_found, 2);
+        assert_eq!(result.songs_parsed, 2);
+        assert_eq!(result.songs.len(), 2);
+        assert!(result.songs.iter().any(|song| song.is_included));
+        assert!(result.songs.iter().any(|song| !song.is_included));
+    }
+
+    #[test]
+    fn song_scan_reports_active_and_excluded_sibling_conflict() {
+        let project = TestProject::new("song-scan-active-excluded-conflict");
+        write_test_file_contents(
+            &project.mods_dir.join("song.ini"),
+            valid_song_ini("Active", "active_checksum").as_str(),
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("song.excluded.ini"),
+            valid_song_ini("Excluded", "excluded_checksum").as_str(),
+        );
+        let store = SongIniStore::default();
+
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should pass");
+
+        assert_eq!(result.song_ini_folder_conflicts.len(), 1);
+        assert_eq!(result.song_ini_folder_conflicts[0].folder_path, ".");
+        assert_eq!(
+            result.song_ini_folder_conflicts[0].file_paths,
+            vec!["song.ini".to_string(), "song.excluded.ini".to_string()]
+        );
+    }
+
+    #[test]
+    fn song_scan_groups_all_song_ini_variants_per_folder() {
+        let project = TestProject::new("song-scan-all-ini-variants");
+        write_test_file_contents(
+            &project.mods_dir.join("Nested/SONG.INI"),
+            valid_song_ini("Active", "active_checksum").as_str(),
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("Nested/song.excluded.ini"),
+            valid_song_ini("Excluded", "excluded_checksum").as_str(),
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("Nested/song.disabled.ini"),
+            valid_song_ini("Disabled", "disabled_checksum").as_str(),
+        );
+        let store = SongIniStore::default();
+
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should pass");
+
+        assert_eq!(result.song_ini_folder_conflicts.len(), 1);
+        assert_eq!(result.song_ini_folder_conflicts[0].folder_path, "Nested");
+        assert_eq!(
+            result.song_ini_folder_conflicts[0].file_paths,
+            vec![
+                "Nested/SONG.INI".to_string(),
+                "Nested/song.excluded.ini".to_string(),
+                "Nested/song.disabled.ini".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn song_scan_reports_excluded_and_disabled_sibling_conflict() {
+        let project = TestProject::new("song-scan-excluded-disabled-conflict");
+        write_test_file_contents(
+            &project.mods_dir.join("song.excluded.ini"),
+            valid_song_ini("Excluded", "excluded_checksum").as_str(),
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("song.disabled.ini"),
+            valid_song_ini("Disabled", "disabled_checksum").as_str(),
+        );
+        let store = SongIniStore::default();
+
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should pass");
+
+        assert_eq!(result.song_ini_folder_conflicts.len(), 1);
+        assert_eq!(
+            result.song_ini_folder_conflicts[0].file_paths,
+            vec![
+                "song.excluded.ini".to_string(),
+                "song.disabled.ini".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn song_metadata_save_moves_excluded_song_to_selected_filename() {
+        let project = TestProject::new("song-metadata-moves-excluded");
+        let excluded_path = project.mods_dir.join("song.excluded.ini");
+        let active_path = project.mods_dir.join("song.ini");
+        let original_contents = valid_song_ini("Excluded", "excluded_checksum");
+        write_test_file_contents(&excluded_path, &original_contents);
+        let store = SongIniStore::default();
+        scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should populate store");
+
+        let result = update_scanned_song_metadata_path(
+            &test_scan_settings(&project),
+            "song.excluded.ini",
+            ScannedSongMetadataInput {
+                artist: "Artist".to_string(),
+                title: "Included".to_string(),
+                year: "2001".to_string(),
+                genre: "Rock".to_string(),
+                game_icon: "gh3".to_string(),
+            },
+            true,
+            &store,
+        )
+        .expect("metadata save should pass");
+
+        assert_eq!(result.relative_path, "song.ini");
+        assert!(!excluded_path.exists());
+        assert!(active_path.exists());
+        assert!(fs::read_to_string(&active_path)
+            .expect("active song should read")
+            .contains("Title=Included"));
+        assert_eq!(
+            fs::read_to_string(project.mods_dir.join("song.original.ini"))
+                .expect("original backup should read"),
+            original_contents
+        );
+    }
+
+    #[test]
+    fn song_metadata_save_rejects_existing_selected_filename_without_removing_source() {
+        let project = TestProject::new("song-metadata-move-collision");
+        let excluded_path = project.mods_dir.join("song.excluded.ini");
+        let active_path = project.mods_dir.join("song.ini");
+        write_test_file_contents(
+            &excluded_path,
+            valid_song_ini("Excluded", "excluded_checksum").as_str(),
+        );
+        write_test_file_contents(
+            &active_path,
+            valid_song_ini("Active", "active_checksum").as_str(),
+        );
+        let store = SongIniStore::default();
+
+        let result = update_scanned_song_metadata_path(
+            &test_scan_settings(&project),
+            "song.excluded.ini",
+            ScannedSongMetadataInput {
+                artist: "Artist".to_string(),
+                title: "Title".to_string(),
+                year: "2001".to_string(),
+                genre: "Rock".to_string(),
+                game_icon: "gh3".to_string(),
+            },
+            true,
+            &store,
+        )
+        .expect_err("occupied destination should fail");
+
+        assert!(result.contains("destination already exists"));
+        assert!(excluded_path.exists());
+        assert!(active_path.exists());
+    }
+
+    #[test]
+    fn duplicate_exclusion_renames_active_song_to_excluded_file() {
+        let project = TestProject::new("duplicate-exclusion-renames-song");
+        let active_path = project.mods_dir.join("song.ini");
+        let excluded_path = project.mods_dir.join("song.excluded.ini");
+        write_test_file_contents(
+            &active_path,
+            valid_song_ini("Song", "song_checksum").as_str(),
+        );
+        let store = SongIniStore::default();
+        scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should populate store");
+
+        let result = set_scanned_song_included_path(
+            &test_scan_settings(&project),
+            "song.ini",
+            false,
+            &store,
+        )
+        .expect("exclusion should pass");
+
+        assert_eq!(result.relative_path, "song.excluded.ini");
+        assert!(!active_path.exists());
+        assert!(excluded_path.exists());
+        assert!(!result.songs[0].is_included);
+
+        let result = set_scanned_song_included_path(
+            &test_scan_settings(&project),
+            "song.excluded.ini",
+            true,
+            &store,
+        )
+        .expect("inclusion should pass");
+
+        assert_eq!(result.relative_path, "song.ini");
+        assert!(active_path.exists());
+        assert!(!excluded_path.exists());
+        assert!(result.songs[0].is_included);
+    }
+
+    #[test]
+    fn duplicate_inclusion_results_keep_renamed_member_in_checksum_group() {
+        let project = TestProject::new("duplicate-inclusion-results");
+        write_test_file_contents(
+            &project.mods_dir.join("First/song.ini"),
+            valid_song_ini("First", "shared_checksum").as_str(),
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("Second/song.ini"),
+            valid_song_ini("Second", "shared_checksum").as_str(),
+        );
+        let store = SongIniStore::default();
+        scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should populate store");
+
+        let result = set_scanned_song_included_path(
+            &test_scan_settings(&project),
+            "First/song.ini",
+            false,
+            &store,
+        )
+        .expect("exclusion should pass");
+
+        assert_eq!(result.duplicate_checksum_groups.len(), 1);
+        assert_eq!(
+            result.duplicate_checksum_groups[0].relative_paths,
+            vec![
+                "First/song.excluded.ini".to_string(),
+                "Second/song.ini".to_string(),
+            ]
+        );
+
+        let result = set_scanned_song_included_path(
+            &test_scan_settings(&project),
+            "First/song.excluded.ini",
+            true,
+            &store,
+        )
+        .expect("inclusion should pass");
+
+        assert_eq!(
+            result.duplicate_checksum_groups[0].relative_paths,
+            vec!["First/song.ini".to_string(), "Second/song.ini".to_string()]
         );
     }
 
@@ -5883,6 +6360,7 @@ mod tests {
                 genre: "Metal".to_string(),
                 game_icon: "gh3".to_string(),
             },
+            true,
             &store,
         )
         .expect("metadata update should pass");
@@ -5920,6 +6398,7 @@ mod tests {
                 genre: "Rock".to_string(),
                 game_icon: "gh3".to_string(),
             },
+            true,
             &store,
         )
         .expect_err("unsafe metadata update should fail");
@@ -5945,7 +6424,7 @@ mod tests {
             .expect("scan should populate store");
 
         let result =
-            restore_original_song_ini_path(&test_scan_settings(&project), "song.ini", &store)
+            restore_original_song_ini_path(&test_scan_settings(&project), "song.ini", true, &store)
                 .expect("restore should pass");
 
         assert!(!backup_path.exists());
@@ -5967,6 +6446,39 @@ mod tests {
     }
 
     #[test]
+    fn song_restore_original_moves_excluded_song_to_selected_filename() {
+        let project = TestProject::new("song-restore-original-moves-excluded");
+        let excluded_path = project.mods_dir.join("song.excluded.ini");
+        let active_path = project.mods_dir.join("song.ini");
+        let backup_path = project.mods_dir.join("song.original.ini");
+        let backup_contents = valid_song_ini("Original", "original_checksum");
+        write_test_file_contents(
+            &excluded_path,
+            valid_song_ini("Excluded", "excluded_checksum").as_str(),
+        );
+        write_test_file_contents(&backup_path, &backup_contents);
+        let store = SongIniStore::default();
+        scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should populate store");
+
+        let result = restore_original_song_ini_path(
+            &test_scan_settings(&project),
+            "song.excluded.ini",
+            true,
+            &store,
+        )
+        .expect("restore should pass");
+
+        assert_eq!(result.relative_path, "song.ini");
+        assert!(!excluded_path.exists());
+        assert!(!backup_path.exists());
+        assert_eq!(
+            fs::read_to_string(active_path).expect("song.ini should read"),
+            backup_contents
+        );
+    }
+
+    #[test]
     fn song_restore_original_rejects_missing_backup() {
         let project = TestProject::new("song-restore-missing-original");
         write_test_file_contents(
@@ -5976,7 +6488,7 @@ mod tests {
         let store = SongIniStore::default();
 
         let result =
-            restore_original_song_ini_path(&test_scan_settings(&project), "song.ini", &store)
+            restore_original_song_ini_path(&test_scan_settings(&project), "song.ini", true, &store)
                 .expect_err("restore without backup should fail");
 
         assert_eq!(
@@ -5999,7 +6511,7 @@ mod tests {
         let store = SongIniStore::default();
 
         let result =
-            restore_original_song_ini_path(&test_scan_settings(&project), "song.ini", &store)
+            restore_original_song_ini_path(&test_scan_settings(&project), "song.ini", true, &store)
                 .expect_err("restore without proper backup should fail");
 
         assert_eq!(
@@ -6415,6 +6927,7 @@ mod tests {
 
         assert_eq!(result.relative_path, "song.ini");
         assert_eq!(result.disabled_path, "song.disabled.ini");
+        assert!(result.is_included);
         assert_eq!(result.songs_parsed, 0);
         assert!(!song_ini_path.exists());
         assert_eq!(
@@ -6450,6 +6963,39 @@ mod tests {
             fs::read_to_string(backup_path).expect("backup should read"),
             existing_backup
         );
+    }
+
+    #[test]
+    fn song_disable_and_enable_preserves_excluded_filename() {
+        let project = TestProject::new("song-disable-enable-excluded");
+        let excluded_path = project.mods_dir.join("song.excluded.ini");
+        let disabled_path = project.mods_dir.join("song.disabled.ini");
+        let excluded_song_ini = valid_song_ini("Excluded", "excluded_checksum");
+        write_test_file_contents(&excluded_path, &excluded_song_ini);
+        let store = SongIniStore::default();
+        scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should populate store");
+
+        let disabled =
+            disable_song_ini_file_path(&test_scan_settings(&project), "song.excluded.ini", &store)
+                .expect("disable should succeed");
+
+        assert!(!disabled.is_included);
+        assert!(!excluded_path.exists());
+        assert!(disabled_path.exists());
+
+        let enabled =
+            enable_song_ini_file_path(&test_scan_settings(&project), "song.excluded.ini", &store)
+                .expect("enable should succeed");
+
+        assert_eq!(enabled.enabled_path, "song.excluded.ini");
+        assert!(!enabled.is_included);
+        assert!(!disabled_path.exists());
+        assert_eq!(
+            fs::read_to_string(excluded_path).expect("excluded song should read"),
+            excluded_song_ini
+        );
+        assert_eq!(store.0.lock().expect("store should lock").len(), 1);
     }
 
     #[test]
@@ -6496,6 +7042,7 @@ mod tests {
 
         assert_eq!(result.relative_path, "song.ini");
         assert_eq!(result.enabled_path, "song.ini");
+        assert!(result.is_included);
         assert_eq!(result.songs_parsed, 1);
         assert!(!project.mods_dir.join("song.disabled.ini").exists());
         assert_eq!(
@@ -6527,6 +7074,27 @@ mod tests {
             disabled_song_ini
         );
         assert!(store.0.lock().expect("store should lock").is_empty());
+    }
+
+    #[test]
+    fn song_enable_rejects_opposite_active_or_excluded_sibling() {
+        let project = TestProject::new("song-enable-opposite-sibling");
+        write_test_file_contents(
+            &project.mods_dir.join("song.disabled.ini"),
+            valid_song_ini("Disabled", "disabled_checksum").as_str(),
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("song.ini"),
+            valid_song_ini("Active", "active_checksum").as_str(),
+        );
+        let store = SongIniStore::default();
+
+        let result =
+            enable_song_ini_file_path(&test_scan_settings(&project), "song.excluded.ini", &store)
+                .expect_err("opposite sibling should reject enable");
+
+        assert!(result.contains("song.ini already exists"));
+        assert!(project.mods_dir.join("song.disabled.ini").exists());
     }
 
     #[test]
@@ -6622,7 +7190,7 @@ mod tests {
         assert_eq!(
             delete_song_ini_conflict_file_path(&test_scan_settings(&project), "notes.txt", &store)
                 .expect_err("non-song path should be rejected"),
-            "notes.txt is not a song.ini or song.disabled.ini file."
+            "notes.txt is not a song.ini, song.excluded.ini, or song.disabled.ini file."
         );
         assert!(outside_file.exists());
         assert!(project.mods_dir.join("notes.txt").exists());
@@ -7119,6 +7687,7 @@ pub fn run() {
             disable_song_ini_file,
             enable_song_ini_file,
             delete_song_ini_conflict_file,
+            set_scanned_song_included,
             update_scanned_song_metadata,
             restore_original_song_ini,
             restore_all_original_song_ini,

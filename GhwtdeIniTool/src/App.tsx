@@ -115,6 +115,7 @@ function App() {
     songScanProgress,
     songIniValidationError,
     setSongIncluded,
+    setDuplicateSongIncluded,
     setSongsIncluded,
     undoSongIni,
     validateSongIni,
@@ -374,9 +375,7 @@ function App() {
           onDeleteSongIniConflict={deleteSongIniConflict}
           onDisableSongIni={disableSongIni}
           onEnableSongIni={enableSongIni}
-          onExcludeScannedSong={(relativePath) =>
-            setSongIncluded(relativePath, false)
-          }
+          onSetDuplicateSongIncluded={setDuplicateSongIncluded}
           onSelectSongIni={clearSongIniValidationError}
           onUndoSongIni={undoSongIni}
           onValidateSongIni={validateSongIni}

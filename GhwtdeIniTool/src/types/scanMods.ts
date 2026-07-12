@@ -30,9 +30,9 @@ export type DuplicateChecksumGroup = {
   relative_paths: string[];
 };
 
-export type DisabledSongConflict = {
-  active_path: string;
-  disabled_path: string;
+export type SongIniFolderConflict = {
+  folder_path: string;
+  file_paths: string[];
 };
 
 export type SongContentIssue = {
@@ -80,6 +80,7 @@ export type ScannedSong = {
   genre: string;
   game_icon: string;
   has_original_song_ini: boolean;
+  is_included: boolean;
   instruments: ScannedSongInstruments;
 };
 
@@ -97,7 +98,7 @@ export type SongIniScanResult = {
   songs: ScannedSong[];
   faulty_files: FaultySongIniFile[];
   duplicate_checksum_groups: DuplicateChecksumGroup[];
-  disabled_song_conflicts: DisabledSongConflict[];
+  song_ini_folder_conflicts: SongIniFolderConflict[];
   content_file_issues: SongContentIssue[];
   errors: string[];
 };
@@ -108,19 +109,21 @@ export type SongIniValidationResult = {
   songs_parsed: number;
   songs: ScannedSong[];
   duplicate_checksum_groups: DuplicateChecksumGroup[];
-  disabled_song_conflicts: DisabledSongConflict[];
+  song_ini_folder_conflicts: SongIniFolderConflict[];
   content_file_issues: SongContentIssue[];
 };
 
 export type SongIniDisableResult = {
   relative_path: string;
   disabled_path: string;
+  is_included: boolean;
   songs_parsed: number;
 };
 
 export type SongIniEnableResult = {
   relative_path: string;
   enabled_path: string;
+  is_included: boolean;
   songs_parsed: number;
 };
 
@@ -203,6 +206,6 @@ export type GameIconSongFixApplyResult = {
   songs_parsed: number;
   songs: ScannedSong[];
   duplicate_checksum_groups: DuplicateChecksumGroup[];
-  disabled_song_conflicts: DisabledSongConflict[];
+  song_ini_folder_conflicts: SongIniFolderConflict[];
   content_file_issues: SongContentIssue[];
 };

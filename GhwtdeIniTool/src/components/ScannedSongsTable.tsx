@@ -11,10 +11,11 @@ type ScannedSongsTableProps = {
   duplicateChecksumGroups: DuplicateChecksumGroup[];
   includedSongPaths: string[];
   onCopyFolderPath: (absolutePath: string) => void;
-  onRestoreOriginal: (relativePath: string) => Promise<void>;
+  onRestoreOriginal: (relativePath: string, isIncluded: boolean) => Promise<void>;
   onSaveMetadata: (
     relativePath: string,
     metadata: ScannedSongMetadata,
+    isIncluded: boolean,
   ) => Promise<void>;
   onSetSongIncluded: (relativePath: string, isIncluded: boolean) => void;
   onSetSongsIncluded: (relativePaths: string[], isIncluded: boolean) => void;
@@ -429,7 +430,11 @@ export function ScannedSongsTable({
 
   async function saveRow(song: ScannedSong) {
     try {
-      await onSaveMetadata(song.relative_path, rowMetadata(song));
+      await onSaveMetadata(
+        song.relative_path,
+        rowMetadata(song),
+        includedSongPathSet.has(song.relative_path),
+      );
       setEditedRows((currentRows) => {
         const { [song.relative_path]: _removed, ...remainingRows } =
           currentRows;
@@ -443,7 +448,10 @@ export function ScannedSongsTable({
 
   async function restoreRow(song: ScannedSong) {
     try {
-      await onRestoreOriginal(song.relative_path);
+      await onRestoreOriginal(
+        song.relative_path,
+        includedSongPathSet.has(song.relative_path),
+      );
       setEditedRows((currentRows) => {
         const { [song.relative_path]: _removed, ...remainingRows } =
           currentRows;

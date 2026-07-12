@@ -120,16 +120,19 @@ Current frontend behavior:
   stale parsed metadata is not shown. If any files fail to restore, the dialog
   stays open and lists the backend restore errors.
 - The Scan MODS folder button opens a three-step wizard that parses `song.ini`
-  files, stores valid parsed results in backend memory, lets the user repair
+  and `song.excluded.ini` files, stores valid parsed results in backend memory,
+  lets the user repair
   faulty files, then resolves duplicate checksum groups and folders containing
-  both `song.ini` and `song.disabled.ini`. Faulty step-one entries can be
+  multiple `song.ini`, `song.excluded.ini`, or `song.disabled.ini` variants.
+  Faulty step-one entries can be
   edited and repaired with their pre-repair contents preserved as
   `song.original.faulty.ini`, undone after the first edit or repair while the
   wizard remains open by writing the scan-time faulty contents back from
   frontend memory, or disabled to rename `song.ini` to `song.disabled.ini`,
-  then enabled again if needed. Duplicate checksums are resolved by excluding
-  selected songs from the frontend include state without renaming files;
-  active/disabled sibling conflicts can delete either file.
+  then enabled again if needed; excluded-origin files return to
+  `song.excluded.ini` when re-enabled. Duplicate checksums are resolved by
+  toggling selected songs between `song.ini` and `song.excluded.ini`; same-folder INI conflicts
+  list every present variant and can delete files until one remains.
   The final step validates each active song folder's `Content` and
   `Content/MUSIC` layout against the parsed checksum, accepts those folder and
   checksum-derived file names case-insensitively without renaming them, reports
@@ -169,7 +172,11 @@ Current frontend behavior:
   find them, provides per-column filters with scanned-value dropdowns for Year,
   Genre, GameIcon, and instrument columns, sortable/resizable data columns, an
   Include checkbox column with `All`, `Included`, and `Excluded` filtering for
-  choosing which songs remain eligible for later processing, file-like row
+  choosing which songs remain eligible for later processing. Songs read from
+  `song.excluded.ini` start unchecked; toggling alone does not rename files,
+  while excluding a duplicate in the scan wizard, saving metadata, or restoring
+  a row writes the selected active/excluded filename. The table provides
+  file-like row
   selection with a right-click include/exclude selection menu, editable metadata
   cells for the displayed `[SongInfo]` values,
   fixed-width row actions for copying the song folder, saving metadata edits,

@@ -10,7 +10,10 @@ type ScanWizardProps = {
   onDeleteSongIniConflict: (relativePath: string) => void;
   onDisableSongIni: (relativePath: string) => void;
   onEnableSongIni: (relativePath: string) => void;
-  onExcludeScannedSong: (relativePath: string) => void;
+  onSetDuplicateSongIncluded: (
+    relativePath: string,
+    isIncluded: boolean,
+  ) => Promise<string | null>;
   onSelectSongIni: () => void;
   onUndoSongIni: (relativePath: string) => void | Promise<void>;
   onValidateSongIni: (relativePath: string, contents: string) => void;
@@ -36,7 +39,7 @@ type ScanWizardProps = {
 
 function scanProgressLabel(progress: SongScanProgress) {
   if (progress.phase === "findingSongs") {
-    return "Finding song.ini files...";
+    return "Finding song INI files...";
   }
 
   if (progress.phase === "readingSongs") {
@@ -57,7 +60,7 @@ export function ScanWizard({
   onDeleteSongIniConflict,
   onDisableSongIni,
   onEnableSongIni,
-  onExcludeScannedSong,
+  onSetDuplicateSongIncluded,
   onSelectSongIni,
   onUndoSongIni,
   onValidateSongIni,
@@ -84,12 +87,19 @@ export function ScanWizard({
   const [editedSongIniContents, setEditedSongIniContents] = useState<
     Record<string, string>
   >({});
+  const [touchedDuplicateChecksums, setTouchedDuplicateChecksums] = useState<
+    string[]
+  >([]);
+  const [duplicateGroupSnapshots, setDuplicateGroupSnapshots] = useState<
+    Record<string, string[]>
+  >({});
   const isScanningSongs = scanStatus === "scanningSongs";
   const isValidatingSong = scanStatus === "validatingSong";
   const isUndoingSong = scanStatus === "undoingSong";
   const isVerifyingSong = scanStatus === "verifyingSong";
   const isDisablingSong = scanStatus === "disablingSong";
   const isEnablingSong = scanStatus === "enablingSong";
+  const isExcludingSong = scanStatus === "excludingSong";
   const isDeletingSongConflict = scanStatus === "deletingSongConflict";
   const isBusy =
     isScanningSongs ||
@@ -98,6 +108,7 @@ export function ScanWizard({
     isVerifyingSong ||
     isDisablingSong ||
     isEnablingSong ||
+    isExcludingSong ||
     isDeletingSongConflict;
   const isScanWorkflow =
     scanStatus === "scanningSongs" ||
@@ -107,6 +118,7 @@ export function ScanWizard({
     scanStatus === "verifyingSong" ||
     scanStatus === "disablingSong" ||
     scanStatus === "enablingSong" ||
+    scanStatus === "excludingSong" ||
     scanStatus === "deletingSongConflict";
   const repairedPathSet = useMemo(
     () => new Set(repairedSongIniPaths),
@@ -132,8 +144,16 @@ export function ScanWizard({
   ).length;
   const duplicateChecksumGroups =
     songIniScanResult?.duplicate_checksum_groups ?? [];
-  const disabledSongConflicts =
-    songIniScanResult?.disabled_song_conflicts ?? [];
+  const displayedDuplicateChecksumGroups = duplicateChecksumGroups
+    .map((group) => ({
+      ...group,
+      relative_paths: group.relative_paths.filter(
+        (path) => !deletedPathSet.has(path),
+      ),
+    }))
+    .filter((group) => group.relative_paths.length > 0);
+  const songIniFolderConflicts =
+    songIniScanResult?.song_ini_folder_conflicts ?? [];
   const contentFileIssues = songIniScanResult?.content_file_issues ?? [];
   const songByPath = useMemo(
     () =>
@@ -154,15 +174,51 @@ export function ScanWizard({
           !deletedPathSet.has(path),
       ).length > 1,
   );
-  const unresolvedDisabledSongConflicts = disabledSongConflicts.filter(
-    (conflict) =>
-      !deletedPathSet.has(conflict.active_path) &&
-      !deletedPathSet.has(conflict.disabled_path),
-  );
-  const hasUnresolvedDisabledSongConflicts =
-    unresolvedDisabledSongConflicts.length > 0;
+  const touchedDuplicateChecksumSet = new Set(touchedDuplicateChecksums);
+  const duplicateChecksumGroupsWithSnapshots = [
+    ...displayedDuplicateChecksumGroups.map((group) => ({
+      ...group,
+      relative_paths: (
+        duplicateGroupSnapshots[group.checksum] ?? group.relative_paths
+      ).filter((path) => !deletedPathSet.has(path)),
+    })),
+    ...touchedDuplicateChecksums
+      .filter(
+        (checksum) =>
+          !displayedDuplicateChecksumGroups.some(
+            (group) => group.checksum === checksum,
+          ),
+      )
+      .map((checksum) => ({
+        checksum,
+        relative_paths: (duplicateGroupSnapshots[checksum] ?? []).filter(
+          (path) => !deletedPathSet.has(path),
+        ),
+      })),
+  ];
+  const visibleDuplicateChecksumGroups = duplicateChecksumGroupsWithSnapshots
+    .filter(
+      (group) =>
+        group.relative_paths.length > 0 &&
+        (group.relative_paths.filter(
+        (path) =>
+          includedPathSet.has(path) &&
+          !disabledPathSet.has(path) &&
+          !deletedPathSet.has(path),
+        ).length > 1 || touchedDuplicateChecksumSet.has(group.checksum)),
+    );
+  const unresolvedSongIniFolderConflicts = songIniFolderConflicts
+    .map((conflict) => ({
+      ...conflict,
+      file_paths: conflict.file_paths.filter(
+        (path) => !deletedPathSet.has(path),
+      ),
+    }))
+    .filter((conflict) => conflict.file_paths.length > 1);
+  const hasUnresolvedFileConflicts =
+    unresolvedSongIniFolderConflicts.length > 0;
   const shouldShowDuplicateChecksumGroups =
-    !hasUnresolvedDisabledSongConflicts && duplicateChecksumGroups.length > 0;
+    !hasUnresolvedFileConflicts && visibleDuplicateChecksumGroups.length > 0;
   const hasConflictStep = songIniScanResult !== null;
   const unresolvedContentFileIssues = contentFileIssues.filter(
     (issue) =>
@@ -218,8 +274,7 @@ export function ScanWizard({
     verifiedContentIssueSongPaths,
   ]);
   const unresolvedConflictCount =
-    unresolvedDuplicateChecksumGroups.length +
-    unresolvedDisabledSongConflicts.length;
+    unresolvedDuplicateChecksumGroups.length + unresolvedSongIniFolderConflicts.length;
   const unresolvedContentIssueCount = unresolvedContentFileIssues.length;
   const selectedSongIniFile = faultySongIniFiles.find(
     (file) => file.relative_path === selectedSongIniPath,
@@ -246,14 +301,14 @@ export function ScanWizard({
     activeStep === 3 && unresolvedContentIssueCount === 0;
   const title =
     activeStep === 1
-      ? "Check song.ini format"
+      ? "Check song INI format"
       : activeStep === 2
         ? "Resolve song conflicts"
         : "Check content files";
   const stepLabel = `Step ${activeStep} of 3`;
   const scanProgressText = songScanProgress
     ? scanProgressLabel(songScanProgress)
-    : "Checking song.ini format...";
+    : "Checking song INI format...";
   const hasNextStep =
     !isConflictsOnly &&
     ((activeStep === 1 && (hasConflictStep || hasContentStep)) ||
@@ -261,14 +316,6 @@ export function ScanWizard({
 
   function isSongIniStep() {
     return activeStep === 1 && isScanWorkflow;
-  }
-
-  function folderPath(relativePath: string) {
-    const lastSeparatorIndex = relativePath.lastIndexOf("/");
-
-    return lastSeparatorIndex === -1
-      ? "."
-      : relativePath.slice(0, lastSeparatorIndex);
   }
 
   function fileName(relativePath: string) {
@@ -335,6 +382,8 @@ export function ScanWizard({
       setActiveStep(1);
       setSelectedSongIniPath("");
       setEditedSongIniContents({});
+      setTouchedDuplicateChecksums([]);
+      setDuplicateGroupSnapshots({});
       return;
     }
 
@@ -380,9 +429,9 @@ export function ScanWizard({
   const renderConflictStep = () => (
     <>
       <p className="scan-wizard-summary">
-        {hasUnresolvedDisabledSongConflicts
-          ? `${unresolvedDisabledSongConflicts.length} active/disabled file conflict${
-              unresolvedDisabledSongConflicts.length === 1 ? "" : "s"
+        {hasUnresolvedFileConflicts
+          ? `${unresolvedSongIniFolderConflicts.length} same-folder file conflict${
+              unresolvedSongIniFolderConflicts.length === 1 ? "" : "s"
             } remaining. Resolve these before duplicate checksums.`
           : `${unresolvedConflictCount} conflict group${
               unresolvedConflictCount === 1 ? "" : "s"
@@ -396,7 +445,7 @@ export function ScanWizard({
       {shouldShowDuplicateChecksumGroups && (
         <div className="song-conflict-section">
           <h3>Duplicate checksums</h3>
-          {duplicateChecksumGroups.map((group) => {
+          {visibleDuplicateChecksumGroups.map((group) => {
             const activePaths = group.relative_paths.filter(
               (path) =>
                 includedPathSet.has(path) &&
@@ -426,14 +475,42 @@ export function ScanWizard({
                         <button
                           className="secondary-btn"
                           type="button"
-                          onClick={() => onExcludeScannedSong(path)}
-                          disabled={isBusy || !isIncluded || isUnavailable}
+                          onClick={async () => {
+                            setTouchedDuplicateChecksums((currentChecksums) =>
+                              currentChecksums.includes(group.checksum)
+                                ? currentChecksums
+                                : [...currentChecksums, group.checksum],
+                            );
+                            const nextPath = await onSetDuplicateSongIncluded(
+                              path,
+                              !isIncluded,
+                            );
+
+                            if (!nextPath) {
+                              return;
+                            }
+
+                            setDuplicateGroupSnapshots((currentSnapshots) => {
+                              const currentPaths =
+                                currentSnapshots[group.checksum] ??
+                                group.relative_paths;
+
+                              return {
+                                ...currentSnapshots,
+                                [group.checksum]: currentPaths.map(
+                                  (currentPath) =>
+                                    currentPath === path ? nextPath : currentPath,
+                                ),
+                              };
+                            });
+                          }}
+                          disabled={isBusy || isUnavailable}
                         >
-                          {!isIncluded
-                            ? "Excluded"
-                            : isUnavailable
-                              ? "Unavailable"
-                              : "Exclude"}
+                          {isUnavailable
+                            ? "Unavailable"
+                            : isIncluded
+                              ? "Exclude"
+                              : "Include"}
                         </button>
                       </li>
                     );
@@ -445,53 +522,32 @@ export function ScanWizard({
         </div>
       )}
 
-      {hasUnresolvedDisabledSongConflicts && (
+      {hasUnresolvedFileConflicts && (
         <div className="song-conflict-section">
-          <h3>Active and disabled files</h3>
-          {unresolvedDisabledSongConflicts.map((conflict) => {
-            const isResolved =
-              deletedPathSet.has(conflict.active_path) ||
-              deletedPathSet.has(conflict.disabled_path);
-
-            return (
-              <div className="song-conflict-group" key={conflict.active_path}>
-                <div className="song-conflict-group-header">
-                  <span>{folderPath(conflict.active_path)}</span>
-                  <span className={isResolved ? "resolved" : ""}>
-                    {isResolved ? "Resolved" : "Conflict"}
-                  </span>
-                </div>
-                <ul className="song-conflict-list">
-                  <li>
-                    <span>{fileName(conflict.active_path)}</span>
-                    <button
-                      className="secondary-btn"
-                      type="button"
-                      onClick={() =>
-                        onDeleteSongIniConflict(conflict.active_path)
-                      }
-                      disabled={isBusy || isResolved}
-                    >
-                      Delete active
-                    </button>
-                  </li>
-                  <li>
-                    <span>{fileName(conflict.disabled_path)}</span>
-                    <button
-                      className="secondary-btn"
-                      type="button"
-                      onClick={() =>
-                        onDeleteSongIniConflict(conflict.disabled_path)
-                      }
-                      disabled={isBusy || isResolved}
-                    >
-                      Delete disabled
-                    </button>
-                  </li>
-                </ul>
+          <h3>Song INI files</h3>
+          {unresolvedSongIniFolderConflicts.map((conflict) => (
+            <div className="song-conflict-group" key={conflict.folder_path}>
+              <div className="song-conflict-group-header">
+                <span>{conflict.folder_path}</span>
+                <span>Conflict</span>
               </div>
-            );
-          })}
+              <ul className="song-conflict-list">
+                {conflict.file_paths.map((path) => (
+                  <li key={path}>
+                    <span>{fileName(path)}</span>
+                    <button
+                      className="secondary-btn"
+                      type="button"
+                      onClick={() => onDeleteSongIniConflict(path)}
+                      disabled={isBusy}
+                    >
+                      Delete
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </div>
       )}
 
@@ -654,7 +710,7 @@ export function ScanWizard({
             <>
               <p className="scan-wizard-summary">
                 {songIniScanResult.songs_parsed} of{" "}
-                {songIniScanResult.songs_found} song.ini files passed format
+                {songIniScanResult.songs_found} song INI files passed format
                 checks.
               </p>
 
@@ -666,7 +722,7 @@ export function ScanWizard({
 
               {faultySongIniFiles.length ? (
                 <div className="song-ini-repair">
-                  <ul className="song-ini-file-list" aria-label="Faulty song.ini files">
+                  <ul className="song-ini-file-list" aria-label="Faulty song INI files">
                     {faultySongIniFiles.map((file) => {
                       const isSelected =
                         selectedSongIniPath === file.relative_path;
@@ -707,7 +763,7 @@ export function ScanWizard({
                       <>
                         {isSelectedSongIniDisabled ? (
                           <p className="scan-wizard-muted">
-                            This song.ini has been disabled.
+                            This song INI has been disabled.
                           </p>
                         ) : selectedSongIniFile.error ? (
                           <p className="scan-wizard-error">

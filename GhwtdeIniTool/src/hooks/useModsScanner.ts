@@ -12,6 +12,7 @@ import {
   restoreOriginalSongIni,
   scanGameIconCategories,
   scanSongIniFiles,
+  setScannedSongIncluded,
   undoSongIniRepair,
   updateScannedSongMetadata,
   validateSongIniFile,
@@ -41,6 +42,7 @@ export type ScanModsStatus =
   | "verifyingSong"
   | "disablingSong"
   | "enablingSong"
+  | "excludingSong"
   | "deletingSongConflict"
   | "error";
 
@@ -185,7 +187,9 @@ export function useModsScanner() {
       const nextSongIniScanResult = await scanSongIniFiles();
 
       setIncludedSongPaths(
-        nextSongIniScanResult.songs.map((song) => song.relative_path),
+        nextSongIniScanResult.songs
+          .filter((song) => song.is_included)
+          .map((song) => song.relative_path),
       );
       setOriginalFaultySongIniFiles(
         Object.fromEntries(
@@ -237,7 +241,7 @@ export function useModsScanner() {
               songs_parsed: result.songs_parsed,
               songs: result.songs,
               duplicate_checksum_groups: result.duplicate_checksum_groups,
-              disabled_song_conflicts: result.disabled_song_conflicts,
+              song_ini_folder_conflicts: result.song_ini_folder_conflicts,
               content_file_issues: result.content_file_issues,
             },
       );
@@ -255,7 +259,7 @@ export function useModsScanner() {
               songs_parsed: result.songs_parsed,
               songs: result.songs,
               duplicate_checksum_groups: result.duplicate_checksum_groups,
-              disabled_song_conflicts: result.disabled_song_conflicts,
+              song_ini_folder_conflicts: result.song_ini_folder_conflicts,
               content_file_issues: result.content_file_issues,
             },
       );
@@ -289,7 +293,7 @@ export function useModsScanner() {
               songs_parsed: result.songs_parsed,
               songs: result.songs,
               duplicate_checksum_groups: result.duplicate_checksum_groups,
-              disabled_song_conflicts: result.disabled_song_conflicts,
+              song_ini_folder_conflicts: result.song_ini_folder_conflicts,
               content_file_issues: result.content_file_issues,
               faulty_files: currentResult.faulty_files.map((file) =>
                 file.relative_path === relativePath
@@ -398,7 +402,7 @@ export function useModsScanner() {
                 songs_parsed: result.songs_parsed,
                 songs: result.songs,
                 duplicate_checksum_groups: result.duplicate_checksum_groups,
-                disabled_song_conflicts: result.disabled_song_conflicts,
+                song_ini_folder_conflicts: result.song_ini_folder_conflicts,
                 content_file_issues: result.content_file_issues,
                 faulty_files: currentResult.faulty_files.map((file) =>
                   file.relative_path === relativePath ? originalFile : file,
@@ -419,17 +423,32 @@ export function useModsScanner() {
   );
 
   const saveScannedSongMetadata = useCallback(
-    async (relativePath: string, metadata: ScannedSongMetadata) => {
+    async (
+      relativePath: string,
+      metadata: ScannedSongMetadata,
+      isIncluded: boolean,
+    ) => {
       setSavingScannedSongPaths((currentPaths) =>
         addPath(currentPaths, relativePath),
       );
 
       try {
-        const result = await updateScannedSongMetadata(relativePath, metadata);
+        const result = await updateScannedSongMetadata(
+          relativePath,
+          metadata,
+          isIncluded,
+        );
 
         applySongIniValidationResult(result);
+        setIncludedSongPaths((currentPaths) => {
+          const nextPaths = removePath(currentPaths, relativePath);
+
+          return isIncluded
+            ? addPath(nextPaths, result.relative_path)
+            : nextPaths;
+        });
         setScanToast({
-          message: `${relativePath} metadata saved`,
+          message: `${result.relative_path} metadata saved`,
           tone: "success",
         });
       } catch (err) {
@@ -448,15 +467,22 @@ export function useModsScanner() {
   );
 
   const restoreScannedSongOriginal = useCallback(
-    async (relativePath: string) => {
+    async (relativePath: string, isIncluded: boolean) => {
       setRestoringScannedSongPaths((currentPaths) =>
         addPath(currentPaths, relativePath),
       );
 
       try {
-        const result = await restoreOriginalSongIni(relativePath);
+        const result = await restoreOriginalSongIni(relativePath, isIncluded);
 
         applySongIniValidationResult(result);
+        setIncludedSongPaths((currentPaths) => {
+          const nextPaths = removePath(currentPaths, relativePath);
+
+          return isIncluded
+            ? addPath(nextPaths, result.relative_path)
+            : nextPaths;
+        });
         setScanToast({
           message: `${relativePath} restored from original`,
           tone: "success",
@@ -561,6 +587,47 @@ export function useModsScanner() {
     [],
   );
 
+  const setDuplicateSongIncluded = useCallback(
+    async (relativePath: string, isIncluded: boolean) => {
+      if (scanStatus !== "readySongRepair") {
+        return null;
+      }
+
+      setScanStatus("excludingSong");
+      setSongIniConflictError("");
+
+      try {
+        const result = await setScannedSongIncluded(relativePath, isIncluded);
+
+        applySongIniValidationResult(result);
+        setDeletedSongIniConflictPaths((currentPaths) =>
+          removePath(currentPaths, result.relative_path),
+        );
+        setIncludedSongPaths((currentPaths) => {
+          const nextPaths = removePath(currentPaths, relativePath);
+
+          return isIncluded
+            ? addPath(nextPaths, result.relative_path)
+            : nextPaths;
+        });
+        setVerifiedContentIssueSongPaths((currentPaths) =>
+          removePath(currentPaths, relativePath),
+        );
+        setScanStatus("readySongRepair");
+        setScanToast({
+          message: `${result.relative_path} ${isIncluded ? "included" : "excluded"}`,
+          tone: "success",
+        });
+        return result.relative_path;
+      } catch (err) {
+        setSongIniConflictError(String(err));
+        setScanStatus("readySongRepair");
+        return null;
+      }
+    },
+    [applySongIniValidationResult, scanStatus],
+  );
+
   const disableSongIni = useCallback(
     async (relativePath: string) => {
       if (scanStatus !== "readySongRepair") {
@@ -622,6 +689,11 @@ export function useModsScanner() {
         const result = await enableSongIniFile(relativePath);
         setDisabledSongIniPaths((currentPaths) =>
           removePath(currentPaths, relativePath),
+        );
+        setIncludedSongPaths((currentPaths) =>
+          result.is_included
+            ? addPath(currentPaths, result.enabled_path)
+            : removePath(currentPaths, relativePath),
         );
         setSongIniScanResult((currentResult) =>
           currentResult
@@ -889,7 +961,7 @@ export function useModsScanner() {
       for (const song of songIniScanResult.songs) {
         if (
           currentPathSet.has(song.relative_path) ||
-          !previousSongPathSet.has(song.relative_path)
+          (!previousSongPathSet.has(song.relative_path) && song.is_included)
         ) {
           nextPathSet.add(song.relative_path);
         }
@@ -1040,6 +1112,7 @@ export function useModsScanner() {
     songScanProgress,
     songIniValidationError,
     setSongIncluded,
+    setDuplicateSongIncluded,
     setSongsIncluded,
     undoSongIni,
     validateSongIni,

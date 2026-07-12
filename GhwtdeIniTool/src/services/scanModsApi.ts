@@ -73,19 +73,29 @@ export function deleteSongIniConflictFile(relativePath: string) {
   });
 }
 
+export function setScannedSongIncluded(relativePath: string, isIncluded: boolean) {
+  return invoke<SongIniValidationResult>("set_scanned_song_included", {
+    relativePath,
+    isIncluded,
+  });
+}
+
 export function updateScannedSongMetadata(
   relativePath: string,
   metadata: ScannedSongMetadata,
+  isIncluded: boolean,
 ) {
   return invoke<SongIniValidationResult>("update_scanned_song_metadata", {
     relativePath,
     metadata,
+    isIncluded,
   });
 }
 
-export function restoreOriginalSongIni(relativePath: string) {
+export function restoreOriginalSongIni(relativePath: string, isIncluded: boolean) {
   return invoke<SongIniValidationResult>("restore_original_song_ini", {
     relativePath,
+    isIncluded,
   });
 }
 
