@@ -251,8 +251,12 @@ Current backend behavior:
   stems, updates only `GameIcon` in each target `song.ini`, preserves existing
   backup behavior, and returns refreshed scanned-song table data.
 - Exposes `analyze_song_pak`, which takes a PAK path and song checksum, reads
-  the matching main chart QB from the PAK without extracting files, and returns
-  instrument support details, parser diagnostics, warnings, and errors in a
+  the matching main chart QB from the PAK without extracting files, trying
+  `songs/<checksum>` QB names before root-level GHWT-style names, then falls
+  back to checksum-specific QB section discovery when the entry filename hash
+  uses an unknown convention. It returns instrument support details, parser
+  diagnostics, warnings, errors, the lookup strategy, selected entry hash,
+  matching section count, and matched QB filename when known in a
   frontend-ready serialized shape.
 - Stores project settings in `ghwtdeinitool.ini` next to the executable under a
   `[project]` section.
@@ -345,9 +349,10 @@ What was checked:
   original/custom gamelogo stem listing, invalid song GameIcon preview
   guessing, and song GameIcon apply validation/writes.
 - Rust song PAK analyzer tests cover QBKey hashing, hash normalization, minimal
-  PAK entry parsing, QB section parsing, instrument/vocal support detection, and
-  an optional local parity check against the Sk8er Boi sample in `MODS_medium`
-  when that folder exists.
+  PAK entry parsing, `songs/`-path precedence, root-level GHWT-style QB lookup,
+  checksum-specific structural QB discovery and ranking, QB section parsing,
+  instrument/vocal support detection, and an optional local parity check
+  against the Sk8er Boi sample in `MODS_medium` when that folder exists.
 
 Useful current validation commands:
 

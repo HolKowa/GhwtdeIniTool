@@ -28,6 +28,11 @@ pub struct SongPakAnalysis {
     pak_reader_warnings: Vec<String>,
     main_qb_found: bool,
     script_qb_found: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    main_qb_lookup: Option<MainQbLookup>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    main_qb_matched_entry_hash: Option<String>,
+    main_qb_matching_section_count: usize,
     hashes: SongPakHashes,
     instruments: SongPakInstruments,
     details: SongPakDetails,
@@ -43,10 +48,12 @@ struct SongPakHashes {
     script_qb: NamedHash,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 struct NamedHash {
     name: String,
     hash: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    matched_name: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -156,6 +163,22 @@ struct PakEntry {
     data: Vec<u8>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum MainQbLookup {
+    SongsPath,
+    RootPath,
+    SectionDiscovery,
+}
+
+struct MainQbMatch<'a> {
+    entry: &'a PakEntry,
+    lookup: MainQbLookup,
+    matched_name: Option<String>,
+    sections: HashMap<String, QbSection>,
+    matching_section_count: usize,
+}
+
 #[derive(Clone, Debug)]
 struct QbSection {
     values: Option<Vec<QbValue>>,
@@ -246,17 +269,13 @@ fn difficulty_availability(summary: &DifficultySummary) -> DifficultyAvailabilit
 }
 
 fn analyze_existing_song_pak(pak_path: &Path, checksum: &str) -> SongPakAnalysis {
-    let main_qb_name = format!("songs/{checksum}.mid.qb");
-    let script_qb_name = format!("songs/{checksum}_song_scripts.qb");
-    let main_qb_hash = qb_key_hex(&main_qb_name);
-    let script_qb_hash = qb_key_hex(&script_qb_name);
+    let main_qb_candidates = qb_lookup_candidates(checksum, ".mid.qb");
+    let script_qb_candidates = qb_lookup_candidates(checksum, "_song_scripts.qb");
     let mut result = empty_analysis(
         checksum,
         pak_path,
-        &main_qb_name,
-        &main_qb_hash,
-        &script_qb_name,
-        &script_qb_hash,
+        &main_qb_candidates[0],
+        &script_qb_candidates[0],
     );
 
     let entries = match read_pak_entries(pak_path) {
@@ -284,11 +303,12 @@ fn analyze_existing_song_pak(pak_path: &Path, checksum: &str) -> SongPakAnalysis
             .map(|fallback| format!("Pak reader fallback: {fallback}")),
     );
 
-    let main_entry = find_pak_entry(&entries.entries, &main_qb_hash);
-    let script_entry = find_pak_entry(&entries.entries, &script_qb_hash);
+    let main_match = find_qb_entry(&entries.entries, &main_qb_candidates);
+    let script_match = find_qb_entry(&entries.entries, &script_qb_candidates);
 
-    result.main_qb_found = main_entry.is_some();
-    result.script_qb_found = script_entry.is_some();
+    result.script_qb_found = script_match.is_some();
+    result.hashes.script_qb.matched_name =
+        script_match.map(|(_, candidate, _)| candidate.name.clone());
     result.pak_entries = entries
         .entries
         .iter()
@@ -299,22 +319,48 @@ fn analyze_existing_song_pak(pak_path: &Path, checksum: &str) -> SongPakAnalysis
         })
         .collect();
 
-    let Some(main_entry) = main_entry else {
+    let resolved_main_qb = if let Some((candidate_index, candidate, entry)) = main_match {
+        let sections = match parse_qb_sections(&entry.data) {
+            Ok(sections) => sections,
+            Err(err) => {
+                result
+                    .errors
+                    .push(format!("Failed to parse main chart QB: {err}"));
+                return result;
+            }
+        };
+
+        MainQbMatch {
+            entry,
+            lookup: if candidate_index == 0 {
+                MainQbLookup::SongsPath
+            } else {
+                MainQbLookup::RootPath
+            },
+            matched_name: Some(candidate.name.clone()),
+            matching_section_count: matching_chart_section_count(checksum, &sections),
+            sections,
+        }
+    } else if let Some(discovered) = discover_main_chart_qb(&entries.entries, checksum) {
+        discovered
+    } else {
         result.errors.push(format!(
-            "No main chart QB found for {main_qb_name} ({main_qb_hash})."
+            "No main chart QB found for {} ({}), or {} ({}).",
+            main_qb_candidates[0].name,
+            main_qb_candidates[0].hash,
+            main_qb_candidates[1].name,
+            main_qb_candidates[1].hash,
         ));
         return result;
     };
 
-    let sections = match parse_qb_sections(&main_entry.data) {
-        Ok(sections) => sections,
-        Err(err) => {
-            result
-                .errors
-                .push(format!("Failed to parse main chart QB: {err}"));
-            return result;
-        }
-    };
+    result.main_qb_found = true;
+    result.main_qb_lookup = Some(resolved_main_qb.lookup);
+    result.main_qb_matched_entry_hash = Some(hex(resolved_main_qb.entry.full_name));
+    result.main_qb_matching_section_count = resolved_main_qb.matching_section_count;
+    result.hashes.main_qb.matched_name = resolved_main_qb.matched_name;
+
+    let sections = resolved_main_qb.sections;
 
     let guitar = create_difficulty_result(checksum, "guitar", "song", &sections);
     let bass = create_difficulty_result(checksum, "bass", "song_rhythm", &sections);
@@ -369,10 +415,8 @@ fn analyze_existing_song_pak(pak_path: &Path, checksum: &str) -> SongPakAnalysis
 fn empty_analysis(
     checksum: &str,
     pak_path: &Path,
-    main_qb_name: &str,
-    main_qb_hash: &str,
-    script_qb_name: &str,
-    script_qb_hash: &str,
+    main_qb: &NamedHash,
+    script_qb: &NamedHash,
 ) -> SongPakAnalysis {
     SongPakAnalysis {
         checksum: checksum.to_string(),
@@ -382,15 +426,12 @@ fn empty_analysis(
         pak_reader_warnings: Vec::new(),
         main_qb_found: false,
         script_qb_found: false,
+        main_qb_lookup: None,
+        main_qb_matched_entry_hash: None,
+        main_qb_matching_section_count: 0,
         hashes: SongPakHashes {
-            main_qb: NamedHash {
-                name: main_qb_name.to_string(),
-                hash: main_qb_hash.to_string(),
-            },
-            script_qb: NamedHash {
-                name: script_qb_name.to_string(),
-                hash: script_qb_hash.to_string(),
-            },
+            main_qb: main_qb.clone(),
+            script_qb: script_qb.clone(),
         },
         instruments: SongPakInstruments {
             guitar: DifficultySummary::default(),
@@ -420,6 +461,17 @@ fn empty_analysis(
         warnings: Vec::new(),
         pak_entries: Vec::new(),
     }
+}
+
+fn qb_lookup_candidates(checksum: &str, suffix: &str) -> [NamedHash; 2] {
+    let songs_name = format!("songs/{checksum}{suffix}");
+    let root_name = format!("{checksum}{suffix}");
+
+    [songs_name, root_name].map(|name| NamedHash {
+        hash: qb_key_hex(&name),
+        name,
+        matched_name: None,
+    })
 }
 
 fn empty_difficulty_details(label: &str) -> DifficultyDetails {
@@ -666,6 +718,91 @@ fn find_pak_entry<'a>(entries: &'a [PakEntry], expected_hash: &str) -> Option<&'
     entries
         .iter()
         .find(|entry| get_entry_hashes(entry).iter().any(|hash| hash == &wanted))
+}
+
+fn find_qb_entry<'a>(
+    entries: &'a [PakEntry],
+    candidates: &'a [NamedHash],
+) -> Option<(usize, &'a NamedHash, &'a PakEntry)> {
+    candidates
+        .iter()
+        .enumerate()
+        .find_map(|(index, candidate)| {
+            find_pak_entry(entries, &candidate.hash).map(|entry| (index, candidate, entry))
+        })
+}
+
+fn discover_main_chart_qb<'a>(entries: &'a [PakEntry], checksum: &str) -> Option<MainQbMatch<'a>> {
+    let mut best_match = None;
+
+    for entry in entries.iter().filter(|entry| is_plausible_qb(&entry.data)) {
+        let Ok(sections) = parse_qb_sections(&entry.data) else {
+            continue;
+        };
+
+        let matching_section_count = matching_chart_section_count(checksum, &sections);
+        let playable_section_count = playable_chart_section_count(checksum, &sections);
+        if playable_section_count == 0 && matching_section_count < 2 {
+            continue;
+        }
+
+        let candidate = MainQbMatch {
+            entry,
+            lookup: MainQbLookup::SectionDiscovery,
+            matched_name: None,
+            sections,
+            matching_section_count,
+        };
+
+        let candidate_score = (playable_section_count, matching_section_count);
+        let best_score = best_match.as_ref().map(|best: &MainQbMatch<'_>| {
+            (
+                playable_chart_section_count(checksum, &best.sections),
+                best.matching_section_count,
+            )
+        });
+        if best_score.is_none_or(|score| candidate_score > score) {
+            best_match = Some(candidate);
+        }
+    }
+
+    best_match
+}
+
+fn is_plausible_qb(data: &[u8]) -> bool {
+    data.len() >= 8
+        && data.chunks_exact(4).any(|chunk| {
+            u32::from_be_bytes(chunk.try_into().expect("chunk has four bytes")) == SECTION_ARRAY
+        })
+}
+
+fn matching_chart_section_count(checksum: &str, sections: &HashMap<String, QbSection>) -> usize {
+    expected_chart_section_hashes(checksum)
+        .iter()
+        .filter(|hash| sections.contains_key(*hash))
+        .count()
+}
+
+fn playable_chart_section_count(checksum: &str, sections: &HashMap<String, QbSection>) -> usize {
+    ["song", "song_rhythm", "song_drum"]
+        .into_iter()
+        .flat_map(|section_name| {
+            DIFFICULTIES.map(|difficulty| format!("{checksum}_{section_name}_{difficulty}"))
+        })
+        .filter(|name| is_real_playable_array(sections.get(&qb_key_hex(name))))
+        .count()
+}
+
+fn expected_chart_section_hashes(checksum: &str) -> Vec<String> {
+    let mut names = ["song", "song_rhythm", "song_drum"]
+        .into_iter()
+        .flat_map(|section_name| {
+            DIFFICULTIES.map(|difficulty| format!("{checksum}_{section_name}_{difficulty}"))
+        })
+        .map(|name| qb_key_hex(&name))
+        .collect::<Vec<_>>();
+    names.push(qb_key_hex(&format!("{checksum}_song_vocals")));
+    names
 }
 
 fn get_entry_hashes(entry: &PakEntry) -> Vec<String> {
@@ -937,6 +1074,10 @@ const CRC32_TABLE: [u32; 256] = [
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        env,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     #[test]
     fn qb_key_matches_sample_hashes() {
@@ -971,6 +1112,156 @@ mod tests {
         assert_eq!(entries.entries[1].data, vec![4, 5]);
         assert!(find_pak_entry(&entries.entries, &hex(main_qb_hash)).is_some());
         assert!(find_pak_entry(&entries.entries, &hex(script_qb_hash)).is_some());
+    }
+
+    #[test]
+    fn song_path_qb_entries_take_precedence_over_root_entries() {
+        let songs_main =
+            synthetic_qb(&[(qb_key("sample_song_Easy"), ARRAY_INTEGER, &[100, 1], false)]);
+        let root_main = synthetic_qb(&[]);
+        let pak = synthetic_pak(&[
+            (qb_key("sample.mid.qb"), root_main.as_slice()),
+            (qb_key("sample_song_scripts.qb"), &[1]),
+            (qb_key("songs/sample.mid.qb"), songs_main.as_slice()),
+            (qb_key("songs/sample_song_scripts.qb"), &[2]),
+        ]);
+
+        let analysis = analyze_synthetic_pak(&pak, "sample");
+
+        assert!(analysis.errors.is_empty());
+        assert_eq!(
+            analysis.hashes.main_qb.matched_name.as_deref(),
+            Some("songs/sample.mid.qb")
+        );
+        assert_eq!(
+            analysis.hashes.script_qb.matched_name.as_deref(),
+            Some("songs/sample_song_scripts.qb")
+        );
+        assert_eq!(analysis.main_qb_lookup, Some(MainQbLookup::SongsPath));
+        let songs_main_hash = hex(qb_key("songs/sample.mid.qb"));
+        assert_eq!(
+            analysis.main_qb_matched_entry_hash.as_deref(),
+            Some(songs_main_hash.as_str())
+        );
+        assert_eq!(analysis.main_qb_matching_section_count, 1);
+        assert!(analysis.instruments.guitar.easy);
+    }
+
+    #[test]
+    fn root_level_qb_entries_are_used_for_ghwt_style_song_paks() {
+        let checksum = "DLC1057";
+        let main_qb = synthetic_qb(&[
+            (qb_key("DLC1057_song_Easy"), ARRAY_INTEGER, &[100, 1], false),
+            (
+                qb_key("DLC1057_song_rhythm_Easy"),
+                ARRAY_INTEGER,
+                &[100, 1],
+                false,
+            ),
+            (
+                qb_key("DLC1057_song_drum_Easy"),
+                ARRAY_INTEGER,
+                &[100, 1],
+                false,
+            ),
+            (
+                qb_key("DLC1057_song_vocals"),
+                ARRAY_INTEGER,
+                &[100, 50, 60],
+                false,
+            ),
+        ]);
+        let pak = synthetic_pak(&[
+            (qb_key("DLC1057.mid.qb"), main_qb.as_slice()),
+            (qb_key("DLC1057_song_scripts.qb"), &[1]),
+        ]);
+
+        let analysis = analyze_synthetic_pak(&pak, checksum);
+
+        assert_eq!(qb_key_hex("DLC1057.mid.qb"), "0xb6cc9a4e");
+        assert_eq!(qb_key_hex("DLC1057_song_scripts.qb"), "0x88f47b50");
+        assert!(analysis.errors.is_empty());
+        assert!(analysis.main_qb_found);
+        assert!(analysis.script_qb_found);
+        assert_eq!(
+            analysis.hashes.main_qb.matched_name.as_deref(),
+            Some("DLC1057.mid.qb")
+        );
+        assert_eq!(
+            analysis.hashes.script_qb.matched_name.as_deref(),
+            Some("DLC1057_song_scripts.qb")
+        );
+        assert_eq!(analysis.main_qb_lookup, Some(MainQbLookup::RootPath));
+        let root_main_hash = hex(qb_key("DLC1057.mid.qb"));
+        assert_eq!(
+            analysis.main_qb_matched_entry_hash.as_deref(),
+            Some(root_main_hash.as_str())
+        );
+        assert_eq!(analysis.main_qb_matching_section_count, 4);
+        assert!(analysis.instruments.guitar.easy);
+        assert!(analysis.instruments.bass.easy);
+        assert!(analysis.instruments.drums.easy);
+        assert!(analysis.instruments.vocals.supported);
+    }
+
+    #[test]
+    fn section_discovery_selects_the_strongest_checksum_specific_chart() {
+        let weak_chart = synthetic_qb(&[
+            (qb_key("sample_song_Easy"), ARRAY_INTEGER, &[100], false),
+            (
+                qb_key("sample_song_rhythm_Easy"),
+                ARRAY_INTEGER,
+                &[100],
+                false,
+            ),
+        ]);
+        let strong_chart = synthetic_qb(&[
+            (qb_key("sample_song_Easy"), ARRAY_INTEGER, &[100, 1], false),
+            (
+                qb_key("sample_song_rhythm_Easy"),
+                ARRAY_INTEGER,
+                &[100, 1],
+                false,
+            ),
+            (
+                qb_key("sample_song_drum_Easy"),
+                ARRAY_INTEGER,
+                &[100, 1],
+                false,
+            ),
+            (
+                qb_key("sample_song_vocals"),
+                ARRAY_INTEGER,
+                &[100, 50, 60],
+                false,
+            ),
+        ]);
+        let decoy_chart =
+            synthetic_qb(&[(qb_key("other_song_Easy"), ARRAY_INTEGER, &[100, 1], false)]);
+        let pak = synthetic_pak(&[
+            (0x1111_1111, weak_chart.as_slice()),
+            (0x3333_3333, decoy_chart.as_slice()),
+            (0x2222_2222, strong_chart.as_slice()),
+        ]);
+
+        let analysis = analyze_synthetic_pak(&pak, "sample");
+
+        assert!(analysis.errors.is_empty());
+        assert!(analysis.main_qb_found);
+        assert_eq!(
+            analysis.main_qb_lookup,
+            Some(MainQbLookup::SectionDiscovery)
+        );
+        assert_eq!(
+            analysis.main_qb_matched_entry_hash.as_deref(),
+            Some("0x22222222")
+        );
+        assert_eq!(analysis.main_qb_matching_section_count, 4);
+        assert!(analysis.hashes.main_qb.matched_name.is_none());
+        assert!(analysis.instruments.guitar.easy);
+        assert!(analysis.instruments.bass.easy);
+        assert!(analysis.instruments.drums.easy);
+        assert!(analysis.instruments.vocals.supported);
     }
 
     #[test]
@@ -1085,6 +1376,22 @@ mod tests {
 
         write_u32(&mut data, entries.len() * PAK_HEADER_SIZE, PAK_FTYPE_LAST);
         data
+    }
+
+    fn analyze_synthetic_pak(pak: &[u8], checksum: &str) -> SongPakAnalysis {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after unix epoch")
+            .as_nanos();
+        let path = env::temp_dir().join(format!(
+            "ghwtdeinitool-song-pak-{}-{unique}.pak.xen",
+            std::process::id()
+        ));
+        fs::write(&path, pak).expect("synthetic pak should be written");
+        let analysis = analyze_song_pak(&path.to_string_lossy(), checksum)
+            .expect("synthetic pak should analyze");
+        let _ = fs::remove_file(path);
+        analysis
     }
 
     fn synthetic_qb(sections: &[(u32, u32, &[u32], bool)]) -> Vec<u8> {
