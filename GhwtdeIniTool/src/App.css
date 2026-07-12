@@ -870,22 +870,10 @@ td.scanned-songs-action-column {
   gap: 1rem;
 }
 
-.categorize-info,
-.categorize-summary {
+.categorize-bullet-list {
   font-size: 0.9rem;
   line-height: 1.4;
-}
-
-.categorize-info ul,
-.categorize-summary ul,
-.categorize-cap-advisory-list,
-.categorize-cap-advisory {
   margin: 0;
-}
-
-.categorize-info ul,
-.categorize-summary ul,
-.categorize-cap-advisory-list {
   display: grid;
   gap: 0.6rem;
   padding-left: 1.25rem;
@@ -910,13 +898,17 @@ td.scanned-songs-action-column {
 }
 
 .categorize-cap-advisory {
-  color: #565656;
-  font-size: 0.86rem;
-  line-height: 1.4;
+  color: inherit;
 }
 
 .categorize-warning {
   color: #b71c1c;
+}
+
+.categorize-folder-path {
+  display: block;
+  margin-top: 0.2rem;
+  overflow-wrap: anywhere;
 }
 
 .game-icon-info {
@@ -1731,10 +1723,6 @@ td.scanned-songs-action-column {
     border-color: #555;
     background: #1a1a1a;
     color: #f6f6f6;
-  }
-
-  .categorize-cap-advisory {
-    color: #c8c8c8;
   }
 
   .categorize-warning {

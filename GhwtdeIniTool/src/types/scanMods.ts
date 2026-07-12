@@ -8,6 +8,10 @@ export type DeleteFilesResult = {
   errors: string[];
 };
 
+export type IniToolCategoriesPreview = {
+  has_non_category_files: boolean;
+};
+
 export type RestoreIniAction =
   | "afterFormatIssueFixes"
   | "beforeFormatIssueFix"

@@ -9,6 +9,7 @@ import type {
   GameIconSongFixPreview,
   InstrumentAnalyzeMode,
   InstrumentAnalyzeResult,
+  IniToolCategoriesPreview,
   RestoreIniAction,
   RestoreIniResult,
   ScannedSongMetadata,
@@ -29,6 +30,10 @@ export function deleteKeepOnlyFiles(filesToDelete: string[]) {
   return invoke<DeleteFilesResult>("delete_keep_only_files", {
     filesToDelete,
   });
+}
+
+export function previewIniToolCategories() {
+  return invoke<IniToolCategoriesPreview>("preview_ini_tool_categories");
 }
 
 export function scanSongIniFiles() {

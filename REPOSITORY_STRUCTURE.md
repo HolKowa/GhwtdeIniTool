@@ -190,8 +190,10 @@ Current frontend behavior:
   The top action row includes Categorize alongside Analyze instruments and Fix
   GameIcons. Categorize currently opens only its first informational step: it
   reports the table sort order, active filters, unsaved metadata edits, the
-  selected-song cap, and the projected 200-song categories. Its Next button is
-  disabled until the later filesystem categorization step is implemented.
+  selected-song cap, the projected 200-song categories, and whether the
+  existing `IniToolCategories` folder contains files other than `category.ini`.
+  Its Next button is disabled until the later filesystem categorization step is
+  implemented.
 - The settings dialog lets the user choose a MODS folder, choose an official
   GAMELOGOS folder after MODS is set, toggle whether original `song.ini` files
   are kept before their first edit, and accept a one-time experimental-use

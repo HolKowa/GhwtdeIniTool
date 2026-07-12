@@ -79,6 +79,11 @@ struct DeleteFilesResult {
 }
 
 #[derive(Default, Serialize)]
+struct IniToolCategoriesPreview {
+    has_non_category_files: bool,
+}
+
+#[derive(Default, Serialize)]
 struct RestoreIniResult {
     files_restored: usize,
     files_deleted: usize,
@@ -396,6 +401,12 @@ fn delete_keep_only_files(files_to_delete: Vec<String>) -> Result<DeleteFilesRes
 }
 
 #[tauri::command]
+fn preview_ini_tool_categories() -> Result<IniToolCategoriesPreview, String> {
+    let settings = scan_settings()?;
+    preview_ini_tool_categories_paths(&settings.mods_dir)
+}
+
+#[tauri::command]
 fn scan_song_ini_files(
     app: tauri::AppHandle,
     store: tauri::State<'_, SongIniStore>,
@@ -670,6 +681,53 @@ fn delete_keep_only_files_paths(
     }
 
     Ok(result)
+}
+
+fn preview_ini_tool_categories_paths(mods_dir: &Path) -> Result<IniToolCategoriesPreview, String> {
+    let categories_dir = mods_dir.join("IniToolCategories");
+
+    if !categories_dir.exists() {
+        return Ok(IniToolCategoriesPreview::default());
+    }
+
+    if !categories_dir.is_dir() {
+        return Err(format!(
+            "{} exists but is not a folder.",
+            categories_dir.display()
+        ));
+    }
+
+    Ok(IniToolCategoriesPreview {
+        has_non_category_files: contains_non_category_file(&categories_dir)?,
+    })
+}
+
+fn contains_non_category_file(dir: &Path) -> Result<bool, String> {
+    let entries = fs::read_dir(dir)
+        .map_err(|err| format!("Failed to read folder {}: {err}", dir.display()))?;
+
+    for entry in entries {
+        let entry =
+            entry.map_err(|err| format!("Failed to read entry in {}: {err}", dir.display()))?;
+        let path = entry.path();
+        let file_type = entry
+            .file_type()
+            .map_err(|err| format!("Failed to inspect {}: {err}", path.display()))?;
+
+        if file_type.is_dir() {
+            if contains_non_category_file(&path)? {
+                return Ok(true);
+            }
+        } else if file_type.is_file()
+            && !path
+                .file_name()
+                .is_some_and(|file_name| file_name.eq_ignore_ascii_case("category.ini"))
+        {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
 }
 
 fn scan_song_ini_files_paths_with_progress<F>(
@@ -7680,6 +7738,7 @@ pub fn run() {
             save_project_settings,
             preview_keep_only_files_delete,
             delete_keep_only_files,
+            preview_ini_tool_categories,
             scan_song_ini_files,
             validate_song_ini_file,
             undo_song_ini_repair,
