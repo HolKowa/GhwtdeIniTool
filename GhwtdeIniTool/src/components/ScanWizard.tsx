@@ -225,6 +225,13 @@ export function ScanWizard({
       !disabledPathSet.has(issue.song_ini_relative_path) &&
       !deletedPathSet.has(issue.song_ini_relative_path),
   );
+  const unresolvedMissingContentFileIssues = unresolvedContentFileIssues.filter(
+    (issue) => issue.message === "Missing required file.",
+  );
+  const unresolvedUnexpectedContentFileIssues =
+    unresolvedContentFileIssues.filter(
+      (issue) => issue.message === "Unexpected file or folder.",
+    );
   const hasContentStep = songIniScanResult !== null;
   const contentIssuesBySong = useMemo(() => {
     const groups = new Map<string, typeof unresolvedContentFileIssues>();
@@ -276,6 +283,8 @@ export function ScanWizard({
   const unresolvedConflictCount =
     unresolvedDuplicateChecksumGroups.length + unresolvedSongIniFolderConflicts.length;
   const unresolvedContentIssueCount = unresolvedContentFileIssues.length;
+  const unresolvedMissingContentIssueCount =
+    unresolvedMissingContentFileIssues.length;
   const selectedSongIniFile = faultySongIniFiles.find(
     (file) => file.relative_path === selectedSongIniPath,
   );
@@ -298,7 +307,7 @@ export function ScanWizard({
     activeStep === 1 && isScanWorkflow && unresolvedSongIniCount === 0;
   const canFinishConflictStep = activeStep === 2 && unresolvedConflictCount === 0;
   const canFinishContentStep =
-    activeStep === 3 && unresolvedContentIssueCount === 0;
+    activeStep === 3 && unresolvedMissingContentIssueCount === 0;
   const title =
     activeStep === 1
       ? "Check song INI format"
@@ -569,8 +578,18 @@ export function ScanWizard({
     <>
       <p className="scan-wizard-summary">
         {unresolvedContentIssueCount} content issue
-        {unresolvedContentIssueCount === 1 ? "" : "s"} remaining.
+        {unresolvedContentIssueCount === 1 ? "" : "s"} found. {" "}
+        {unresolvedMissingContentIssueCount} missing required file
+        {unresolvedMissingContentIssueCount === 1 ? "" : "s"} must be fixed
+        before finishing.
       </p>
+
+      {unresolvedUnexpectedContentFileIssues.length > 0 && (
+        <p className="scan-wizard-muted">
+          Unexpected files and folders are listed for review but do not need to
+          be removed.
+        </p>
+      )}
 
       {songIniConflictError && (
         <p className="scan-wizard-error">{songIniConflictError}</p>
@@ -633,7 +652,11 @@ export function ScanWizard({
               ) : (
                 issues.map((issue) => (
                   <li
-                    className="song-content-issue-row"
+                    className={`song-content-issue-row${
+                      issue.message === "Missing required file."
+                        ? " song-content-issue-row-error"
+                        : ""
+                    }`}
                     key={`${issue.absolute_path}-${issue.message}`}
                   >
                     <span>
@@ -649,10 +672,10 @@ export function ScanWizard({
       })}
 
       {hasContentStep &&
-        unresolvedContentIssueCount === 0 &&
+        unresolvedMissingContentIssueCount === 0 &&
         contentIssuesBySong.length === 0 && (
         <p className="scan-wizard-muted">
-          All content file issues have been resolved.
+          No missing required content files were found.
         </p>
       )}
 

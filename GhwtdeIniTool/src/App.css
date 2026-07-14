@@ -1448,6 +1448,15 @@ td.scanned-songs-action-column {
   overflow-wrap: anywhere;
 }
 
+.song-conflict-list .song-content-issue-row-error {
+  background: #ffebee;
+  color: #b71c1c;
+}
+
+.song-content-issue-row-error small {
+  color: #b71c1c;
+}
+
 .scan-wizard-actions {
   justify-content: flex-end;
   margin-top: 1rem;
