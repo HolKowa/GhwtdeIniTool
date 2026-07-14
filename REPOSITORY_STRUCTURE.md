@@ -39,7 +39,8 @@ Important files:
 - `GhwtdeIniTool/src/App.tsx` coordinates startup, settings, and update UI.
 - `GhwtdeIniTool/src/App.css` contains the current app styling.
 - `GhwtdeIniTool/src/components/CleanModsWizard.tsx` renders the two-step MODS
-  cleanup wizard for keep-pattern entry and delete confirmation.
+  cleanup wizard for keep-pattern entry plus sortable, selectable delete
+  confirmation.
 - `GhwtdeIniTool/src/components/CategorizeWizard.tsx` renders the two-step
   song categorization preview and confirmation workflow.
 - `GhwtdeIniTool/src/components/ExperimentalWarningDialog.tsx` renders the
@@ -105,9 +106,10 @@ Current frontend behavior:
 - A persistent red experimental-risk warning appears beside Settings; selecting
   it opens a read-only dialog with the experimental-use disclaimer text.
 - The Clean MODS folder button opens a two-step wizard that asks for a
-  keep-pattern, previews MODS files that do not match it, allows returning from
-  preview to edit the pattern, and deletes only after the user finishes the
-  review step. The pattern defaults to
+  keep-pattern, previews MODS files that do not match it in sortable Path and
+  File columns, allows individual or all previewed files to be deselected,
+  allows returning from preview to edit the pattern, and deletes only the
+  selected files after the user finishes the review step. The pattern defaults to
   `song*.ini,*_song.pak.xen,*.fsb.xen,category*.ini,*.img.xen,Readme.txt`
   each time and is not saved.
 - The Restore INI files button opens a dialog with separate actions to restore

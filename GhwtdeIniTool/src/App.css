@@ -1169,6 +1169,82 @@ td.scanned-songs-action-column {
   border-top: 1px solid #eeeeee;
 }
 
+.clean-delete-review {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.clean-files-table-wrap {
+  margin-top: 0.75rem;
+  min-height: 0;
+  flex: 0 1 auto;
+  overflow: auto;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+}
+
+.clean-files-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono",
+    monospace;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.clean-files-table th,
+.clean-files-table td {
+  padding: 0.5rem 0.65rem;
+  border-bottom: 1px solid #eeeeee;
+  text-align: left;
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+}
+
+.clean-files-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f4f4f4;
+  color: #2f2f2f;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+}
+
+.clean-files-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.clean-files-table th button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.clean-files-select-column {
+  width: 1%;
+  text-align: center !important;
+  white-space: nowrap;
+}
+
+.clean-files-table input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+}
+
 .song-ini-repair {
   display: grid;
   grid-template-columns: minmax(13rem, 0.8fr) minmax(0, 1.2fr);
@@ -1788,6 +1864,20 @@ td.scanned-songs-action-column {
 
   .scan-file-list li + li {
     border-top-color: #444;
+  }
+
+  .clean-files-table-wrap {
+    border-color: #555;
+  }
+
+  .clean-files-table th {
+    background: #303030;
+    color: #f6f6f6;
+  }
+
+  .clean-files-table th,
+  .clean-files-table td {
+    border-bottom-color: #444;
   }
 
   .song-ini-file-list,

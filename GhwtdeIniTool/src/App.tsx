@@ -186,8 +186,8 @@ function App() {
     : cleanToast
       ? dismissCleanToast
       : dismissScanToast;
-  const confirmCleanAndClearScan = async () => {
-    const filesDeleted = await confirmClean();
+  const confirmCleanAndClearScan = async (filesToDelete: string[]) => {
+    const filesDeleted = await confirmClean(filesToDelete);
 
     if (filesDeleted > 0) {
       clearCompletedSongScan();
