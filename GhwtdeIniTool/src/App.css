@@ -320,6 +320,11 @@ td.scanned-songs-action-column {
   height: 1.45rem;
 }
 
+.scanned-songs-metadata-input.input-error {
+  border-color: #b71c1c;
+  background: #fff5f5;
+}
+
 .scanned-songs-table tbody tr:hover td {
   background: #f7f9ff;
 }

@@ -2089,6 +2089,13 @@ fn update_scanned_song_metadata_path(
     is_included: bool,
     store: &SongIniStore,
 ) -> Result<SongIniValidationResult, String> {
+    if metadata.artist.trim().is_empty() {
+        return Err("Artist is required.".to_string());
+    }
+    if metadata.title.trim().is_empty() {
+        return Err("Title is required.".to_string());
+    }
+
     let mods_dir = &settings.mods_dir;
     let path = checked_mods_relative_path(mods_dir, relative_path)?;
 
@@ -2648,6 +2655,9 @@ fn update_song_ini_values(contents: &str, updates: &[(&str, &str)]) -> String {
                     .iter()
                     .find(|(candidate, _)| candidate.eq_ignore_ascii_case(key))
                 {
+                    if value.trim().is_empty() {
+                        continue;
+                    }
                     let leading_whitespace_len = key_part.len() - key_part.trim_start().len();
                     let trailing_whitespace_len = key_part.len() - key_part.trim_end().len();
                     updated_contents.push_str(&key_part[..leading_whitespace_len]);
@@ -2717,7 +2727,7 @@ fn append_missing_metadata_keys(
     }
 
     for (key, value) in updates {
-        if found_keys.contains(*key) {
+        if found_keys.contains(*key) || value.trim().is_empty() {
             continue;
         }
 
@@ -6667,6 +6677,85 @@ mod tests {
             fs::read_to_string(project.mods_dir.join("song.original.ini"))
                 .expect("backup should read"),
             "[ModInfo]\nName=Original Mod\n\n[SongInfo]\nChecksum=metadata_checksum\nTitle=Old Title\nArtist=Old Artist\nLeaderboard=Yes\n\n[Extra]\nValue=Keep\n"
+        );
+    }
+
+    #[test]
+    fn song_metadata_update_removes_empty_song_info_entries() {
+        let project = TestProject::new("song-metadata-remove-empty");
+        let song_ini_path = project.mods_dir.join("song.ini");
+        write_test_file_contents(
+            &song_ini_path,
+            "[ModInfo]\nName=Song\n\n[SongInfo]\nChecksum=metadata_checksum\nArtist=Artist\nTitle=Title\nYear=2001\nGenre=Rock\nGameIcon=gh3\n\n[Extra]\nValue=Keep\n",
+        );
+        let store = SongIniStore::default();
+        let settings = test_scan_settings(&project);
+        scan_song_ini_files_paths(&settings, &store).expect("scan should populate store");
+
+        let result = update_scanned_song_metadata_path(
+            &settings,
+            "song.ini",
+            ScannedSongMetadataInput {
+                artist: "Artist".to_string(),
+                title: "Title".to_string(),
+                year: "\t".to_string(),
+                genre: "".to_string(),
+                game_icon: " ".to_string(),
+            },
+            true,
+            &store,
+        )
+        .expect("empty metadata save should pass");
+        let contents = fs::read_to_string(song_ini_path).expect("song.ini should read");
+
+        for key in ["Year", "Genre", "GameIcon"] {
+            assert!(!contents.contains(&format!("{key}=")));
+        }
+        assert!(contents.contains("Artist=Artist"));
+        assert!(contents.contains("Title=Title"));
+        assert!(contents.contains("Checksum=metadata_checksum"));
+        assert!(contents.contains("[Extra]\nValue=Keep"));
+        assert_eq!(result.songs[0].artist, "Artist");
+        assert_eq!(result.songs[0].title, "Title");
+        assert_eq!(result.songs[0].game_icon, "");
+    }
+
+    #[test]
+    fn song_metadata_update_rejects_empty_artist_or_title() {
+        let project = TestProject::new("song-metadata-required-fields");
+        let song_ini_path = project.mods_dir.join("song.ini");
+        let original_contents =
+            "[ModInfo]\nName=Song\n\n[SongInfo]\nChecksum=metadata_checksum\nArtist=Artist\nTitle=Title\n";
+        write_test_file_contents(&song_ini_path, original_contents);
+        let store = SongIniStore::default();
+        let settings = test_scan_settings(&project);
+        scan_song_ini_files_paths(&settings, &store).expect("scan should populate store");
+
+        for (artist, title, error) in [
+            (" ", "Title", "Artist is required."),
+            ("Artist", "\t", "Title is required."),
+        ] {
+            assert_eq!(
+                update_scanned_song_metadata_path(
+                    &settings,
+                    "song.ini",
+                    ScannedSongMetadataInput {
+                        artist: artist.to_string(),
+                        title: title.to_string(),
+                        year: "".to_string(),
+                        genre: "".to_string(),
+                        game_icon: "".to_string(),
+                    },
+                    true,
+                    &store,
+                )
+                .expect_err("empty required metadata should fail"),
+                error
+            );
+        }
+        assert_eq!(
+            fs::read_to_string(song_ini_path).expect("song.ini should read"),
+            original_contents
         );
     }
 

@@ -206,6 +206,10 @@ Current frontend behavior:
   GAMELOGOS folder after MODS is set, toggle whether original `song.ini` files
   are kept before their first edit, and accept a one-time experimental-use
   disclaimer before workflows can be used.
+- Scanned-song saves require non-empty Artist and Title values. Empty Year,
+  Genre, or GameIcon values remove their `[SongInfo]` entries rather than
+  writing empty `Key=` lines; the shared INI writer applies that omission rule
+  to any empty update value.
 - When a MODS folder is saved, settings try to auto-fill the official GAMELOGOS
   folder by replacing each exact `MODS` path component with `IMAGES`, nearest
   first, appending `GAMELOGOS`, dropping folders below the matched `MODS`
