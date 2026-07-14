@@ -1,3 +1,6 @@
+use ab_glyph::{FontArc, PxScale};
+use image::{ImageFormat, Rgba, RgbaImage};
+use imageproc::drawing::{draw_text_mut, text_size};
 use ini::Ini;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -16,6 +19,14 @@ mod song_pak_analyzer;
 const SETTINGS_FILE_NAME: &str = "ghwtdeinitool.ini";
 const INSTRUMENT_SIDECAR_FILE_NAME: &str = "song.instruments.ini";
 const INSTRUMENT_ANALYZER_VERSION: &str = "1";
+const CATEGORY_LOGO_SIZE: u32 = 256;
+const CATEGORY_LOGO_STROKE_WIDTH: i32 = 3;
+const CATEGORY_LOGO_MAX_LINE_WIDTH: u32 = 228;
+const CATEGORY_LOGO_MAX_LINE_HEIGHT: u32 = 68;
+const CATEGORY_LOGO_LINE_GAP: u32 = 6;
+const PNG_SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+const IMG_XEN_HEADER_SIZE: usize = 40;
+const THIRD_PARTY_LICENSES: &str = include_str!("../resources/THIRD_PARTY_LICENSES.txt");
 const MOD_INFO_KEYS: &[&str] = &["Key", "Name", "Description", "Author", "Version"];
 const SONG_INFO_KEYS: &[&str] = &[
     "Key",
@@ -414,6 +425,11 @@ fn save_project_settings(settings: ProjectSettingsInput) -> Result<ProjectSettin
     })?;
 
     Ok(project_settings(settings_path, settings))
+}
+
+#[tauri::command]
+fn third_party_licenses() -> String {
+    THIRD_PARTY_LICENSES.to_string()
 }
 
 #[tauri::command]
@@ -821,6 +837,8 @@ fn categorize_songs_paths(
         return Err("The category preview is stale. Return to step 1 and try again.".to_string());
     }
 
+    let category_logo_font = load_category_logo_font()?;
+
     let categories_dir = settings.mods_dir.join("IniToolCategories");
     if categories_dir.exists() && !categories_dir.is_dir() {
         return Err(format!(
@@ -855,6 +873,7 @@ fn categorize_songs_paths(
     for (index, category_name) in input.category_names.iter().enumerate() {
         let category_number = index + 1;
         let checksum = format!("IniToolCategory{category_number:02}");
+        let logo_stem = format!("gamelogo_initool{category_number:02}");
         let folder = categories_dir.join(format!(
             "Category_{}",
             sanitize_category_folder_name(category_name)
@@ -862,11 +881,12 @@ fn categorize_songs_paths(
         fs::create_dir(&folder)
             .map_err(|err| format!("Failed to create {}: {err}", folder.display()))?;
         let contents = format!(
-            "[ModInfo]\nName=IniTool Category {category_number:02}\nDescription=Songs categorized by {category_name}.\nAuthor=GhwtDeIniTool\nVersion=1.0\n\n[CategoryInfo]\nName={category_name}\nChecksum={checksum}\nLogo=gamelogo_gh1\n"
+            "[ModInfo]\nName=IniTool Category {category_number:02}\nDescription=Songs categorized by {category_name}.\nAuthor=GhwtDeIniTool\nVersion=1.0\n\n[CategoryInfo]\nName={category_name}\nChecksum={checksum}\nLogo={logo_stem}\n"
         );
         let category_ini = folder.join("category.ini");
         fs::write(&category_ini, contents)
             .map_err(|err| format!("Failed to write {}: {err}", category_ini.display()))?;
+        write_category_logo(&folder, category_number, category_name, &category_logo_font)?;
     }
 
     let categorized_path_set = categorized_paths.iter().collect::<HashSet<_>>();
@@ -939,6 +959,155 @@ fn sanitize_category_folder_name(value: &str) -> String {
     } else {
         sanitized.to_string()
     }
+}
+
+fn load_category_logo_font() -> Result<FontArc, String> {
+    FontArc::try_from_slice(include_bytes!("../resources/fonts/NewRocker-Regular.ttf"))
+        .map_err(|err| format!("Failed to load bundled New Rocker category-logo font: {err}"))
+}
+
+fn write_category_logo(
+    folder: &Path,
+    category_number: usize,
+    category_name: &str,
+    font: &FontArc,
+) -> Result<(), String> {
+    let lines = category_logo_lines(category_number, category_name);
+    let png = encode_category_logo_png(&lines, font)?;
+    let img_xen = png_to_img_xen(&png)?;
+    let logo_path = folder.join(format!("gamelogo_initool{category_number:02}.img.xen"));
+    fs::write(&logo_path, img_xen)
+        .map_err(|err| format!("Failed to write {}: {err}", logo_path.display()))?;
+
+    Ok(())
+}
+
+fn encode_category_logo_png(lines: &[String; 3], font: &FontArc) -> Result<Vec<u8>, String> {
+    let mut png = io::Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba8(render_category_logo(lines, font))
+        .write_to(&mut png, ImageFormat::Png)
+        .map_err(|err| format!("Failed to encode category logo PNG: {err}"))?;
+    Ok(png.into_inner())
+}
+
+fn png_to_img_xen(png: &[u8]) -> Result<Vec<u8>, String> {
+    if png.len() < 33 || png[..8] != PNG_SIGNATURE {
+        return Err("Generated category logo is not a valid PNG.".to_string());
+    }
+
+    let ihdr_length = u32::from_be_bytes(png[8..12].try_into().expect("IHDR length bytes"));
+    if ihdr_length != 13 || &png[12..16] != b"IHDR" {
+        return Err("Generated category logo PNG has no valid IHDR chunk.".to_string());
+    }
+
+    let width = u32::from_be_bytes(png[16..20].try_into().expect("PNG width bytes"));
+    let height = u32::from_be_bytes(png[20..24].try_into().expect("PNG height bytes"));
+    if width == 0 || width > u16::MAX as u32 || height == 0 || height > u16::MAX as u32 {
+        return Err(format!(
+            "Generated category logo dimensions {width}x{height} are unsupported."
+        ));
+    }
+    let payload_length = u32::try_from(png.len())
+        .map_err(|_| "Generated category logo PNG is too large.".to_string())?;
+
+    let mut header = [0_u8; IMG_XEN_HEADER_SIZE];
+    header[0..4].copy_from_slice(&0x0a28_1300_u32.to_be_bytes());
+    header[8..10].copy_from_slice(&(width as u16).to_be_bytes());
+    header[10..12].copy_from_slice(&(height as u16).to_be_bytes());
+    header[12..14].copy_from_slice(&1_u16.to_be_bytes());
+    header[14..16].copy_from_slice(&(width as u16).to_be_bytes());
+    header[16..18].copy_from_slice(&(height as u16).to_be_bytes());
+    header[18..20].copy_from_slice(&1_u16.to_be_bytes());
+    header[20] = 1;
+    header[21] = 32;
+    header[28..32].copy_from_slice(&(IMG_XEN_HEADER_SIZE as u32).to_be_bytes());
+    header[32..36].copy_from_slice(&payload_length.to_be_bytes());
+
+    let mut img_xen = Vec::with_capacity(IMG_XEN_HEADER_SIZE + png.len());
+    img_xen.extend_from_slice(&header);
+    img_xen.extend_from_slice(png);
+    Ok(img_xen)
+}
+
+fn category_logo_lines(category_number: usize, category_name: &str) -> [String; 3] {
+    let prefix = format!("{category_number:02} ");
+    let label_and_value = category_name.strip_prefix(&prefix).unwrap_or(category_name);
+    let (label, value) = label_and_value
+        .split_once(": ")
+        .unwrap_or(("Category", label_and_value));
+
+    [
+        format!("{category_number:02}"),
+        label.to_string(),
+        value.to_string(),
+    ]
+}
+
+fn render_category_logo(lines: &[String; 3], font: &FontArc) -> RgbaImage {
+    let mut image =
+        RgbaImage::from_pixel(CATEGORY_LOGO_SIZE, CATEGORY_LOGO_SIZE, Rgba([0, 0, 0, 0]));
+    let line_layout = lines
+        .iter()
+        .map(|line| {
+            let scale = category_logo_scale(line, font);
+            let (_, height) = text_size(scale, font, line);
+            (scale, height.max(1))
+        })
+        .collect::<Vec<_>>();
+    let total_height = line_layout.iter().map(|(_, height)| height).sum::<u32>()
+        + CATEGORY_LOGO_LINE_GAP * (lines.len() as u32 - 1);
+    let mut y = ((CATEGORY_LOGO_SIZE.saturating_sub(total_height)) / 2) as i32;
+
+    for (line, (scale, height)) in lines.iter().zip(line_layout) {
+        let (width, _) = text_size(scale, font, line);
+        let x = ((CATEGORY_LOGO_SIZE.saturating_sub(width)) / 2) as i32;
+        draw_outlined_category_logo_text(&mut image, line, x, y, scale, font);
+        y += height as i32 + CATEGORY_LOGO_LINE_GAP as i32;
+    }
+
+    image
+}
+
+fn category_logo_scale(text: &str, font: &FontArc) -> PxScale {
+    for size in (8..=128).rev() {
+        let scale = PxScale::from(size as f32);
+        let (width, height) = text_size(scale, font, text);
+        if width + (CATEGORY_LOGO_STROKE_WIDTH as u32 * 2) <= CATEGORY_LOGO_MAX_LINE_WIDTH
+            && height + (CATEGORY_LOGO_STROKE_WIDTH as u32 * 2) <= CATEGORY_LOGO_MAX_LINE_HEIGHT
+        {
+            return scale;
+        }
+    }
+
+    PxScale::from(8.0)
+}
+
+fn draw_outlined_category_logo_text(
+    image: &mut RgbaImage,
+    text: &str,
+    x: i32,
+    y: i32,
+    scale: PxScale,
+    font: &FontArc,
+) {
+    for offset_y in -CATEGORY_LOGO_STROKE_WIDTH..=CATEGORY_LOGO_STROKE_WIDTH {
+        for offset_x in -CATEGORY_LOGO_STROKE_WIDTH..=CATEGORY_LOGO_STROKE_WIDTH {
+            if offset_x * offset_x + offset_y * offset_y
+                <= CATEGORY_LOGO_STROKE_WIDTH * CATEGORY_LOGO_STROKE_WIDTH
+            {
+                draw_text_mut(
+                    image,
+                    Rgba([0, 0, 0, 255]),
+                    x + offset_x,
+                    y + offset_y,
+                    scale,
+                    font,
+                    text,
+                );
+            }
+        }
+    }
+    draw_text_mut(image, Rgba([255, 255, 255, 255]), x, y, scale, font, text);
 }
 
 fn scan_song_ini_files_paths_with_progress<F>(
@@ -4724,6 +4893,14 @@ mod tests {
     use super::*;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn third_party_licenses_include_new_rocker_ofl_text() {
+        let licenses = third_party_licenses();
+
+        assert!(licenses.contains("Copyright (c) 2011, Pablo Impallari"));
+        assert!(licenses.contains("SIL OPEN FONT LICENSE Version 1.1"));
+    }
     use std::{
         fs,
         time::{SystemTime, UNIX_EPOCH},
@@ -4814,8 +4991,51 @@ mod tests {
             .join("IniToolCategories/Category_01_Artist_AB/category.ini");
         assert_eq!(
             fs::read_to_string(category_ini).expect("category should exist"),
-            "[ModInfo]\nName=IniTool Category 01\nDescription=Songs categorized by 01 Artist: A/B.\nAuthor=GhwtDeIniTool\nVersion=1.0\n\n[CategoryInfo]\nName=01 Artist: A/B\nChecksum=IniToolCategory01\nLogo=gamelogo_gh1\n"
+            "[ModInfo]\nName=IniTool Category 01\nDescription=Songs categorized by 01 Artist: A/B.\nAuthor=GhwtDeIniTool\nVersion=1.0\n\n[CategoryInfo]\nName=01 Artist: A/B\nChecksum=IniToolCategory01\nLogo=gamelogo_initool01\n"
         );
+        let category_folder = project
+            .mods_dir
+            .join("IniToolCategories/Category_01_Artist_AB");
+        let img_xen = fs::read(category_folder.join("gamelogo_initool01.img.xen"))
+            .expect("category logo should exist");
+        assert!(img_xen.len() > IMG_XEN_HEADER_SIZE);
+        assert_eq!(
+            u32::from_be_bytes(img_xen[0..4].try_into().expect("IMG magic bytes")),
+            0x0a28_1300
+        );
+        assert_eq!(
+            u16::from_be_bytes(img_xen[8..10].try_into().expect("IMG width bytes")),
+            CATEGORY_LOGO_SIZE as u16
+        );
+        assert_eq!(
+            u16::from_be_bytes(img_xen[10..12].try_into().expect("IMG height bytes")),
+            CATEGORY_LOGO_SIZE as u16
+        );
+        assert_eq!(img_xen[20], 1);
+        assert_eq!(img_xen[21], 32);
+        assert_eq!(img_xen[22], 0);
+        assert_eq!(
+            u32::from_be_bytes(img_xen[28..32].try_into().expect("IMG offset bytes")),
+            IMG_XEN_HEADER_SIZE as u32
+        );
+        assert_eq!(
+            u32::from_be_bytes(img_xen[32..36].try_into().expect("IMG size bytes")) as usize,
+            img_xen.len() - IMG_XEN_HEADER_SIZE
+        );
+        assert_eq!(
+            &img_xen[IMG_XEN_HEADER_SIZE..IMG_XEN_HEADER_SIZE + 8],
+            PNG_SIGNATURE
+        );
+        let logo = image::load_from_memory(&img_xen[IMG_XEN_HEADER_SIZE..])
+            .expect("embedded category logo PNG should decode")
+            .to_rgba8();
+        assert_eq!(logo.dimensions(), (CATEGORY_LOGO_SIZE, CATEGORY_LOGO_SIZE));
+        assert!(logo.pixels().any(|pixel| pixel[3] == 0));
+        assert!(logo
+            .pixels()
+            .any(|pixel| *pixel == Rgba([255, 255, 255, 255])));
+        assert!(logo.pixels().any(|pixel| *pixel == Rgba([0, 0, 0, 255])));
+        assert!(!category_folder.join("gamelogo_initool01.png").exists());
         assert!(
             fs::read_to_string(project.mods_dir.join("Songs/000/song.ini"))
                 .expect("categorized song should exist")
@@ -8510,6 +8730,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             load_project_settings,
             save_project_settings,
+            third_party_licenses,
             preview_keep_only_files_delete,
             delete_keep_only_files,
             preview_ini_tool_categories,

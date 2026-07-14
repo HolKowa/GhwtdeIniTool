@@ -13,6 +13,7 @@ import {
   type CategorizationTableState,
 } from "./components/ScannedSongsTable";
 import { SettingsDialog } from "./components/SettingsDialog";
+import { ThirdPartyLicensesDialog } from "./components/ThirdPartyLicensesDialog";
 import { UpdateDialog } from "./components/UpdateDialog";
 import { useAppUpdater } from "./hooks/useAppUpdater";
 import { useModsCleaner } from "./hooks/useModsCleaner";
@@ -23,6 +24,8 @@ import "./App.css";
 
 function App() {
   const [isExperimentalWarningOpen, setIsExperimentalWarningOpen] =
+    useState(false);
+  const [isThirdPartyLicensesOpen, setIsThirdPartyLicensesOpen] =
     useState(false);
   const [isCategorizeWizardOpen, setIsCategorizeWizardOpen] = useState(false);
   const [categorizationTableState, setCategorizationTableState] =
@@ -324,6 +327,13 @@ function App() {
           Experimental software, use at your own risk!!!
         </button>
         <button
+          className="third-party-licenses-button"
+          type="button"
+          onClick={() => setIsThirdPartyLicensesOpen(true)}
+        >
+          Third-party licenses
+        </button>
+        <button
           className="settings-button"
           type="button"
           onClick={() => setIsSettingsOpen(true)}
@@ -354,6 +364,12 @@ function App() {
       {isExperimentalWarningOpen && (
         <ExperimentalWarningDialog
           onClose={() => setIsExperimentalWarningOpen(false)}
+        />
+      )}
+
+      {isThirdPartyLicensesOpen && (
+        <ThirdPartyLicensesDialog
+          onClose={() => setIsThirdPartyLicensesOpen(false)}
         />
       )}
 

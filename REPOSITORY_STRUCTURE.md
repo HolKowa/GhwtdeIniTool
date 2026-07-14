@@ -196,12 +196,15 @@ Current frontend behavior:
   rows are faintly highlighted, and re-including multiple songs from the same
   duplicate group reopens the duplicate resolver directly on the conflict step.
   The top action row includes Categorize alongside Analyze instruments and Fix
-  GameIcons. Categorize currently opens only its first informational step: it
-  reports the table sort order, active filters, unsaved metadata edits, the
-  selected-song cap, the projected 200-song categories, and whether the
-  existing `IniToolCategories` folder contains files other than `category.ini`.
-  Its Next button is disabled until the later filesystem categorization step is
-  implemented.
+  GameIcons. Categorize uses a two-step wizard: it reports the table sort order,
+  active filters, unsaved metadata edits, selected-song cap, projected 200-song
+  categories, and whether the existing `IniToolCategories` folder contains
+  files other than `category.ini`; its review step shows each generated category
+  before applying. Applying recreates `IniToolCategories`, writes category
+  metadata, assigns included songs to 200-song categories, and excludes all
+  remaining songs. Each generated category also receives a 256×256 raw-PNG
+  Neversoft `gamelogo_initoolNN.img.xen` with white outlined New Rocker text;
+  its `[CategoryInfo] Logo` uses the matching `gamelogo_initoolNN` stem.
 - The settings dialog lets the user choose a MODS folder, choose an official
   GAMELOGOS folder after MODS is set, toggle whether original `song.ini` files
   are kept before their first edit, and accept a one-time experimental-use
@@ -297,6 +300,11 @@ Current backend behavior:
   `[project]` section. Windows folder paths use conventional readable forms
   such as `C:\Games\GHWT\DATA\MODS`, without the `\\?\` prefix or escaped
   backslashes.
+- The New Rocker copyright notice and SIL Open Font License 1.1 text are
+  compiled into the executable and displayed by the top-bar Third-party
+  licenses dialog.
+- `src-tauri/resources/fonts/NewRocker-Regular.ttf` is compiled into the backend
+  executable for category-logo rendering; it is not a separate runtime file.
 - Reads and writes `mods_dir`, `official_gamelogos_dir`, and
   `keep_original_song_ini`. Missing `official_gamelogos_dir` values default to
   unset, missing `keep_original_song_ini` values default to `true`, and legacy

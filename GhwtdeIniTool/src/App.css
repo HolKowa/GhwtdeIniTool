@@ -463,6 +463,25 @@ td.scanned-songs-action-column {
   outline-offset: 3px;
 }
 
+.third-party-licenses-button {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #565656;
+  font-size: 0.9rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.third-party-licenses-button:hover {
+  color: #1f1f1f;
+}
+
+.third-party-licenses-button:focus-visible {
+  outline: 2px solid #396cd8;
+  outline-offset: 3px;
+}
+
 .settings-button {
   padding: 0.5rem 1rem;
   border: 1px solid #c7c7c7;
@@ -681,6 +700,29 @@ td.scanned-songs-action-column {
 
 .experimental-warning-panel {
   width: min(100%, 620px);
+}
+
+.third-party-licenses-panel {
+  width: min(100%, 780px);
+}
+
+.third-party-licenses-text {
+  max-height: min(65vh, 42rem);
+  margin: 1rem 0 0;
+  overflow: auto;
+  padding: 0.9rem;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  background: #f8f8f8;
+  color: #1f1f1f;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.third-party-licenses-loading {
+  margin: 1rem 0 0;
 }
 
 .settings-actions {
