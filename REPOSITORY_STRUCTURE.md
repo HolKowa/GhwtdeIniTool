@@ -162,9 +162,14 @@ Current frontend behavior:
   gamelogo stem, and can fix folders by moving multiple gamelogos into
   `Category_<gamelogo_stem>` subfolders and generating or replacing
   `category.ini` files. Step 2 previews songs whose `GameIcon` is not known
-  from official or custom gamelogos, shows backend-guessed replacements, lets
-  only the replacement value be edited, and applies the new values to
-  `song.ini` files before refreshing the scanned-song table.
+  from official or custom gamelogos, shows backend-guessed replacements based
+  on valid siblings or matching custom categories in the songs' parent folder,
+  displays each song's MODS-relative parent folder, lets only the replacement
+  value be edited or cleared, and can bulk-fill the pending replacements for
+  listed invalid sibling songs before applying the final batch to `song.ini`
+  files. Clearing a value removes the `GameIcon` entry entirely. The
+  categorization-generated top-level `IniToolCategories` folder is excluded
+  from custom GameIcon discovery.
 - After the Scan MODS folder wizard is finished, the main view shows a compact
   scanned-song table populated from parsed active `song.ini` files. It displays
   exact `[SongInfo]` `Artist`, `Title`, `Year`, `Genre`, and `GameIcon` values,
@@ -263,7 +268,8 @@ Current backend behavior:
   `song.ini` files, and returns refreshed table rows.
 - Exposes `scan_game_icon_categories` and `fix_game_icon_categories` for the
   GameIcon wizard. These commands recursively scan MODS for case-insensitive
-  `gamelogo_*.img.xen` files, parse sibling `category.ini` files with duplicate
+  `gamelogo_*.img.xen` files, excluding the top-level `IniToolCategories`
+  output folder, parse sibling `category.ini` files with duplicate
   key rejection, compare `[CategoryInfo] Logo` to the gamelogo stem, return
   original and custom gamelogo stems without `.img.xen`, and fix custom
   categories by splitting multi-gamelogo folders, renaming invalid or

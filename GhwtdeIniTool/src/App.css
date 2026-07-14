@@ -870,10 +870,6 @@ td.scanned-songs-action-column {
   line-height: 1.35;
 }
 
-.game-icon-panel {
-  width: min(66rem, calc(100vw - 3rem));
-}
-
 .categorize-panel {
   width: min(80vw, calc(100vw - 3rem));
   height: min(80vh, calc(100vh - 3rem));
@@ -1109,6 +1105,13 @@ td.scanned-songs-action-column {
   color: #2f2f2f;
   font-size: 0.76rem;
   text-transform: uppercase;
+}
+
+.game-icon-song-fix-table th:nth-child(4),
+.game-icon-song-fix-table td:nth-child(4),
+.game-icon-song-fix-table th:nth-child(5),
+.game-icon-song-fix-table td:nth-child(5) {
+  width: 12%;
 }
 
 .game-icon-song-fix-table input {
@@ -1474,6 +1477,37 @@ td.scanned-songs-action-column {
 
 .scan-wizard-actions {
   justify-content: flex-end;
+  margin-top: 1rem;
+}
+
+.game-icon-bulk-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.game-icon-bulk-confirm {
+  width: min(28rem, calc(100vw - 3rem));
+  padding: 1.25rem;
+  border: 1px solid #d9d9d9;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.08);
+}
+
+.game-icon-bulk-confirm p {
+  margin: 0;
+}
+
+.game-icon-bulk-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
   margin-top: 1rem;
 }
 

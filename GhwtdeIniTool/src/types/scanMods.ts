@@ -214,6 +214,7 @@ export type GameIconCategoryScanResult = {
 
 export type GameIconSongFixRow = {
   relative_path: string;
+  parent_relative_path: string;
   artist: string;
   title: string;
   invalid_game_icon: string;
