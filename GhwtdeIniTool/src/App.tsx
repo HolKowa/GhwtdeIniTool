@@ -134,9 +134,7 @@ function App() {
     setSongsIncluded,
     undoSongIni,
     validateSongIni,
-    verifiedContentIssueSongPaths,
-    verifyingContentIssueSongPath,
-    verifyContentIssueSong,
+    verifyContentIssueSongs,
   } = useModsScanner();
 
   useEffect(() => {
@@ -404,7 +402,7 @@ function App() {
           onSelectSongIni={clearSongIniValidationError}
           onUndoSongIni={undoSongIni}
           onValidateSongIni={validateSongIni}
-          onVerifyContentIssueSong={verifyContentIssueSong}
+          onVerifyContentIssueSongs={verifyContentIssueSongs}
           deletedSongIniConflictPaths={deletedSongIniConflictPaths}
           disabledSongIniPaths={disabledSongIniPaths}
           includedSongPaths={includedSongPaths}
@@ -417,8 +415,6 @@ function App() {
           songIniScanResult={songIniScanResult}
           songScanProgress={songScanProgress}
           songIniValidationError={songIniValidationError}
-          verifiedContentIssueSongPaths={verifiedContentIssueSongPaths}
-          verifyingContentIssueSongPath={verifyingContentIssueSongPath}
         />
       )}
 

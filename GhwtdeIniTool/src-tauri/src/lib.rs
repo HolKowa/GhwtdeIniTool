@@ -241,6 +241,15 @@ struct SongIniValidationResult {
 }
 
 #[derive(Debug, Serialize)]
+struct SongContentVerificationResult {
+    songs_parsed: usize,
+    songs: Vec<ScannedSong>,
+    duplicate_checksum_groups: Vec<DuplicateChecksumGroup>,
+    song_ini_folder_conflicts: Vec<SongIniFolderConflict>,
+    content_file_issues: Vec<SongContentIssue>,
+}
+
+#[derive(Debug, Serialize)]
 struct SongIniDisableResult {
     relative_path: String,
     disabled_path: String,
@@ -466,12 +475,12 @@ fn undo_song_ini_repair(
 }
 
 #[tauri::command]
-fn verify_song_ini_file(
-    relative_path: String,
+fn verify_content_issue_songs(
+    relative_paths: Vec<String>,
     store: tauri::State<'_, SongIniStore>,
-) -> Result<SongIniValidationResult, String> {
+) -> Result<SongContentVerificationResult, String> {
     let settings = scan_settings()?;
-    verify_song_ini_file_path(&settings, &relative_path, &store)
+    verify_content_issue_songs_paths(&settings, &relative_paths, &store)
 }
 
 #[tauri::command]
@@ -1801,32 +1810,72 @@ fn undo_song_ini_repair_path(
     })
 }
 
-fn verify_song_ini_file_path(
+fn verify_content_issue_songs_paths(
     settings: &ScanSettings,
-    relative_path: &str,
+    relative_paths: &[String],
     store: &SongIniStore,
-) -> Result<SongIniValidationResult, String> {
+) -> Result<SongContentVerificationResult, String> {
     let mods_dir = &settings.mods_dir;
-    let path = checked_mods_relative_path(mods_dir, relative_path)?;
+    let mut paths_to_remove = HashSet::new();
+    let mut parsed_song_updates = Vec::new();
+    let mut seen_paths = HashSet::new();
 
-    if !is_scanned_song_ini(&path) {
-        return Err(format!(
-            "{relative_path} is not a song.ini or song.excluded.ini file."
-        ));
+    for relative_path in relative_paths {
+        if !seen_paths.insert(relative_path.as_str()) {
+            continue;
+        }
+
+        let unresolved_path = checked_mods_relative_path_allow_missing(mods_dir, relative_path)?;
+
+        if !is_scanned_song_ini(&unresolved_path) {
+            return Err(format!(
+                "{relative_path} is not a song.ini or song.excluded.ini file."
+            ));
+        }
+
+        if !unresolved_path.is_file() {
+            paths_to_remove.insert(relative_path.as_str());
+            continue;
+        }
+
+        let path = checked_mods_relative_path(mods_dir, relative_path)?;
+        let contents = fs::read_to_string(&path)
+            .map_err(|err| format!("Failed to read {}: {err}", path.display()))?;
+        let normalized_contents = normalize_song_ini_key_case(&contents);
+        let parsed_song = parse_song_ini(relative_path, &normalized_contents)?;
+
+        parsed_song_updates.push(parsed_song);
     }
 
-    let contents = fs::read_to_string(&path)
-        .map_err(|err| format!("Failed to read {}: {err}", path.display()))?;
-    let normalized_contents = normalize_song_ini_key_case(&contents);
-    let parsed_song = parse_song_ini(relative_path, &normalized_contents)?;
+    let parsed_songs = {
+        let mut songs = store
+            .0
+            .lock()
+            .map_err(|_| "Failed to lock song.ini store.".to_string())?;
 
-    refreshed_song_ini_result(
-        settings,
-        relative_path,
-        normalized_contents,
-        parsed_song,
-        store,
-    )
+        songs.retain(|song| !paths_to_remove.contains(song.relative_path.as_str()));
+
+        for parsed_song in parsed_song_updates {
+            if let Some(existing_song) = songs
+                .iter_mut()
+                .find(|song| song.relative_path == parsed_song.relative_path)
+            {
+                *existing_song = parsed_song;
+            } else {
+                songs.push(parsed_song);
+            }
+        }
+
+        songs.clone()
+    };
+
+    Ok(SongContentVerificationResult {
+        songs_parsed: parsed_songs.len(),
+        songs: scanned_songs(mods_dir, &parsed_songs),
+        duplicate_checksum_groups: duplicate_checksum_groups(&parsed_songs),
+        song_ini_folder_conflicts: song_ini_folder_conflicts(mods_dir)?,
+        content_file_issues: song_content_issues(mods_dir, &parsed_songs)?,
+    })
 }
 
 fn disable_song_ini_file_path(
@@ -6410,67 +6459,112 @@ mod tests {
     }
 
     #[test]
-    fn song_verify_refreshes_content_issues_without_rewriting_song_ini() {
-        let project = TestProject::new("song-verify-refresh-content");
-        let song_ini_path = project.mods_dir.join("song.ini");
+    fn content_issue_verify_refreshes_multiple_songs() {
+        let project = TestProject::new("content-issue-verify-multiple");
+        let first_song_path = project.mods_dir.join("song.ini");
+        let second_song_path = project.mods_dir.join("Second").join("song.ini");
         write_test_file_contents(
-            &song_ini_path,
-            valid_song_ini("Original", "verify_checksum").as_str(),
+            &first_song_path,
+            valid_song_ini("First", "first_checksum").as_str(),
         );
-        write_valid_content_files(&project.mods_dir, "verify_checksum");
+        write_test_file_contents(
+            &second_song_path,
+            valid_song_ini("Second", "second_checksum").as_str(),
+        );
+        write_valid_content_files(&project.mods_dir, "first_checksum");
+        write_valid_content_files(&project.mods_dir.join("Second"), "second_checksum");
         fs::remove_file(
             project
                 .mods_dir
                 .join("Content")
                 .join("MUSIC")
-                .join("verify_checksum_3.fsb.xen"),
+                .join("first_checksum_3.fsb.xen"),
         )
-        .expect("required file should be removed");
+        .expect("first required file should be removed");
+        fs::remove_file(
+            project
+                .mods_dir
+                .join("Second")
+                .join("Content")
+                .join("MUSIC")
+                .join("second_checksum_3.fsb.xen"),
+        )
+        .expect("second required file should be removed");
         let store = SongIniStore::default();
+        let settings = test_scan_settings(&project);
 
-        let scan_result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
-            .expect("scan should complete");
-        assert!(scan_result.content_file_issues.iter().any(|issue| {
-            issue.song_ini_relative_path == "song.ini" && issue.message == "Missing required file."
-        }));
-
+        scan_song_ini_files_paths(&settings, &store).expect("scan should complete");
         write_test_file(
             &project
                 .mods_dir
                 .join("Content")
                 .join("MUSIC")
-                .join("verify_checksum_3.fsb.xen"),
+                .join("first_checksum_3.fsb.xen"),
+        );
+        write_test_file(
+            &project
+                .mods_dir
+                .join("Second")
+                .join("Content")
+                .join("MUSIC")
+                .join("second_checksum_3.fsb.xen"),
         );
 
-        let result = verify_song_ini_file_path(&test_scan_settings(&project), "song.ini", &store)
-            .expect("verify should pass");
+        let result = verify_content_issue_songs_paths(
+            &settings,
+            &["song.ini".to_string(), "Second/song.ini".to_string()],
+            &store,
+        )
+        .expect("content issues should verify");
 
-        assert!(result
-            .content_file_issues
-            .iter()
-            .all(|issue| issue.song_ini_relative_path != "song.ini"));
-        assert_eq!(
-            fs::read_to_string(song_ini_path).expect("song.ini should read"),
-            valid_song_ini("Original", "verify_checksum")
-        );
+        assert_eq!(result.songs_parsed, 2);
+        assert!(result.content_file_issues.is_empty());
     }
 
     #[test]
-    fn song_verify_rejects_invalid_or_unsafe_song_ini_paths() {
-        let project = TestProject::new("song-verify-rejects");
-        write_test_file_contents(&project.mods_dir.join("notes.txt"), "not a song");
+    fn content_issue_verify_removes_deleted_song_folder() {
+        let project = TestProject::new("content-issue-verify-deleted-folder");
+        let song_dir = project.mods_dir.join("Deleted");
+        write_test_file_contents(
+            &song_dir.join("song.ini"),
+            valid_song_ini("Deleted", "deleted_checksum").as_str(),
+        );
+        write_valid_content_files(&song_dir, "deleted_checksum");
+        fs::remove_file(
+            song_dir
+                .join("Content")
+                .join("MUSIC")
+                .join("deleted_checksum_3.fsb.xen"),
+        )
+        .expect("required file should be removed");
+        let store = SongIniStore::default();
+        let settings = test_scan_settings(&project);
+
+        scan_song_ini_files_paths(&settings, &store).expect("scan should complete");
+        fs::remove_dir_all(&song_dir).expect("song folder should be removed");
+
+        let result =
+            verify_content_issue_songs_paths(&settings, &["Deleted/song.ini".to_string()], &store)
+                .expect("deleted song should be removed without an error");
+
+        assert_eq!(result.songs_parsed, 0);
+        assert!(result.songs.is_empty());
+        assert!(result.content_file_issues.is_empty());
+    }
+
+    #[test]
+    fn content_issue_verify_rejects_unsafe_paths() {
+        let project = TestProject::new("content-issue-verify-unsafe-path");
         let store = SongIniStore::default();
 
-        assert_eq!(
-            verify_song_ini_file_path(&test_scan_settings(&project), "../song.ini", &store)
-                .expect_err("unsafe path should be rejected"),
-            "Rejected unsafe MODS-relative path ../song.ini."
-        );
-        assert_eq!(
-            verify_song_ini_file_path(&test_scan_settings(&project), "notes.txt", &store)
-                .expect_err("non-song.ini should be rejected"),
-            "notes.txt is not a song.ini or song.excluded.ini file."
-        );
+        let error = verify_content_issue_songs_paths(
+            &test_scan_settings(&project),
+            &["../song.ini".to_string()],
+            &store,
+        )
+        .expect_err("unsafe path should be rejected");
+
+        assert!(error.contains("Rejected unsafe MODS-relative path"));
     }
 
     #[test]
@@ -8135,7 +8229,7 @@ pub fn run() {
             scan_song_ini_files,
             validate_song_ini_file,
             undo_song_ini_repair,
-            verify_song_ini_file,
+            verify_content_issue_songs,
             disable_song_ini_file,
             enable_song_ini_file,
             delete_song_ini_conflict_file,

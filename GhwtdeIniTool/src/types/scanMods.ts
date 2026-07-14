@@ -134,6 +134,14 @@ export type SongIniValidationResult = {
   content_file_issues: SongContentIssue[];
 };
 
+export type SongContentVerificationResult = {
+  songs_parsed: number;
+  songs: ScannedSong[];
+  duplicate_checksum_groups: DuplicateChecksumGroup[];
+  song_ini_folder_conflicts: SongIniFolderConflict[];
+  content_file_issues: SongContentIssue[];
+};
+
 export type SongIniDisableResult = {
   relative_path: string;
   disabled_path: string;

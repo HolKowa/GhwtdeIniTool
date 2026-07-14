@@ -20,6 +20,7 @@ import type {
   SongIniEnableResult,
   SongIniScanResult,
   SongIniValidationResult,
+  SongContentVerificationResult,
 } from "../types/scanMods";
 
 export function previewKeepOnlyFilesDelete(keepOnlyFilesPattern: string) {
@@ -60,9 +61,9 @@ export function undoSongIniRepair(relativePath: string, contents: string) {
   });
 }
 
-export function verifySongIniFile(relativePath: string) {
-  return invoke<SongIniValidationResult>("verify_song_ini_file", {
-    relativePath,
+export function verifyContentIssueSongs(relativePaths: string[]) {
+  return invoke<SongContentVerificationResult>("verify_content_issue_songs", {
+    relativePaths,
   });
 }
 

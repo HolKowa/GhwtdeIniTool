@@ -813,6 +813,21 @@ td.scanned-songs-action-column {
   overflow-wrap: anywhere;
 }
 
+.content-issue-summary-row {
+  display: grid;
+  align-items: flex-start;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+}
+
+.content-issue-summary-row .secondary-btn {
+  justify-self: end;
+}
+
+.content-issue-groups {
+  margin-top: 0.75rem;
+}
+
 .instrument-analyze-panel {
   width: min(34rem, calc(100vw - 3rem));
   height: auto;
@@ -2036,6 +2051,14 @@ td.scanned-songs-action-column {
   .scan-wizard-actions {
     align-items: stretch;
     flex-direction: column-reverse;
+  }
+
+  .content-issue-summary-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .content-issue-summary-row .secondary-btn {
+    margin-left: auto;
   }
 
   .song-ini-repair {

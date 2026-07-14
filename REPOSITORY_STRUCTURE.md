@@ -142,10 +142,9 @@ Current frontend behavior:
   checksum-derived file names case-insensitively without renaming them, reports
   missing/misnamed/extra files, requires missing files to be resolved before
   the scan can finish, lists extra files without blocking completion, lets the
-  user copy the native absolute path to the related song folder, verify a song
-  again after external file fixes, and
-  can disable that `song.ini`. Verified songs remain visible as fine when their
-  content issues are resolved. Debug/Tauri dev runs
+  user copy the native absolute path to the related song folder, verify all
+  affected songs together after external file fixes or folder deletions, and
+  can disable that `song.ini`. Debug/Tauri dev runs
   temporarily suppress missing `Content/MUSIC` warnings when that folder is
   absent so local development can omit bulky MUSIC assets. The wizard scales
   with the app window while keeping preview content scrollable, and shows
