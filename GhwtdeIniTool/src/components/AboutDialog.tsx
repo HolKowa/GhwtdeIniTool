@@ -3,7 +3,7 @@ import { isTauri } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useState } from "react";
 
-const REPOSITORY_URL = "https://github.com/HolKowa/GhwtdeIniLoader";
+const REPOSITORY_URL = "https://github.com/HolKowa/GhwtdeIniTool";
 
 function openRepository() {
   if (isTauri()) {

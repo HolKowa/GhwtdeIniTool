@@ -39,7 +39,7 @@ Useful variables:
 
 ```sh
 # Repository used to generate the GitHub Releases updater endpoint.
-GHWTDE_UPDATER_REPOSITORY=HolKowa/GhwtdeIniLoader
+GHWTDE_UPDATER_REPOSITORY=HolKowa/GhwtdeIniTool
 
 # Optional direct updater endpoint override.
 # Useful for local updater testing.
