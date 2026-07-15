@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { CleanModsWizard } from "./components/CleanModsWizard";
+import { AboutDialog } from "./components/AboutDialog";
 import { CategorizeWizard } from "./components/CategorizeWizard";
 import { ExperimentalWarningDialog } from "./components/ExperimentalWarningDialog";
 import { FixGameIconsWizard } from "./components/FixGameIconsWizard";
@@ -23,6 +24,7 @@ import { useProjectSettings } from "./hooks/useProjectSettings";
 import "./App.css";
 
 function App() {
+  const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [isExperimentalWarningOpen, setIsExperimentalWarningOpen] =
     useState(false);
   const [isThirdPartyLicensesOpen, setIsThirdPartyLicensesOpen] =
@@ -327,11 +329,11 @@ function App() {
           Experimental software, use at your own risk!!!
         </button>
         <button
-          className="third-party-licenses-button"
+          className="about-button"
           type="button"
-          onClick={() => setIsThirdPartyLicensesOpen(true)}
+          onClick={() => setIsAboutOpen(true)}
         >
-          Third-party licenses
+          About
         </button>
         <button
           className="settings-button"
@@ -364,6 +366,13 @@ function App() {
       {isExperimentalWarningOpen && (
         <ExperimentalWarningDialog
           onClose={() => setIsExperimentalWarningOpen(false)}
+        />
+      )}
+
+      {isAboutOpen && (
+        <AboutDialog
+          onClose={() => setIsAboutOpen(false)}
+          onOpenThirdPartyLicenses={() => setIsThirdPartyLicensesOpen(true)}
         />
       )}
 

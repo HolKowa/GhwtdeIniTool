@@ -45,6 +45,8 @@ Important files:
   confirmation.
 - `GhwtdeIniTool/src/components/CategorizeWizard.tsx` renders the two-step
   song categorization preview and confirmation workflow.
+- `GhwtdeIniTool/src/components/AboutDialog.tsx` renders product version,
+  GitHub support, and third-party license links.
 - `GhwtdeIniTool/src/components/ExperimentalWarningDialog.tsx` renders the
   read-only experimental-use disclaimer dialog.
 - `GhwtdeIniTool/src/components/FixGameIconsWizard.tsx` renders the custom
@@ -107,6 +109,9 @@ Current frontend behavior:
 - The settings button can reopen the dialog after startup.
 - A persistent red experimental-risk warning appears beside Settings; selecting
   it opens a read-only dialog with the experimental-use disclaimer text.
+- The top-right About link opens a dedicated dialog that shows the installed
+  Tauri app version, opens the GitHub repository for support and bug reports,
+  and provides access to the bundled third-party license text.
 - The Clean MODS folder button opens a two-step wizard that asks for a
   keep-pattern, previews MODS files that do not match it in sortable Path and
   File columns, allows individual or all previewed files to be deselected,
