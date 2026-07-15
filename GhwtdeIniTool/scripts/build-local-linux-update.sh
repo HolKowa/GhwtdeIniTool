@@ -22,18 +22,18 @@ if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.+][0-9A-Za-z.-]+)?$ ]]; then
 fi
 
 LOCAL_UPDATER_DIR="$ROOT/public/updater-local"
-DEB_NAME="ghwtdeinitool_${VERSION}_amd64.deb"
-DEB_PATH="$ROOT/src-tauri/target/release/bundle/deb/$DEB_NAME"
-SIG_PATH="$DEB_PATH.sig"
+APPIMAGE_NAME="ghwtdeinitool_${VERSION}_amd64.AppImage"
+APPIMAGE_PATH="$ROOT/src-tauri/target/release/bundle/appimage/$APPIMAGE_NAME"
+SIG_PATH="$APPIMAGE_PATH.sig"
 BASE_URL="http://localhost:1420/updater-local"
 
 cd "$ROOT"
 
-echo "Building signed Linux .deb updater artifact for version $VERSION..."
-pnpm tauri build --bundles deb
+echo "Building signed Linux AppImage updater artifact for version $VERSION..."
+pnpm tauri build --bundles appimage
 
-if [ ! -f "$DEB_PATH" ]; then
-  echo "Expected bundle was not created: $DEB_PATH"
+if [ ! -f "$APPIMAGE_PATH" ]; then
+  echo "Expected bundle was not created: $APPIMAGE_PATH"
   exit 1
 fi
 
@@ -44,10 +44,10 @@ if [ ! -f "$SIG_PATH" ]; then
 fi
 
 mkdir -p "$LOCAL_UPDATER_DIR"
-cp "$DEB_PATH" "$LOCAL_UPDATER_DIR/$DEB_NAME"
+cp "$APPIMAGE_PATH" "$LOCAL_UPDATER_DIR/$APPIMAGE_NAME"
 
 SIGNATURE="$(tr -d '\r\n' < "$SIG_PATH")"
-UPDATE_URL="$BASE_URL/$DEB_NAME"
+UPDATE_URL="$BASE_URL/$APPIMAGE_NAME"
 PUB_DATE="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
 jq -n \
@@ -65,7 +65,7 @@ jq -n \
         signature: $signature,
         url: $url
       },
-      "linux-x86_64-deb": {
+      "linux-x86_64-appimage": {
         signature: $signature,
         url: $url
       }
@@ -73,7 +73,7 @@ jq -n \
   }' > "$LOCAL_UPDATER_DIR/latest.json"
 
 echo "Created local Linux updater fixture:"
-echo "  $LOCAL_UPDATER_DIR/$DEB_NAME"
+echo "  $LOCAL_UPDATER_DIR/$APPIMAGE_NAME"
 echo "  $LOCAL_UPDATER_DIR/latest.json"
 echo
 echo "Use these local dev settings:"

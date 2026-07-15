@@ -381,7 +381,11 @@ The repository has one GitHub Actions workflow:
 Current workflow behavior:
 
 - Builds Windows artifacts on pushes to `main` and `integration`.
-- Can optionally build Linux artifacts through manual workflow dispatch.
+- Publishes Windows installers and a signed x86_64 Linux AppImage to a GitHub
+  Release on pushes to `main`; its combined `latest.json` supports both updater
+  targets.
+- Can build a signed Linux AppImage as an artifact through manual workflow
+  dispatch, including from `integration`, without creating a release.
 - Uses Node.js 24, pnpm, and Rust.
 - Builds the Tauri app with signing secrets.
 - Uploads installer and portable artifacts.
