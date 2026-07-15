@@ -1,0 +1,11 @@
+{{#each licenses}}
+{{#if first_of_kind}}
+{{{name}}}
+{{#each used_by}}
+  - {{crate.name}} {{crate.version}}
+{{/each}}
+
+{{{text}}}
+
+{{/if}}
+{{/each}}
