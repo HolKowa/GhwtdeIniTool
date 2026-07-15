@@ -67,6 +67,7 @@ struct ProjectSettings {
     official_gamelogos_dir: Option<String>,
     official_gamelogos_dir_available: bool,
     keep_original_song_ini: bool,
+    check_for_updates_on_startup: bool,
     settings_file: String,
 }
 
@@ -76,6 +77,7 @@ struct ProjectSettingsInput {
     mods_dir: Option<String>,
     official_gamelogos_dir: Option<String>,
     keep_original_song_ini: Option<bool>,
+    check_for_updates_on_startup: Option<bool>,
 }
 
 #[derive(Default, Serialize)]
@@ -393,6 +395,7 @@ struct StoredProjectSettings {
     mods_dir: Option<String>,
     official_gamelogos_dir: Option<String>,
     keep_original_song_ini: bool,
+    check_for_updates_on_startup: bool,
 }
 
 #[tauri::command]
@@ -665,6 +668,7 @@ fn project_settings(settings_path: PathBuf, settings: StoredProjectSettings) -> 
         official_gamelogos_dir: settings.official_gamelogos_dir,
         official_gamelogos_dir_available,
         keep_original_song_ini: settings.keep_original_song_ini,
+        check_for_updates_on_startup: settings.check_for_updates_on_startup,
         settings_file: settings_path.to_string_lossy().into_owned(),
     }
 }
@@ -4694,6 +4698,9 @@ fn read_project_settings_from_ini(contents: &str) -> StoredProjectSettings {
             "keep_original_song_ini" => {
                 settings.keep_original_song_ini = parse_ini_bool(&value).unwrap_or(true)
             }
+            "check_for_updates_on_startup" => {
+                settings.check_for_updates_on_startup = parse_ini_bool(&value).unwrap_or(true)
+            }
             _ => {}
         }
     }
@@ -4703,11 +4710,12 @@ fn read_project_settings_from_ini(contents: &str) -> StoredProjectSettings {
 
 fn write_project_settings_to_ini(settings: &StoredProjectSettings) -> String {
     format!(
-        "[project]\ndisclaimer_accepted={}\nmods_dir={}\nofficial_gamelogos_dir={}\nkeep_original_song_ini={}\n",
+        "[project]\ndisclaimer_accepted={}\nmods_dir={}\nofficial_gamelogos_dir={}\nkeep_original_song_ini={}\ncheck_for_updates_on_startup={}\n",
         settings.disclaimer_accepted,
         settings.mods_dir.as_deref().unwrap_or(""),
         settings.official_gamelogos_dir.as_deref().unwrap_or(""),
-        settings.keep_original_song_ini
+        settings.keep_original_song_ini,
+        settings.check_for_updates_on_startup
     )
 }
 
@@ -4734,6 +4742,7 @@ fn validate_project_settings(
         official_gamelogos_dir: official_gamelogos_dir
             .map(|path| normalize_settings_path_string(path.to_string_lossy().into_owned())),
         keep_original_song_ini: settings.keep_original_song_ini.unwrap_or(true),
+        check_for_updates_on_startup: settings.check_for_updates_on_startup.unwrap_or(true),
     })
 }
 
@@ -4885,6 +4894,7 @@ impl Default for StoredProjectSettings {
             mods_dir: None,
             official_gamelogos_dir: None,
             keep_original_song_ini: true,
+            check_for_updates_on_startup: true,
         }
     }
 }
@@ -5084,6 +5094,7 @@ mod tests {
         assert_eq!(settings.mods_dir.as_deref(), Some("/tmp/MODS"));
         assert_eq!(settings.official_gamelogos_dir, None);
         assert!(settings.keep_original_song_ini);
+        assert!(settings.check_for_updates_on_startup);
     }
 
     #[test]
@@ -5108,6 +5119,15 @@ mod tests {
     }
 
     #[test]
+    fn settings_parse_check_for_updates_on_startup() {
+        let settings = read_project_settings_from_ini(
+            "[project]\nmods_dir=/tmp/MODS\ncheck_for_updates_on_startup=false\n",
+        );
+
+        assert!(!settings.check_for_updates_on_startup);
+    }
+
+    #[test]
     fn settings_parse_disclaimer_accepted() {
         let settings = read_project_settings_from_ini(
             "[project]\nmods_dir=/tmp/MODS\ndisclaimer_accepted=true\n",
@@ -5123,11 +5143,12 @@ mod tests {
             mods_dir: Some("/tmp/MODS".to_string()),
             official_gamelogos_dir: Some("/tmp/IMAGES/GAMELOGOS".to_string()),
             keep_original_song_ini: false,
+            check_for_updates_on_startup: false,
         };
 
         assert_eq!(
             write_project_settings_to_ini(&settings),
-            "[project]\ndisclaimer_accepted=true\nmods_dir=/tmp/MODS\nofficial_gamelogos_dir=/tmp/IMAGES/GAMELOGOS\nkeep_original_song_ini=false\n"
+            "[project]\ndisclaimer_accepted=true\nmods_dir=/tmp/MODS\nofficial_gamelogos_dir=/tmp/IMAGES/GAMELOGOS\nkeep_original_song_ini=false\ncheck_for_updates_on_startup=false\n"
         );
     }
 
@@ -5138,11 +5159,12 @@ mod tests {
             mods_dir: Some("C:\\Games\\GHWT\\DATA\\MODS".to_string()),
             official_gamelogos_dir: Some("C:\\Games\\GHWT\\DATA\\IMAGES\\GAMELOGOS".to_string()),
             keep_original_song_ini: true,
+            check_for_updates_on_startup: true,
         };
 
         assert_eq!(
             write_project_settings_to_ini(&settings),
-            "[project]\ndisclaimer_accepted=true\nmods_dir=C:\\Games\\GHWT\\DATA\\MODS\nofficial_gamelogos_dir=C:\\Games\\GHWT\\DATA\\IMAGES\\GAMELOGOS\nkeep_original_song_ini=true\n"
+            "[project]\ndisclaimer_accepted=true\nmods_dir=C:\\Games\\GHWT\\DATA\\MODS\nofficial_gamelogos_dir=C:\\Games\\GHWT\\DATA\\IMAGES\\GAMELOGOS\nkeep_original_song_ini=true\ncheck_for_updates_on_startup=true\n"
         );
     }
 
@@ -5300,6 +5322,7 @@ mod tests {
                 mods_dir: Some(mods_dir.to_string_lossy().into_owned()),
                 official_gamelogos_dir: Some(manual_gamelogos_dir.to_string_lossy().into_owned()),
                 keep_original_song_ini: Some(false),
+                check_for_updates_on_startup: None,
             },
             &StoredProjectSettings::default(),
         )
@@ -5343,6 +5366,7 @@ mod tests {
                 previous_auto_gamelogos_dir.to_string_lossy().into_owned(),
             ),
             keep_original_song_ini: true,
+            check_for_updates_on_startup: true,
         };
         let settings = validate_project_settings(
             ProjectSettingsInput {
@@ -5352,6 +5376,7 @@ mod tests {
                     previous_auto_gamelogos_dir.to_string_lossy().into_owned(),
                 ),
                 keep_original_song_ini: None,
+                check_for_updates_on_startup: None,
             },
             &previous_settings,
         )
@@ -5378,6 +5403,7 @@ mod tests {
                 mods_dir: Some(project.mods_dir.to_string_lossy().into_owned()),
                 official_gamelogos_dir: None,
                 keep_original_song_ini: None,
+                check_for_updates_on_startup: None,
             },
             &StoredProjectSettings::default(),
         )

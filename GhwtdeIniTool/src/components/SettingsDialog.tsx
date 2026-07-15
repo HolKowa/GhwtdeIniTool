@@ -10,6 +10,7 @@ type SettingsDialogProps = {
   onChangeGameLogosFolder: () => void;
   onChangeFolder: () => void;
   onClose: () => void;
+  onCheckForUpdatesOnStartupChange: (checkForUpdatesOnStartup: boolean) => void;
   onKeepOriginalSongIniChange: (keepOriginalSongIni: boolean) => void;
   settings: ProjectSettings | null;
   settingsError: string;
@@ -22,6 +23,7 @@ export function SettingsDialog({
   onChangeGameLogosFolder,
   onChangeFolder,
   onClose,
+  onCheckForUpdatesOnStartupChange,
   onKeepOriginalSongIniChange,
   settings,
   settingsError,
@@ -121,6 +123,22 @@ export function SettingsDialog({
             }
             onChange={(event) =>
               onKeepOriginalSongIniChange(event.currentTarget.checked)
+            }
+          />
+        </label>
+
+        <label className="settings-toggle-row">
+          <span>Check for updates on startup</span>
+          <input
+            type="checkbox"
+            checked={settings?.check_for_updates_on_startup ?? true}
+            disabled={
+              isLoading ||
+              !hasAvailableModsFolder ||
+              !hasAvailableGameLogosFolder
+            }
+            onChange={(event) =>
+              onCheckForUpdatesOnStartupChange(event.currentTarget.checked)
             }
           />
         </label>

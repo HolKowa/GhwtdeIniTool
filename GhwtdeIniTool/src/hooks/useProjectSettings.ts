@@ -19,6 +19,7 @@ const defaultSettings: ProjectSettings = {
   official_gamelogos_dir: null,
   official_gamelogos_dir_available: false,
   keep_original_song_ini: true,
+  check_for_updates_on_startup: true,
   settings_file: "",
 };
 
@@ -103,6 +104,22 @@ export function useProjectSettings() {
     [persistSettings],
   );
 
+  const setCheckForUpdatesOnStartup = useCallback(
+    async (checkForUpdatesOnStartup: boolean) => {
+      try {
+        await persistSettings({
+          check_for_updates_on_startup: checkForUpdatesOnStartup,
+        });
+        return true;
+      } catch (err) {
+        setSettingsStatus("error");
+        setSettingsError(String(err));
+        return false;
+      }
+    },
+    [persistSettings],
+  );
+
   const acceptDisclaimer = useCallback(async () => {
     try {
       const savedSettings = await persistSettings({
@@ -126,14 +143,16 @@ export function useProjectSettings() {
       if (!hasCompleteSetup(loadedSettings)) {
         setSettingsStatus("needs-folder");
         setIsSettingsOpen(true);
-        return;
+        return loadedSettings;
       }
 
       setSettingsStatus("ready");
       setSettingsError("");
+      return loadedSettings;
     } catch (err) {
       setSettingsStatus("error");
       setSettingsError(String(err));
+      return null;
     }
   }, []);
 
@@ -143,6 +162,7 @@ export function useProjectSettings() {
     chooseModsFolder,
     isSettingsOpen,
     loadSettings,
+    setCheckForUpdatesOnStartup,
     setKeepOriginalSongIni,
     setIsSettingsOpen,
     settings,

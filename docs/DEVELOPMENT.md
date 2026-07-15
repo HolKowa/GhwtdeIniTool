@@ -125,12 +125,16 @@ cargo check
 
 ## Updater Behavior
 
-The app checks for updates on launch.
+The app checks for updates on launch by default. Users can disable this from
+the update popup or Settings; the preference is stored in `ghwtdeinitool.ini`.
 
 - If no update is available, nothing is shown.
 - If the update server cannot be reached during the initial check, nothing is shown.
-- If an update is available, a popup is shown with `Update` and `Skip`.
+- If an update is available, a popup is shown with `Update`, `Skip`, and
+  `Don't check again`.
 - `Skip` closes the popup and shows no extra message.
+- `Don't check again` disables future launch-time update checks until the
+  Settings checkbox is re-enabled.
 - Download/install errors are shown only after the user chooses to update.
 
 ## Signing Keys
