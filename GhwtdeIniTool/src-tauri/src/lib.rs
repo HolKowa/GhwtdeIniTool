@@ -1,3 +1,6 @@
+use ab_glyph::{FontArc, PxScale};
+use image::{ImageFormat, Rgba, RgbaImage};
+use imageproc::drawing::{draw_text_mut, text_size};
 use ini::Ini;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -16,6 +19,15 @@ mod song_pak_analyzer;
 const SETTINGS_FILE_NAME: &str = "ghwtdeinitool.ini";
 const INSTRUMENT_SIDECAR_FILE_NAME: &str = "song.instruments.ini";
 const INSTRUMENT_ANALYZER_VERSION: &str = "1";
+const CATEGORY_LOGO_SIZE: u32 = 256;
+const CATEGORY_LOGO_STROKE_WIDTH: i32 = 3;
+const CATEGORY_LOGO_MAX_LINE_WIDTH: u32 = 228;
+const CATEGORY_LOGO_MAX_LINE_HEIGHT: u32 = 68;
+const CATEGORY_LOGO_LINE_GAP: u32 = 6;
+const PNG_SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+const IMG_XEN_HEADER_SIZE: usize = 40;
+const THIRD_PARTY_LICENSES: &str =
+    include_str!(concat!(env!("OUT_DIR"), "/third_party_licenses.txt"));
 const MOD_INFO_KEYS: &[&str] = &["Key", "Name", "Description", "Author", "Version"];
 const SONG_INFO_KEYS: &[&str] = &[
     "Key",
@@ -241,6 +253,15 @@ struct SongIniValidationResult {
 }
 
 #[derive(Debug, Serialize)]
+struct SongContentVerificationResult {
+    songs_parsed: usize,
+    songs: Vec<ScannedSong>,
+    duplicate_checksum_groups: Vec<DuplicateChecksumGroup>,
+    song_ini_folder_conflicts: Vec<SongIniFolderConflict>,
+    content_file_issues: Vec<SongContentIssue>,
+}
+
+#[derive(Debug, Serialize)]
 struct SongIniDisableResult {
     relative_path: String,
     disabled_path: String,
@@ -328,6 +349,7 @@ struct GameIconSongFixPreview {
 #[derive(Clone, Debug, Serialize)]
 struct GameIconSongFixRow {
     relative_path: String,
+    parent_relative_path: String,
     artist: String,
     title: String,
     invalid_game_icon: String,
@@ -354,6 +376,7 @@ struct GameIconSongFixApplyResult {
 struct CustomGameIconLocation {
     stem: String,
     folder_relative_path: String,
+    has_matching_category_ini: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -403,6 +426,11 @@ fn save_project_settings(settings: ProjectSettingsInput) -> Result<ProjectSettin
     })?;
 
     Ok(project_settings(settings_path, settings))
+}
+
+#[tauri::command]
+fn third_party_licenses() -> String {
+    THIRD_PARTY_LICENSES.to_string()
 }
 
 #[tauri::command]
@@ -466,12 +494,12 @@ fn undo_song_ini_repair(
 }
 
 #[tauri::command]
-fn verify_song_ini_file(
-    relative_path: String,
+fn verify_content_issue_songs(
+    relative_paths: Vec<String>,
     store: tauri::State<'_, SongIniStore>,
-) -> Result<SongIniValidationResult, String> {
+) -> Result<SongContentVerificationResult, String> {
     let settings = scan_settings()?;
-    verify_song_ini_file_path(&settings, &relative_path, &store)
+    verify_content_issue_songs_paths(&settings, &relative_paths, &store)
 }
 
 #[tauri::command]
@@ -810,6 +838,8 @@ fn categorize_songs_paths(
         return Err("The category preview is stale. Return to step 1 and try again.".to_string());
     }
 
+    let category_logo_font = load_category_logo_font()?;
+
     let categories_dir = settings.mods_dir.join("IniToolCategories");
     if categories_dir.exists() && !categories_dir.is_dir() {
         return Err(format!(
@@ -844,6 +874,7 @@ fn categorize_songs_paths(
     for (index, category_name) in input.category_names.iter().enumerate() {
         let category_number = index + 1;
         let checksum = format!("IniToolCategory{category_number:02}");
+        let logo_stem = format!("gamelogo_initool{category_number:02}");
         let folder = categories_dir.join(format!(
             "Category_{}",
             sanitize_category_folder_name(category_name)
@@ -851,11 +882,12 @@ fn categorize_songs_paths(
         fs::create_dir(&folder)
             .map_err(|err| format!("Failed to create {}: {err}", folder.display()))?;
         let contents = format!(
-            "[ModInfo]\nName=IniTool Category {category_number:02}\nDescription=Songs categorized by {category_name}.\nAuthor=GhwtDeIniTool\nVersion=1.0\n\n[CategoryInfo]\nName={category_name}\nChecksum={checksum}\nLogo=gamelogo_gh1\n"
+            "[ModInfo]\nName=IniTool Category {category_number:02}\nDescription=Songs categorized by {category_name}.\nAuthor=GhwtDeIniTool\nVersion=1.0\n\n[CategoryInfo]\nName={category_name}\nChecksum={checksum}\nLogo={logo_stem}\n"
         );
         let category_ini = folder.join("category.ini");
         fs::write(&category_ini, contents)
             .map_err(|err| format!("Failed to write {}: {err}", category_ini.display()))?;
+        write_category_logo(&folder, category_number, category_name, &category_logo_font)?;
     }
 
     let categorized_path_set = categorized_paths.iter().collect::<HashSet<_>>();
@@ -928,6 +960,155 @@ fn sanitize_category_folder_name(value: &str) -> String {
     } else {
         sanitized.to_string()
     }
+}
+
+fn load_category_logo_font() -> Result<FontArc, String> {
+    FontArc::try_from_slice(include_bytes!("../resources/fonts/NewRocker-Regular.ttf"))
+        .map_err(|err| format!("Failed to load bundled New Rocker category-logo font: {err}"))
+}
+
+fn write_category_logo(
+    folder: &Path,
+    category_number: usize,
+    category_name: &str,
+    font: &FontArc,
+) -> Result<(), String> {
+    let lines = category_logo_lines(category_number, category_name);
+    let png = encode_category_logo_png(&lines, font)?;
+    let img_xen = png_to_img_xen(&png)?;
+    let logo_path = folder.join(format!("gamelogo_initool{category_number:02}.img.xen"));
+    fs::write(&logo_path, img_xen)
+        .map_err(|err| format!("Failed to write {}: {err}", logo_path.display()))?;
+
+    Ok(())
+}
+
+fn encode_category_logo_png(lines: &[String; 3], font: &FontArc) -> Result<Vec<u8>, String> {
+    let mut png = io::Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba8(render_category_logo(lines, font))
+        .write_to(&mut png, ImageFormat::Png)
+        .map_err(|err| format!("Failed to encode category logo PNG: {err}"))?;
+    Ok(png.into_inner())
+}
+
+fn png_to_img_xen(png: &[u8]) -> Result<Vec<u8>, String> {
+    if png.len() < 33 || png[..8] != PNG_SIGNATURE {
+        return Err("Generated category logo is not a valid PNG.".to_string());
+    }
+
+    let ihdr_length = u32::from_be_bytes(png[8..12].try_into().expect("IHDR length bytes"));
+    if ihdr_length != 13 || &png[12..16] != b"IHDR" {
+        return Err("Generated category logo PNG has no valid IHDR chunk.".to_string());
+    }
+
+    let width = u32::from_be_bytes(png[16..20].try_into().expect("PNG width bytes"));
+    let height = u32::from_be_bytes(png[20..24].try_into().expect("PNG height bytes"));
+    if width == 0 || width > u16::MAX as u32 || height == 0 || height > u16::MAX as u32 {
+        return Err(format!(
+            "Generated category logo dimensions {width}x{height} are unsupported."
+        ));
+    }
+    let payload_length = u32::try_from(png.len())
+        .map_err(|_| "Generated category logo PNG is too large.".to_string())?;
+
+    let mut header = [0_u8; IMG_XEN_HEADER_SIZE];
+    header[0..4].copy_from_slice(&0x0a28_1300_u32.to_be_bytes());
+    header[8..10].copy_from_slice(&(width as u16).to_be_bytes());
+    header[10..12].copy_from_slice(&(height as u16).to_be_bytes());
+    header[12..14].copy_from_slice(&1_u16.to_be_bytes());
+    header[14..16].copy_from_slice(&(width as u16).to_be_bytes());
+    header[16..18].copy_from_slice(&(height as u16).to_be_bytes());
+    header[18..20].copy_from_slice(&1_u16.to_be_bytes());
+    header[20] = 1;
+    header[21] = 32;
+    header[28..32].copy_from_slice(&(IMG_XEN_HEADER_SIZE as u32).to_be_bytes());
+    header[32..36].copy_from_slice(&payload_length.to_be_bytes());
+
+    let mut img_xen = Vec::with_capacity(IMG_XEN_HEADER_SIZE + png.len());
+    img_xen.extend_from_slice(&header);
+    img_xen.extend_from_slice(png);
+    Ok(img_xen)
+}
+
+fn category_logo_lines(category_number: usize, category_name: &str) -> [String; 3] {
+    let prefix = format!("{category_number:02} ");
+    let label_and_value = category_name.strip_prefix(&prefix).unwrap_or(category_name);
+    let (label, value) = label_and_value
+        .split_once(": ")
+        .unwrap_or(("Category", label_and_value));
+
+    [
+        format!("{category_number:02}"),
+        label.to_string(),
+        value.to_string(),
+    ]
+}
+
+fn render_category_logo(lines: &[String; 3], font: &FontArc) -> RgbaImage {
+    let mut image =
+        RgbaImage::from_pixel(CATEGORY_LOGO_SIZE, CATEGORY_LOGO_SIZE, Rgba([0, 0, 0, 0]));
+    let line_layout = lines
+        .iter()
+        .map(|line| {
+            let scale = category_logo_scale(line, font);
+            let (_, height) = text_size(scale, font, line);
+            (scale, height.max(1))
+        })
+        .collect::<Vec<_>>();
+    let total_height = line_layout.iter().map(|(_, height)| height).sum::<u32>()
+        + CATEGORY_LOGO_LINE_GAP * (lines.len() as u32 - 1);
+    let mut y = ((CATEGORY_LOGO_SIZE.saturating_sub(total_height)) / 2) as i32;
+
+    for (line, (scale, height)) in lines.iter().zip(line_layout) {
+        let (width, _) = text_size(scale, font, line);
+        let x = ((CATEGORY_LOGO_SIZE.saturating_sub(width)) / 2) as i32;
+        draw_outlined_category_logo_text(&mut image, line, x, y, scale, font);
+        y += height as i32 + CATEGORY_LOGO_LINE_GAP as i32;
+    }
+
+    image
+}
+
+fn category_logo_scale(text: &str, font: &FontArc) -> PxScale {
+    for size in (8..=128).rev() {
+        let scale = PxScale::from(size as f32);
+        let (width, height) = text_size(scale, font, text);
+        if width + (CATEGORY_LOGO_STROKE_WIDTH as u32 * 2) <= CATEGORY_LOGO_MAX_LINE_WIDTH
+            && height + (CATEGORY_LOGO_STROKE_WIDTH as u32 * 2) <= CATEGORY_LOGO_MAX_LINE_HEIGHT
+        {
+            return scale;
+        }
+    }
+
+    PxScale::from(8.0)
+}
+
+fn draw_outlined_category_logo_text(
+    image: &mut RgbaImage,
+    text: &str,
+    x: i32,
+    y: i32,
+    scale: PxScale,
+    font: &FontArc,
+) {
+    for offset_y in -CATEGORY_LOGO_STROKE_WIDTH..=CATEGORY_LOGO_STROKE_WIDTH {
+        for offset_x in -CATEGORY_LOGO_STROKE_WIDTH..=CATEGORY_LOGO_STROKE_WIDTH {
+            if offset_x * offset_x + offset_y * offset_y
+                <= CATEGORY_LOGO_STROKE_WIDTH * CATEGORY_LOGO_STROKE_WIDTH
+            {
+                draw_text_mut(
+                    image,
+                    Rgba([0, 0, 0, 255]),
+                    x + offset_x,
+                    y + offset_y,
+                    scale,
+                    font,
+                    text,
+                );
+            }
+        }
+    }
+    draw_text_mut(image, Rgba([255, 255, 255, 255]), x, y, scale, font, text);
 }
 
 fn scan_song_ini_files_paths_with_progress<F>(
@@ -1016,7 +1197,12 @@ fn scan_game_icon_categories_paths(
 ) -> Result<GameIconCategoryScanResult, String> {
     let mut errors = Vec::new();
     let mut gamelogo_paths = Vec::new();
-    collect_gamelogo_files(&settings.mods_dir, &mut gamelogo_paths, &mut errors);
+    collect_gamelogo_files(
+        &settings.mods_dir,
+        &settings.mods_dir,
+        &mut gamelogo_paths,
+        &mut errors,
+    );
     gamelogo_paths.sort();
     Ok(game_icon_category_scan_result(
         settings,
@@ -1124,7 +1310,12 @@ fn fix_game_icon_categories_paths(
     }
 
     let mut gamelogo_paths = Vec::new();
-    collect_gamelogo_files(&settings.mods_dir, &mut gamelogo_paths, &mut errors);
+    collect_gamelogo_files(
+        &settings.mods_dir,
+        &settings.mods_dir,
+        &mut gamelogo_paths,
+        &mut errors,
+    );
     gamelogo_paths.sort();
     let grouped_paths = game_icon_paths_by_folder(&gamelogo_paths);
 
@@ -1140,7 +1331,12 @@ fn fix_game_icon_categories_paths(
     }
 
     let mut refreshed_paths = Vec::new();
-    collect_gamelogo_files(&settings.mods_dir, &mut refreshed_paths, &mut errors);
+    collect_gamelogo_files(
+        &settings.mods_dir,
+        &settings.mods_dir,
+        &mut refreshed_paths,
+        &mut errors,
+    );
     refreshed_paths.sort();
     Ok(game_icon_category_scan_result(
         settings,
@@ -1180,13 +1376,10 @@ fn apply_game_icon_song_fixes_paths(
     let mut seen_paths = HashSet::new();
 
     for fix in &fixes {
-        if fix.new_game_icon.trim().is_empty() {
-            return Err(format!(
-                "{} has no replacement GameIcon.",
-                fix.relative_path
-            ));
-        }
-        if !valid_game_icon_keys.contains(&fix.new_game_icon.to_ascii_lowercase()) {
+        let new_game_icon = fix.new_game_icon.trim();
+        if !new_game_icon.is_empty()
+            && !valid_game_icon_keys.contains(&new_game_icon.to_ascii_lowercase())
+        {
             return Err(format!(
                 "{} is not a known official or custom GameIcon.",
                 fix.new_game_icon
@@ -1244,17 +1437,20 @@ fn game_icon_song_fix_preview(
     let mut rows = scanned_songs
         .into_iter()
         .filter(|song| !valid_game_icon_keys.contains(&song.game_icon.to_ascii_lowercase()))
-        .map(|song| GameIconSongFixRow {
-            new_game_icon: guess_song_game_icon(
-                &song.relative_path,
-                &majority_icons,
-                &custom_locations,
-            )
-            .unwrap_or_default(),
-            relative_path: song.relative_path,
-            artist: song.artist,
-            title: song.title,
-            invalid_game_icon: song.game_icon,
+        .map(|song| {
+            let parent_relative_path = song_parent_folder(&song.relative_path).unwrap_or_default();
+            let new_game_icon =
+                guess_song_game_icon(&song.relative_path, &majority_icons, &custom_locations)
+                    .unwrap_or_default();
+
+            GameIconSongFixRow {
+                new_game_icon,
+                relative_path: song.relative_path,
+                parent_relative_path,
+                artist: song.artist,
+                title: song.title,
+                invalid_game_icon: song.game_icon,
+            }
         })
         .collect::<Vec<_>>();
 
@@ -1288,21 +1484,26 @@ fn lower_value_set(values: &[String]) -> HashSet<String> {
 fn custom_game_icon_locations(settings: &ScanSettings) -> Vec<CustomGameIconLocation> {
     let mut errors = Vec::new();
     let mut gamelogo_paths = Vec::new();
-    collect_gamelogo_files(&settings.mods_dir, &mut gamelogo_paths, &mut errors);
+    collect_gamelogo_files(
+        &settings.mods_dir,
+        &settings.mods_dir,
+        &mut gamelogo_paths,
+        &mut errors,
+    );
     gamelogo_paths.sort();
 
     game_icon_paths_by_folder(&gamelogo_paths)
         .into_iter()
         .flat_map(|(folder, paths)| {
-            let folder_relative_path =
-                mods_relative_path(&settings.mods_dir, &folder).unwrap_or_default();
-
-            paths.into_iter().filter_map(move |path| {
-                Some(CustomGameIconLocation {
-                    stem: gamelogo_stem(&path)?,
-                    folder_relative_path: folder_relative_path.clone(),
+            game_icon_category_group(settings, &folder, &paths)
+                .gamelogos
+                .into_iter()
+                .map(move |gamelogo| CustomGameIconLocation {
+                    stem: gamelogo.stem,
+                    folder_relative_path: mods_relative_path(&settings.mods_dir, &folder)
+                        .unwrap_or_default(),
+                    has_matching_category_ini: gamelogo.has_matching_category_ini,
                 })
-            })
         })
         .collect()
 }
@@ -1352,8 +1553,8 @@ fn parent_folder_majority_game_icons(
 }
 
 fn song_parent_folder(relative_path: &str) -> Option<String> {
-    let song_folder = parent_relative_path(relative_path)?;
-    parent_relative_path(&song_folder)
+    let song_folder = parent_relative_path(relative_path).unwrap_or_default();
+    Some(parent_relative_path(&song_folder).unwrap_or_default())
 }
 
 fn guess_song_game_icon(
@@ -1367,30 +1568,18 @@ fn guess_song_game_icon(
         }
     }
 
-    let mut folder = parent_relative_path(relative_path)?;
-    loop {
-        if let Some(location) = custom_locations
-            .iter()
-            .find(|location| location.folder_relative_path == folder)
-        {
-            return Some(location.stem.clone());
-        }
-        if let Some(location) = custom_locations
-            .iter()
-            .find(|location| is_direct_child_relative_path(&folder, &location.folder_relative_path))
-        {
-            return Some(location.stem.clone());
-        }
-
-        let Some(parent) = parent_relative_path(&folder) else {
-            break;
-        };
-        folder = parent;
-    }
-
+    let folder = song_parent_folder(relative_path)?;
     custom_locations
         .iter()
-        .find(|location| location.folder_relative_path.is_empty())
+        .find(|location| {
+            location.has_matching_category_ini && location.folder_relative_path == folder
+        })
+        .or_else(|| {
+            custom_locations.iter().find(|location| {
+                location.has_matching_category_ini
+                    && is_direct_child_relative_path(&folder, &location.folder_relative_path)
+            })
+        })
         .map(|location| location.stem.clone())
 }
 
@@ -1432,14 +1621,18 @@ fn update_song_game_icon_path(
         .map_err(|err| format!("Failed to read {}: {err}", path.display()))?;
     let normalized_contents = normalize_song_ini_key_case(&contents);
     let parsed_song = parse_song_ini(relative_path, &normalized_contents)?;
-    let metadata = ScannedSongMetadataInput {
-        artist: song_info_value(&parsed_song, "Artist"),
-        title: song_info_value(&parsed_song, "Title"),
-        year: song_info_value(&parsed_song, "Year"),
-        genre: song_info_value(&parsed_song, "Genre"),
-        game_icon: game_icon.to_string(),
+    let updated_contents = if game_icon.trim().is_empty() {
+        remove_song_info_value(&normalized_contents, "GameIcon")
+    } else {
+        let metadata = ScannedSongMetadataInput {
+            artist: song_info_value(&parsed_song, "Artist"),
+            title: song_info_value(&parsed_song, "Title"),
+            year: song_info_value(&parsed_song, "Year"),
+            genre: song_info_value(&parsed_song, "Genre"),
+            game_icon: game_icon.trim().to_string(),
+        };
+        update_song_ini_metadata_contents(&normalized_contents, &metadata)
     };
-    let updated_contents = update_song_ini_metadata_contents(&normalized_contents, &metadata);
     let parsed_song = parse_song_ini(relative_path, &updated_contents)?;
 
     write_song_ini_file(&path, &updated_contents, settings.keep_original_song_ini)
@@ -1618,7 +1811,12 @@ fn find_category_ini(folder: &Path) -> io::Result<Option<PathBuf>> {
     Ok(matches.into_iter().next())
 }
 
-fn collect_gamelogo_files(dir: &Path, paths: &mut Vec<PathBuf>, errors: &mut Vec<String>) {
+fn collect_gamelogo_files(
+    mods_dir: &Path,
+    dir: &Path,
+    paths: &mut Vec<PathBuf>,
+    errors: &mut Vec<String>,
+) {
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(err) => {
@@ -1645,11 +1843,21 @@ fn collect_gamelogo_files(dir: &Path, paths: &mut Vec<PathBuf>, errors: &mut Vec
         };
 
         if file_type.is_dir() {
-            collect_gamelogo_files(&path, paths, errors);
+            if dir == mods_dir && is_ini_tool_categories_dir(&path) {
+                continue;
+            }
+            collect_gamelogo_files(mods_dir, &path, paths, errors);
         } else if file_type.is_file() && is_gamelogo_img_xen(&path) {
             paths.push(path);
         }
     }
+}
+
+fn is_ini_tool_categories_dir(path: &Path) -> bool {
+    path.file_name().is_some_and(|name| {
+        name.to_string_lossy()
+            .eq_ignore_ascii_case("IniToolCategories")
+    })
 }
 
 fn official_game_icon_stems(settings: &ScanSettings) -> Vec<String> {
@@ -1801,32 +2009,72 @@ fn undo_song_ini_repair_path(
     })
 }
 
-fn verify_song_ini_file_path(
+fn verify_content_issue_songs_paths(
     settings: &ScanSettings,
-    relative_path: &str,
+    relative_paths: &[String],
     store: &SongIniStore,
-) -> Result<SongIniValidationResult, String> {
+) -> Result<SongContentVerificationResult, String> {
     let mods_dir = &settings.mods_dir;
-    let path = checked_mods_relative_path(mods_dir, relative_path)?;
+    let mut paths_to_remove = HashSet::new();
+    let mut parsed_song_updates = Vec::new();
+    let mut seen_paths = HashSet::new();
 
-    if !is_scanned_song_ini(&path) {
-        return Err(format!(
-            "{relative_path} is not a song.ini or song.excluded.ini file."
-        ));
+    for relative_path in relative_paths {
+        if !seen_paths.insert(relative_path.as_str()) {
+            continue;
+        }
+
+        let unresolved_path = checked_mods_relative_path_allow_missing(mods_dir, relative_path)?;
+
+        if !is_scanned_song_ini(&unresolved_path) {
+            return Err(format!(
+                "{relative_path} is not a song.ini or song.excluded.ini file."
+            ));
+        }
+
+        if !unresolved_path.is_file() {
+            paths_to_remove.insert(relative_path.as_str());
+            continue;
+        }
+
+        let path = checked_mods_relative_path(mods_dir, relative_path)?;
+        let contents = fs::read_to_string(&path)
+            .map_err(|err| format!("Failed to read {}: {err}", path.display()))?;
+        let normalized_contents = normalize_song_ini_key_case(&contents);
+        let parsed_song = parse_song_ini(relative_path, &normalized_contents)?;
+
+        parsed_song_updates.push(parsed_song);
     }
 
-    let contents = fs::read_to_string(&path)
-        .map_err(|err| format!("Failed to read {}: {err}", path.display()))?;
-    let normalized_contents = normalize_song_ini_key_case(&contents);
-    let parsed_song = parse_song_ini(relative_path, &normalized_contents)?;
+    let parsed_songs = {
+        let mut songs = store
+            .0
+            .lock()
+            .map_err(|_| "Failed to lock song.ini store.".to_string())?;
 
-    refreshed_song_ini_result(
-        settings,
-        relative_path,
-        normalized_contents,
-        parsed_song,
-        store,
-    )
+        songs.retain(|song| !paths_to_remove.contains(song.relative_path.as_str()));
+
+        for parsed_song in parsed_song_updates {
+            if let Some(existing_song) = songs
+                .iter_mut()
+                .find(|song| song.relative_path == parsed_song.relative_path)
+            {
+                *existing_song = parsed_song;
+            } else {
+                songs.push(parsed_song);
+            }
+        }
+
+        songs.clone()
+    };
+
+    Ok(SongContentVerificationResult {
+        songs_parsed: parsed_songs.len(),
+        songs: scanned_songs(mods_dir, &parsed_songs),
+        duplicate_checksum_groups: duplicate_checksum_groups(&parsed_songs),
+        song_ini_folder_conflicts: song_ini_folder_conflicts(mods_dir)?,
+        content_file_issues: song_content_issues(mods_dir, &parsed_songs)?,
+    })
 }
 
 fn disable_song_ini_file_path(
@@ -2011,6 +2259,13 @@ fn update_scanned_song_metadata_path(
     is_included: bool,
     store: &SongIniStore,
 ) -> Result<SongIniValidationResult, String> {
+    if metadata.artist.trim().is_empty() {
+        return Err("Artist is required.".to_string());
+    }
+    if metadata.title.trim().is_empty() {
+        return Err("Title is required.".to_string());
+    }
+
     let mods_dir = &settings.mods_dir;
     let path = checked_mods_relative_path(mods_dir, relative_path)?;
 
@@ -2570,6 +2825,9 @@ fn update_song_ini_values(contents: &str, updates: &[(&str, &str)]) -> String {
                     .iter()
                     .find(|(candidate, _)| candidate.eq_ignore_ascii_case(key))
                 {
+                    if value.trim().is_empty() {
+                        continue;
+                    }
                     let leading_whitespace_len = key_part.len() - key_part.trim_start().len();
                     let trailing_whitespace_len = key_part.len() - key_part.trim_end().len();
                     updated_contents.push_str(&key_part[..leading_whitespace_len]);
@@ -2601,6 +2859,33 @@ fn update_song_ini_values(contents: &str, updates: &[(&str, &str)]) -> String {
     updated_contents
 }
 
+fn remove_song_info_value(contents: &str, target_key: &str) -> String {
+    let mut updated_contents = String::with_capacity(contents.len());
+    let mut in_song_info = false;
+
+    for line in contents.split_inclusive('\n') {
+        let (line_contents, line_ending) = split_line_ending(line);
+        let line_without_bom = line_contents.trim_start_matches('\u{feff}');
+        let trimmed_line = line_without_bom.trim();
+
+        if trimmed_line.starts_with('[') && trimmed_line.ends_with(']') {
+            let section_name = trimmed_line[1..trimmed_line.len() - 1].trim();
+            in_song_info = section_name == "SongInfo";
+        } else if in_song_info
+            && line_contents
+                .split_once('=')
+                .is_some_and(|(key, _)| key.trim().eq_ignore_ascii_case(target_key))
+        {
+            continue;
+        }
+
+        updated_contents.push_str(line_contents);
+        updated_contents.push_str(line_ending);
+    }
+
+    updated_contents
+}
+
 fn append_missing_metadata_keys(
     contents: &mut String,
     updates: &[(&str, &str)],
@@ -2612,7 +2897,7 @@ fn append_missing_metadata_keys(
     }
 
     for (key, value) in updates {
-        if found_keys.contains(*key) {
+        if found_keys.contains(*key) || value.trim().is_empty() {
             continue;
         }
 
@@ -4609,6 +4894,14 @@ mod tests {
     use super::*;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn third_party_licenses_include_new_rocker_ofl_text() {
+        let licenses = third_party_licenses();
+
+        assert!(licenses.contains("Copyright (c) 2011, Pablo Impallari"));
+        assert!(licenses.contains("SIL OPEN FONT LICENSE Version 1.1"));
+    }
     use std::{
         fs,
         time::{SystemTime, UNIX_EPOCH},
@@ -4699,8 +4992,51 @@ mod tests {
             .join("IniToolCategories/Category_01_Artist_AB/category.ini");
         assert_eq!(
             fs::read_to_string(category_ini).expect("category should exist"),
-            "[ModInfo]\nName=IniTool Category 01\nDescription=Songs categorized by 01 Artist: A/B.\nAuthor=GhwtDeIniTool\nVersion=1.0\n\n[CategoryInfo]\nName=01 Artist: A/B\nChecksum=IniToolCategory01\nLogo=gamelogo_gh1\n"
+            "[ModInfo]\nName=IniTool Category 01\nDescription=Songs categorized by 01 Artist: A/B.\nAuthor=GhwtDeIniTool\nVersion=1.0\n\n[CategoryInfo]\nName=01 Artist: A/B\nChecksum=IniToolCategory01\nLogo=gamelogo_initool01\n"
         );
+        let category_folder = project
+            .mods_dir
+            .join("IniToolCategories/Category_01_Artist_AB");
+        let img_xen = fs::read(category_folder.join("gamelogo_initool01.img.xen"))
+            .expect("category logo should exist");
+        assert!(img_xen.len() > IMG_XEN_HEADER_SIZE);
+        assert_eq!(
+            u32::from_be_bytes(img_xen[0..4].try_into().expect("IMG magic bytes")),
+            0x0a28_1300
+        );
+        assert_eq!(
+            u16::from_be_bytes(img_xen[8..10].try_into().expect("IMG width bytes")),
+            CATEGORY_LOGO_SIZE as u16
+        );
+        assert_eq!(
+            u16::from_be_bytes(img_xen[10..12].try_into().expect("IMG height bytes")),
+            CATEGORY_LOGO_SIZE as u16
+        );
+        assert_eq!(img_xen[20], 1);
+        assert_eq!(img_xen[21], 32);
+        assert_eq!(img_xen[22], 0);
+        assert_eq!(
+            u32::from_be_bytes(img_xen[28..32].try_into().expect("IMG offset bytes")),
+            IMG_XEN_HEADER_SIZE as u32
+        );
+        assert_eq!(
+            u32::from_be_bytes(img_xen[32..36].try_into().expect("IMG size bytes")) as usize,
+            img_xen.len() - IMG_XEN_HEADER_SIZE
+        );
+        assert_eq!(
+            &img_xen[IMG_XEN_HEADER_SIZE..IMG_XEN_HEADER_SIZE + 8],
+            PNG_SIGNATURE
+        );
+        let logo = image::load_from_memory(&img_xen[IMG_XEN_HEADER_SIZE..])
+            .expect("embedded category logo PNG should decode")
+            .to_rgba8();
+        assert_eq!(logo.dimensions(), (CATEGORY_LOGO_SIZE, CATEGORY_LOGO_SIZE));
+        assert!(logo.pixels().any(|pixel| pixel[3] == 0));
+        assert!(logo
+            .pixels()
+            .any(|pixel| *pixel == Rgba([255, 255, 255, 255])));
+        assert!(logo.pixels().any(|pixel| *pixel == Rgba([0, 0, 0, 255])));
+        assert!(!category_folder.join("gamelogo_initool01.png").exists());
         assert!(
             fs::read_to_string(project.mods_dir.join("Songs/000/song.ini"))
                 .expect("categorized song should exist")
@@ -6410,67 +6746,112 @@ mod tests {
     }
 
     #[test]
-    fn song_verify_refreshes_content_issues_without_rewriting_song_ini() {
-        let project = TestProject::new("song-verify-refresh-content");
-        let song_ini_path = project.mods_dir.join("song.ini");
+    fn content_issue_verify_refreshes_multiple_songs() {
+        let project = TestProject::new("content-issue-verify-multiple");
+        let first_song_path = project.mods_dir.join("song.ini");
+        let second_song_path = project.mods_dir.join("Second").join("song.ini");
         write_test_file_contents(
-            &song_ini_path,
-            valid_song_ini("Original", "verify_checksum").as_str(),
+            &first_song_path,
+            valid_song_ini("First", "first_checksum").as_str(),
         );
-        write_valid_content_files(&project.mods_dir, "verify_checksum");
+        write_test_file_contents(
+            &second_song_path,
+            valid_song_ini("Second", "second_checksum").as_str(),
+        );
+        write_valid_content_files(&project.mods_dir, "first_checksum");
+        write_valid_content_files(&project.mods_dir.join("Second"), "second_checksum");
         fs::remove_file(
             project
                 .mods_dir
                 .join("Content")
                 .join("MUSIC")
-                .join("verify_checksum_3.fsb.xen"),
+                .join("first_checksum_3.fsb.xen"),
         )
-        .expect("required file should be removed");
+        .expect("first required file should be removed");
+        fs::remove_file(
+            project
+                .mods_dir
+                .join("Second")
+                .join("Content")
+                .join("MUSIC")
+                .join("second_checksum_3.fsb.xen"),
+        )
+        .expect("second required file should be removed");
         let store = SongIniStore::default();
+        let settings = test_scan_settings(&project);
 
-        let scan_result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
-            .expect("scan should complete");
-        assert!(scan_result.content_file_issues.iter().any(|issue| {
-            issue.song_ini_relative_path == "song.ini" && issue.message == "Missing required file."
-        }));
-
+        scan_song_ini_files_paths(&settings, &store).expect("scan should complete");
         write_test_file(
             &project
                 .mods_dir
                 .join("Content")
                 .join("MUSIC")
-                .join("verify_checksum_3.fsb.xen"),
+                .join("first_checksum_3.fsb.xen"),
+        );
+        write_test_file(
+            &project
+                .mods_dir
+                .join("Second")
+                .join("Content")
+                .join("MUSIC")
+                .join("second_checksum_3.fsb.xen"),
         );
 
-        let result = verify_song_ini_file_path(&test_scan_settings(&project), "song.ini", &store)
-            .expect("verify should pass");
+        let result = verify_content_issue_songs_paths(
+            &settings,
+            &["song.ini".to_string(), "Second/song.ini".to_string()],
+            &store,
+        )
+        .expect("content issues should verify");
 
-        assert!(result
-            .content_file_issues
-            .iter()
-            .all(|issue| issue.song_ini_relative_path != "song.ini"));
-        assert_eq!(
-            fs::read_to_string(song_ini_path).expect("song.ini should read"),
-            valid_song_ini("Original", "verify_checksum")
-        );
+        assert_eq!(result.songs_parsed, 2);
+        assert!(result.content_file_issues.is_empty());
     }
 
     #[test]
-    fn song_verify_rejects_invalid_or_unsafe_song_ini_paths() {
-        let project = TestProject::new("song-verify-rejects");
-        write_test_file_contents(&project.mods_dir.join("notes.txt"), "not a song");
+    fn content_issue_verify_removes_deleted_song_folder() {
+        let project = TestProject::new("content-issue-verify-deleted-folder");
+        let song_dir = project.mods_dir.join("Deleted");
+        write_test_file_contents(
+            &song_dir.join("song.ini"),
+            valid_song_ini("Deleted", "deleted_checksum").as_str(),
+        );
+        write_valid_content_files(&song_dir, "deleted_checksum");
+        fs::remove_file(
+            song_dir
+                .join("Content")
+                .join("MUSIC")
+                .join("deleted_checksum_3.fsb.xen"),
+        )
+        .expect("required file should be removed");
+        let store = SongIniStore::default();
+        let settings = test_scan_settings(&project);
+
+        scan_song_ini_files_paths(&settings, &store).expect("scan should complete");
+        fs::remove_dir_all(&song_dir).expect("song folder should be removed");
+
+        let result =
+            verify_content_issue_songs_paths(&settings, &["Deleted/song.ini".to_string()], &store)
+                .expect("deleted song should be removed without an error");
+
+        assert_eq!(result.songs_parsed, 0);
+        assert!(result.songs.is_empty());
+        assert!(result.content_file_issues.is_empty());
+    }
+
+    #[test]
+    fn content_issue_verify_rejects_unsafe_paths() {
+        let project = TestProject::new("content-issue-verify-unsafe-path");
         let store = SongIniStore::default();
 
-        assert_eq!(
-            verify_song_ini_file_path(&test_scan_settings(&project), "../song.ini", &store)
-                .expect_err("unsafe path should be rejected"),
-            "Rejected unsafe MODS-relative path ../song.ini."
-        );
-        assert_eq!(
-            verify_song_ini_file_path(&test_scan_settings(&project), "notes.txt", &store)
-                .expect_err("non-song.ini should be rejected"),
-            "notes.txt is not a song.ini or song.excluded.ini file."
-        );
+        let error = verify_content_issue_songs_paths(
+            &test_scan_settings(&project),
+            &["../song.ini".to_string()],
+            &store,
+        )
+        .expect_err("unsafe path should be rejected");
+
+        assert!(error.contains("Rejected unsafe MODS-relative path"));
     }
 
     #[test]
@@ -6517,6 +6898,85 @@ mod tests {
             fs::read_to_string(project.mods_dir.join("song.original.ini"))
                 .expect("backup should read"),
             "[ModInfo]\nName=Original Mod\n\n[SongInfo]\nChecksum=metadata_checksum\nTitle=Old Title\nArtist=Old Artist\nLeaderboard=Yes\n\n[Extra]\nValue=Keep\n"
+        );
+    }
+
+    #[test]
+    fn song_metadata_update_removes_empty_song_info_entries() {
+        let project = TestProject::new("song-metadata-remove-empty");
+        let song_ini_path = project.mods_dir.join("song.ini");
+        write_test_file_contents(
+            &song_ini_path,
+            "[ModInfo]\nName=Song\n\n[SongInfo]\nChecksum=metadata_checksum\nArtist=Artist\nTitle=Title\nYear=2001\nGenre=Rock\nGameIcon=gh3\n\n[Extra]\nValue=Keep\n",
+        );
+        let store = SongIniStore::default();
+        let settings = test_scan_settings(&project);
+        scan_song_ini_files_paths(&settings, &store).expect("scan should populate store");
+
+        let result = update_scanned_song_metadata_path(
+            &settings,
+            "song.ini",
+            ScannedSongMetadataInput {
+                artist: "Artist".to_string(),
+                title: "Title".to_string(),
+                year: "\t".to_string(),
+                genre: "".to_string(),
+                game_icon: " ".to_string(),
+            },
+            true,
+            &store,
+        )
+        .expect("empty metadata save should pass");
+        let contents = fs::read_to_string(song_ini_path).expect("song.ini should read");
+
+        for key in ["Year", "Genre", "GameIcon"] {
+            assert!(!contents.contains(&format!("{key}=")));
+        }
+        assert!(contents.contains("Artist=Artist"));
+        assert!(contents.contains("Title=Title"));
+        assert!(contents.contains("Checksum=metadata_checksum"));
+        assert!(contents.contains("[Extra]\nValue=Keep"));
+        assert_eq!(result.songs[0].artist, "Artist");
+        assert_eq!(result.songs[0].title, "Title");
+        assert_eq!(result.songs[0].game_icon, "");
+    }
+
+    #[test]
+    fn song_metadata_update_rejects_empty_artist_or_title() {
+        let project = TestProject::new("song-metadata-required-fields");
+        let song_ini_path = project.mods_dir.join("song.ini");
+        let original_contents =
+            "[ModInfo]\nName=Song\n\n[SongInfo]\nChecksum=metadata_checksum\nArtist=Artist\nTitle=Title\n";
+        write_test_file_contents(&song_ini_path, original_contents);
+        let store = SongIniStore::default();
+        let settings = test_scan_settings(&project);
+        scan_song_ini_files_paths(&settings, &store).expect("scan should populate store");
+
+        for (artist, title, error) in [
+            (" ", "Title", "Artist is required."),
+            ("Artist", "\t", "Title is required."),
+        ] {
+            assert_eq!(
+                update_scanned_song_metadata_path(
+                    &settings,
+                    "song.ini",
+                    ScannedSongMetadataInput {
+                        artist: artist.to_string(),
+                        title: title.to_string(),
+                        year: "".to_string(),
+                        genre: "".to_string(),
+                        game_icon: "".to_string(),
+                    },
+                    true,
+                    &store,
+                )
+                .expect_err("empty required metadata should fail"),
+                error
+            );
+        }
+        assert_eq!(
+            fs::read_to_string(song_ini_path).expect("song.ini should read"),
+            original_contents
         );
     }
 
@@ -7656,14 +8116,50 @@ mod tests {
             "[CategoryInfo]\nLogo=gamelogo_bh\n",
         );
 
-        let result = scan_game_icon_categories_paths(&test_scan_settings(&project))
-            .expect("game icon scan should succeed");
+        let settings = test_scan_settings(&project);
+        let result =
+            scan_game_icon_categories_paths(&settings).expect("game icon scan should succeed");
 
         assert!(!result.needs_fix);
         assert_eq!(result.groups.len(), 1);
         assert_eq!(result.groups[0].folder_relative_path, "Icons");
         assert!(result.groups[0].gamelogos[0].has_matching_category_ini);
         assert_eq!(result.custom_game_icons, vec!["GAMELOGO_BH".to_string()]);
+    }
+
+    #[test]
+    fn game_icon_scan_skips_top_level_ini_tool_categories_only() {
+        let project = TestProject::new("game-icon-scan-skip-ini-tool-categories");
+        write_test_file_contents(
+            &project
+                .mods_dir
+                .join("INIToolCATEGORIES/Category_01/gamelogo_generated.img.xen"),
+            "generated",
+        );
+        write_test_file_contents(
+            &project
+                .mods_dir
+                .join("Pack/IniToolCategories/gamelogo_custom.img.xen"),
+            "custom",
+        );
+
+        let settings = test_scan_settings(&project);
+        let result =
+            scan_game_icon_categories_paths(&settings).expect("game icon scan should succeed");
+
+        assert_eq!(result.groups.len(), 1);
+        assert_eq!(
+            result.groups[0].folder_relative_path,
+            "Pack/IniToolCategories"
+        );
+        assert_eq!(
+            result.custom_game_icons,
+            vec!["gamelogo_custom".to_string()]
+        );
+        assert_eq!(
+            game_icon_valid_stems(&settings),
+            vec!["gamelogo_custom".to_string()]
+        );
     }
 
     #[test]
@@ -7832,6 +8328,7 @@ mod tests {
 
         assert_eq!(result.rows.len(), 1);
         assert_eq!(result.rows[0].relative_path, "A/Bad/song.ini");
+        assert_eq!(result.rows[0].parent_relative_path, "A");
         assert_eq!(result.rows[0].invalid_game_icon, "gamelogo_missing");
         assert!(result
             .valid_game_icons
@@ -7913,11 +8410,15 @@ mod tests {
     }
 
     #[test]
-    fn game_icon_song_fix_preview_falls_back_to_custom_folder_ancestor() {
+    fn game_icon_song_fix_preview_does_not_fall_back_to_custom_folder_ancestor() {
         let project = TestProject::new("game-icon-song-fix-custom-ancestor");
         write_test_file_contents(
             &project.mods_dir.join("Pack").join("gamelogo_pack.img.xen"),
             "pack",
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("Pack").join("category.ini"),
+            "[CategoryInfo]\nLogo=gamelogo_pack\n",
         );
         write_test_file_contents(
             &project.mods_dir.join("Pack/Artist/Song/song.ini"),
@@ -7931,7 +8432,7 @@ mod tests {
             preview_game_icon_song_fixes_paths(&settings, &store).expect("preview should pass");
 
         assert_eq!(result.rows.len(), 1);
-        assert_eq!(result.rows[0].new_game_icon, "gamelogo_pack");
+        assert_eq!(result.rows[0].new_game_icon, "");
     }
 
     #[test]
@@ -7945,6 +8446,15 @@ mod tests {
                 .join("Category_RBNV1")
                 .join("gamelogo_rbnv1.img.xen"),
             "rbnv1",
+        );
+        write_test_file_contents(
+            &project
+                .mods_dir
+                .join("Rock Band Network!!!!!")
+                .join("Version 1")
+                .join("Category_RBNV1")
+                .join("category.ini"),
+            "[CategoryInfo]\nLogo=gamelogo_rbnv1\n",
         );
         write_test_file_contents(
             &project
@@ -7981,9 +8491,25 @@ mod tests {
             &project
                 .mods_dir
                 .join("Pack")
+                .join("Category_B")
+                .join("category.ini"),
+            "[CategoryInfo]\nLogo=gamelogo_b\n",
+        );
+        write_test_file_contents(
+            &project
+                .mods_dir
+                .join("Pack")
                 .join("Category_A")
                 .join("gamelogo_a.img.xen"),
             "a",
+        );
+        write_test_file_contents(
+            &project
+                .mods_dir
+                .join("Pack")
+                .join("Category_A")
+                .join("category.ini"),
+            "[CategoryInfo]\nLogo=gamelogo_a\n",
         );
         write_test_file_contents(
             &project
@@ -8002,6 +8528,54 @@ mod tests {
 
         assert_eq!(result.rows.len(), 1);
         assert_eq!(result.rows[0].new_game_icon, "gamelogo_a");
+    }
+
+    #[test]
+    fn game_icon_song_fix_preview_uses_mods_folder_for_root_song() {
+        let project = TestProject::new("game-icon-song-fix-root-song");
+        write_test_file_contents(&project.mods_dir.join("gamelogo_root.img.xen"), "root");
+        write_test_file_contents(
+            &project.mods_dir.join("category.ini"),
+            "[CategoryInfo]\nLogo=gamelogo_root\n",
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("song.ini"),
+            &song_ini_with_game_icon("Song", "song_checksum", "gamelogo_missing"),
+        );
+        let store = SongIniStore::default();
+        let settings = test_scan_settings(&project);
+        scan_song_ini_files_paths(&settings, &store).expect("scan should populate store");
+
+        let result =
+            preview_game_icon_song_fixes_paths(&settings, &store).expect("preview should pass");
+
+        assert_eq!(result.rows.len(), 1);
+        assert_eq!(result.rows[0].new_game_icon, "gamelogo_root");
+    }
+
+    #[test]
+    fn game_icon_song_fix_preview_requires_matching_category() {
+        let project = TestProject::new("game-icon-song-fix-matching-category");
+        let folder = project.mods_dir.join("Pack");
+        write_test_file_contents(&folder.join("gamelogo_missing_category.img.xen"), "missing");
+        write_test_file_contents(&folder.join("gamelogo_mismatched.img.xen"), "mismatched");
+        write_test_file_contents(
+            &folder.join("category.ini"),
+            "[CategoryInfo]\nLogo=gamelogo_other\n",
+        );
+        write_test_file_contents(
+            &folder.join("Song/song.ini"),
+            &song_ini_with_game_icon("Song", "song_checksum", "gamelogo_invalid"),
+        );
+        let store = SongIniStore::default();
+        let settings = test_scan_settings(&project);
+        scan_song_ini_files_paths(&settings, &store).expect("scan should populate store");
+
+        let result =
+            preview_game_icon_song_fixes_paths(&settings, &store).expect("preview should pass");
+
+        assert_eq!(result.rows.len(), 1);
+        assert_eq!(result.rows[0].new_game_icon, "");
     }
 
     #[test]
@@ -8078,6 +8652,35 @@ mod tests {
             .contains("GameIcon=gamelogo_known"));
     }
 
+    #[test]
+    fn game_icon_song_fix_apply_removes_empty_game_icon_entry() {
+        let project = TestProject::new("game-icon-song-fix-remove");
+        let song_ini_path = project.mods_dir.join("Song").join("song.ini");
+        write_test_file_contents(
+            &song_ini_path,
+            &song_ini_with_game_icon("Song", "song_checksum", "gamelogo_missing"),
+        );
+        let store = SongIniStore::default();
+        let settings = test_scan_settings(&project);
+        scan_song_ini_files_paths(&settings, &store).expect("scan should populate store");
+
+        let result = apply_game_icon_song_fixes_paths(
+            &settings,
+            vec![GameIconSongFixInput {
+                relative_path: "Song/song.ini".to_string(),
+                new_game_icon: "".to_string(),
+            }],
+            &store,
+        )
+        .expect("empty replacement should remove GameIcon");
+
+        assert_eq!(result.applied, 1);
+        assert_eq!(result.songs[0].game_icon, "");
+        assert!(!fs::read_to_string(song_ini_path)
+            .expect("song.ini should read")
+            .contains("GameIcon="));
+    }
+
     fn write_test_file(path: &Path) {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).expect("test parent dir should be created");
@@ -8128,6 +8731,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             load_project_settings,
             save_project_settings,
+            third_party_licenses,
             preview_keep_only_files_delete,
             delete_keep_only_files,
             preview_ini_tool_categories,
@@ -8135,7 +8739,7 @@ pub fn run() {
             scan_song_ini_files,
             validate_song_ini_file,
             undo_song_ini_repair,
-            verify_song_ini_file,
+            verify_content_issue_songs,
             disable_song_ini_file,
             enable_song_ini_file,
             delete_song_ini_conflict_file,

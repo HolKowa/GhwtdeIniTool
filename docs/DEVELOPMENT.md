@@ -1,17 +1,25 @@
-# GhwtdeIniTool
+# Development Guide
 
 GhwtdeIniTool is a desktop app built with React, TypeScript, Vite, and Tauri 2.
-The frontend lives in `src/` and the Tauri/Rust backend lives in `src-tauri/`.
+The frontend lives in `GhwtdeIniTool/src/` and the Tauri/Rust backend lives in
+`GhwtdeIniTool/src-tauri/`.
+
+Unless stated otherwise, run app commands from the app directory:
+
+```sh
+cd GhwtdeIniTool
+```
 
 ## Requirements
 
 - Node.js 24, matching the GitHub Actions workflow.
 - pnpm 11.x.
 - Rust stable.
+- `cargo-about` to regenerate third-party notices for releases.
 - Tauri system dependencies for your OS.
 - `jq` if you want to generate local Linux updater fixtures.
 
-Install frontend dependencies from this directory:
+Install frontend dependencies from the app directory:
 
 ```sh
 pnpm install
@@ -212,14 +220,26 @@ TAURI_SIGNING_PRIVATE_KEY
 TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 ```
 
-4. Build locally if possible:
+4. Install `cargo-about` once. `pnpm tauri build` generates and embeds the
+   third-party notice automatically; `pnpm tauri dev` embeds a short
+   development placeholder instead:
+
+```sh
+cargo install --locked --features cli cargo-about # once
+```
+
+Set `GHWTDE_LICENSE_TARGET` to a Rust target triple when a local release build
+should embed notices for only that platform. GitHub Actions sets this for each
+release job; leaving it unset generates the conservative all-platform notice.
+
+5. Build locally if possible:
 
 ```sh
 pnpm build
 pnpm tauri build
 ```
 
-5. Push or merge to `main`.
+6. Push or merge to `main`.
 
 ## Useful Commands
 
@@ -241,4 +261,5 @@ These are intentionally not committed:
 - `dist/`
 - `public/updater-local/`
 - `src-tauri/tauri.updater.generated.json`
+- `src-tauri/resources/THIRD_PARTY_LICENSES.txt` (generated for release builds)
 - Tauri build output under `src-tauri/target/`

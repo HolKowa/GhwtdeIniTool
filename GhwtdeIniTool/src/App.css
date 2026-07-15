@@ -320,6 +320,11 @@ td.scanned-songs-action-column {
   height: 1.45rem;
 }
 
+.scanned-songs-metadata-input.input-error {
+  border-color: #b71c1c;
+  background: #fff5f5;
+}
+
 .scanned-songs-table tbody tr:hover td {
   background: #f7f9ff;
 }
@@ -455,6 +460,28 @@ td.scanned-songs-action-column {
 
 .experimental-warning-button:focus-visible {
   outline: 2px solid #c62828;
+  outline-offset: 3px;
+}
+
+.about-button,
+.about-link {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #565656;
+  font-size: 0.9rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.about-button:hover,
+.about-link:hover {
+  color: #1f1f1f;
+}
+
+.about-button:focus-visible,
+.about-link:focus-visible {
+  outline: 2px solid #396cd8;
   outline-offset: 3px;
 }
 
@@ -678,6 +705,55 @@ td.scanned-songs-action-column {
   width: min(100%, 620px);
 }
 
+.about-panel {
+  width: min(100%, 460px);
+}
+
+.about-section {
+  margin-top: 1.25rem;
+}
+
+.about-section h3,
+.about-section p {
+  margin: 0;
+}
+
+.about-section h3 {
+  font-size: 1rem;
+}
+
+.about-section p,
+.about-link {
+  margin-top: 0.4rem;
+}
+
+.third-party-licenses-panel {
+  display: flex;
+  width: min(80vw, calc(100vw - 3rem));
+  height: min(80vh, calc(100vh - 3rem));
+  flex-direction: column;
+}
+
+.third-party-licenses-text {
+  flex: 1;
+  min-height: 0;
+  margin: 1rem 0 0;
+  overflow: auto;
+  padding: 0.9rem;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  background: #f8f8f8;
+  color: #1f1f1f;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.third-party-licenses-loading {
+  margin: 1rem 0 0;
+}
+
 .settings-actions {
   display: flex;
   flex: 0 0 auto;
@@ -813,6 +889,21 @@ td.scanned-songs-action-column {
   overflow-wrap: anywhere;
 }
 
+.content-issue-summary-row {
+  display: grid;
+  align-items: flex-start;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+}
+
+.content-issue-summary-row .secondary-btn {
+  justify-self: end;
+}
+
+.content-issue-groups {
+  margin-top: 0.75rem;
+}
+
 .instrument-analyze-panel {
   width: min(34rem, calc(100vw - 3rem));
   height: auto;
@@ -853,10 +944,6 @@ td.scanned-songs-action-column {
   color: #565656;
   font-size: 0.78rem;
   line-height: 1.35;
-}
-
-.game-icon-panel {
-  width: min(66rem, calc(100vw - 3rem));
 }
 
 .categorize-panel {
@@ -1096,6 +1183,13 @@ td.scanned-songs-action-column {
   text-transform: uppercase;
 }
 
+.game-icon-song-fix-table th:nth-child(4),
+.game-icon-song-fix-table td:nth-child(4),
+.game-icon-song-fix-table th:nth-child(5),
+.game-icon-song-fix-table td:nth-child(5) {
+  width: 12%;
+}
+
 .game-icon-song-fix-table input {
   width: 100%;
   min-width: 0;
@@ -1167,6 +1261,82 @@ td.scanned-songs-action-column {
 
 .scan-file-list li + li {
   border-top: 1px solid #eeeeee;
+}
+
+.clean-delete-review {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.clean-files-table-wrap {
+  margin-top: 0.75rem;
+  min-height: 0;
+  flex: 0 1 auto;
+  overflow: auto;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+}
+
+.clean-files-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono",
+    monospace;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.clean-files-table th,
+.clean-files-table td {
+  padding: 0.5rem 0.65rem;
+  border-bottom: 1px solid #eeeeee;
+  text-align: left;
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+}
+
+.clean-files-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f4f4f4;
+  color: #2f2f2f;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+}
+
+.clean-files-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.clean-files-table th button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.clean-files-select-column {
+  width: 1%;
+  text-align: center !important;
+  white-space: nowrap;
+}
+
+.clean-files-table input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
 }
 
 .song-ini-repair {
@@ -1372,8 +1542,48 @@ td.scanned-songs-action-column {
   overflow-wrap: anywhere;
 }
 
+.song-conflict-list .song-content-issue-row-error {
+  background: #ffebee;
+  color: #b71c1c;
+}
+
+.song-content-issue-row-error small {
+  color: #b71c1c;
+}
+
 .scan-wizard-actions {
   justify-content: flex-end;
+  margin-top: 1rem;
+}
+
+.game-icon-bulk-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.game-icon-bulk-confirm {
+  width: min(28rem, calc(100vw - 3rem));
+  padding: 1.25rem;
+  border: 1px solid #d9d9d9;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.08);
+}
+
+.game-icon-bulk-confirm p {
+  margin: 0;
+}
+
+.game-icon-bulk-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
   margin-top: 1rem;
 }
 
@@ -1790,6 +2000,20 @@ td.scanned-songs-action-column {
     border-top-color: #444;
   }
 
+  .clean-files-table-wrap {
+    border-color: #555;
+  }
+
+  .clean-files-table th {
+    background: #303030;
+    color: #f6f6f6;
+  }
+
+  .clean-files-table th,
+  .clean-files-table td {
+    border-bottom-color: #444;
+  }
+
   .song-ini-file-list,
   .song-ini-textarea {
     border-color: #555;
@@ -1934,9 +2158,22 @@ td.scanned-songs-action-column {
     height: calc(100vh - 2rem);
   }
 
+  .third-party-licenses-panel {
+    width: calc(100vw - 2rem);
+    height: calc(100vh - 2rem);
+  }
+
   .scan-wizard-actions {
     align-items: stretch;
     flex-direction: column-reverse;
+  }
+
+  .content-issue-summary-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .content-issue-summary-row .secondary-btn {
+    margin-left: auto;
   }
 
   .song-ini-repair {

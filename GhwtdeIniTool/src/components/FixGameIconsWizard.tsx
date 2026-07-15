@@ -20,6 +20,11 @@ type FixGameIconsWizardProps = {
 
 type WizardStep = 1 | 2;
 
+type PendingBulkChoice = {
+  parentRelativePath: string;
+  gameIcon: string;
+};
+
 export function FixGameIconsWizard({
   error,
   fixPreview,
@@ -34,6 +39,8 @@ export function FixGameIconsWizard({
   const [editedGameIcons, setEditedGameIcons] = useState<
     Record<string, string>
   >({});
+  const [pendingBulkChoice, setPendingBulkChoice] =
+    useState<PendingBulkChoice | null>(null);
   const isBusy =
     status === "scanning" ||
     status === "fixing" ||
@@ -58,7 +65,7 @@ export function FixGameIconsWizard({
   const hasInvalidEditedGameIcon = fixRows.some((row) => {
     const value = editedGameIcons[row.relative_path]?.trim() ?? "";
 
-    return !validGameIconSet.has(value.toLocaleLowerCase());
+    return value !== "" && !validGameIconSet.has(value.toLocaleLowerCase());
   });
   const canApply =
     step === 2 &&
@@ -69,6 +76,7 @@ export function FixGameIconsWizard({
   useEffect(() => {
     if (!fixPreview) {
       setEditedGameIcons({});
+      setPendingBulkChoice(null);
       return;
     }
 
@@ -77,7 +85,50 @@ export function FixGameIconsWizard({
         fixPreview.rows.map((row) => [row.relative_path, row.new_game_icon]),
       ),
     );
+    setPendingBulkChoice(null);
   }, [fixPreview]);
+
+  const updateEditedGameIcon = (relativePath: string, value: string) => {
+    const previousValue = editedGameIcons[relativePath]?.trim() ?? "";
+    const trimmedValue = value.trim();
+
+    setEditedGameIcons((currentValues) => ({
+      ...currentValues,
+      [relativePath]: value,
+    }));
+
+    if (
+      previousValue !== trimmedValue &&
+      (trimmedValue === "" || validGameIconSet.has(trimmedValue.toLocaleLowerCase()))
+    ) {
+      const row = fixRows.find((candidate) => candidate.relative_path === relativePath);
+      if (row) {
+        setPendingBulkChoice({
+          parentRelativePath: row.parent_relative_path,
+          gameIcon: trimmedValue,
+        });
+      }
+    }
+  };
+
+  const applyBulkChoice = () => {
+    if (!pendingBulkChoice) {
+      return;
+    }
+
+    setEditedGameIcons((currentValues) => ({
+      ...currentValues,
+      ...Object.fromEntries(
+        fixRows
+          .filter(
+            (row) =>
+              row.parent_relative_path === pendingBulkChoice.parentRelativePath,
+          )
+          .map((row) => [row.relative_path, pendingBulkChoice.gameIcon]),
+      ),
+    }));
+    setPendingBulkChoice(null);
+  };
 
   const goToStep2 = async () => {
     if (!canContinue) {
@@ -249,6 +300,7 @@ export function FixGameIconsWizard({
                         <tr>
                           <th>Artist</th>
                           <th>Title</th>
+                          <th>Parent folder</th>
                           <th>Invalid GameIcon</th>
                           <th>New GameIcon</th>
                         </tr>
@@ -257,12 +309,14 @@ export function FixGameIconsWizard({
                         {fixRows.map((row) => {
                           const value = editedGameIcons[row.relative_path] ?? "";
                           const isInvalid =
+                            value.trim() !== "" &&
                             !validGameIconSet.has(value.trim().toLocaleLowerCase());
 
                           return (
                             <tr key={row.relative_path}>
                               <td>{row.artist}</td>
                               <td>{row.title}</td>
+                              <td>{row.parent_relative_path || "."}</td>
                               <td>{row.invalid_game_icon}</td>
                               <td>
                                 <input
@@ -272,10 +326,10 @@ export function FixGameIconsWizard({
                                   type="text"
                                   value={value}
                                   onChange={(event) =>
-                                    setEditedGameIcons((currentValues) => ({
-                                      ...currentValues,
-                                      [row.relative_path]: event.target.value,
-                                    }))
+                                    updateEditedGameIcon(
+                                      row.relative_path,
+                                      event.target.value,
+                                    )
                                   }
                                   disabled={isBusy}
                                 />
@@ -339,6 +393,36 @@ export function FixGameIconsWizard({
             </>
           )}
         </div>
+
+        {pendingBulkChoice && (
+          <div
+            className="game-icon-bulk-confirm-backdrop"
+            role="presentation"
+          >
+            <section
+              className="game-icon-bulk-confirm"
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="game-icon-bulk-confirm-title"
+            >
+              <p id="game-icon-bulk-confirm-title">
+                Set GameIcon for all invalid sibling songs in this folder?
+              </p>
+              <div className="game-icon-bulk-confirm-actions">
+                <button className="primary-btn" type="button" onClick={applyBulkChoice}>
+                  Yes
+                </button>
+                <button
+                  className="secondary-btn"
+                  type="button"
+                  onClick={() => setPendingBulkChoice(null)}
+                >
+                  No
+                </button>
+              </div>
+            </section>
+          </div>
+        )}
       </section>
     </div>
   );

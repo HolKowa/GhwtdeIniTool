@@ -51,7 +51,7 @@ export function useModsCleaner() {
     }
   }, []);
 
-  const confirmClean = useCallback(async () => {
+  const confirmClean = useCallback(async (filesToDelete: string[]) => {
     if (cleanStatus !== "readyDelete") {
       return 0;
     }
@@ -61,7 +61,7 @@ export function useModsCleaner() {
 
     try {
       const result = await deleteKeepOnlyFiles(
-        deletePreview?.files_to_delete ?? [],
+        filesToDelete,
       );
       const errorSummary = result.errors.length
         ? ` | ${result.errors.length} delete errors`

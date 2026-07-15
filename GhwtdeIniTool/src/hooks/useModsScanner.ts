@@ -17,7 +17,7 @@ import {
   undoSongIniRepair,
   updateScannedSongMetadata,
   validateSongIniFile,
-  verifySongIniFile,
+  verifyContentIssueSongs as verifyContentIssueSongsApi,
 } from "../services/scanModsApi";
 import type {
   FaultySongIniFile,
@@ -119,10 +119,6 @@ export function useModsScanner() {
   const [deletedSongIniConflictPaths, setDeletedSongIniConflictPaths] =
     useState<string[]>([]);
   const [includedSongPaths, setIncludedSongPaths] = useState<string[]>([]);
-  const [verifiedContentIssueSongPaths, setVerifiedContentIssueSongPaths] =
-    useState<string[]>([]);
-  const [verifyingContentIssueSongPath, setVerifyingContentIssueSongPath] =
-    useState("");
   const [savingScannedSongPaths, setSavingScannedSongPaths] = useState<
     string[]
   >([]);
@@ -172,8 +168,6 @@ export function useModsScanner() {
     setDisabledSongIniPaths([]);
     setDeletedSongIniConflictPaths([]);
     setIncludedSongPaths([]);
-    setVerifiedContentIssueSongPaths([]);
-    setVerifyingContentIssueSongPath("");
     setSavingScannedSongPaths([]);
     setRestoringScannedSongPaths([]);
     setSongIniValidationError("");
@@ -217,8 +211,6 @@ export function useModsScanner() {
       setDisabledSongIniPaths([]);
       setDeletedSongIniConflictPaths([]);
       setIncludedSongPaths([]);
-      setVerifiedContentIssueSongPaths([]);
-      setVerifyingContentIssueSongPath("");
       setSavingScannedSongPaths([]);
       setRestoringScannedSongPaths([]);
       setSongIniValidationError("");
@@ -310,9 +302,6 @@ export function useModsScanner() {
         setRepairedSongIniPaths((currentPaths) =>
           addPath(currentPaths, relativePath),
         );
-        setVerifiedContentIssueSongPaths((currentPaths) =>
-          removePath(currentPaths, relativePath),
-        );
         setSongIniScanResult((currentResult) =>
           currentResult === null
             ? currentResult
@@ -357,38 +346,46 @@ export function useModsScanner() {
     [scanStatus],
   );
 
-  const verifyContentIssueSong = useCallback(
-    async (relativePath: string) => {
+  const verifyContentIssueSongs = useCallback(
+    async (relativePaths: string[]) => {
       if (scanStatus !== "readySongRepair") {
         return;
       }
 
       setScanStatus("verifyingSong");
-      setVerifyingContentIssueSongPath(relativePath);
       setSongIniConflictError("");
 
       try {
-        const result = await verifySongIniFile(relativePath);
+        const result = await verifyContentIssueSongsApi(relativePaths);
 
-        applySongIniValidationResult(result);
-        setVerifiedContentIssueSongPaths((currentPaths) =>
-          addPath(currentPaths, relativePath),
+        setSongIniScanResult((currentResult) =>
+          currentResult === null
+            ? currentResult
+            : {
+                ...currentResult,
+                songs_parsed: result.songs_parsed,
+                songs: result.songs,
+                duplicate_checksum_groups: result.duplicate_checksum_groups,
+                song_ini_folder_conflicts: result.song_ini_folder_conflicts,
+                content_file_issues: result.content_file_issues,
+              },
+        );
+        setIncludedSongPaths(
+          result.songs
+            .filter((song) => song.is_included)
+            .map((song) => song.relative_path),
         );
         setScanStatus("readySongRepair");
         setScanToast({
-          message: `${relativePath} verified`,
+          message: "Content issues verified",
           tone: "success",
         });
       } catch (err) {
-        const error = String(err);
-
-        setSongIniConflictError(error);
+        setSongIniConflictError(String(err));
         setScanStatus("readySongRepair");
-      } finally {
-        setVerifyingContentIssueSongPath("");
       }
     },
-    [applySongIniValidationResult, scanStatus],
+    [scanStatus],
   );
 
   const undoSongIni = useCallback(
@@ -417,9 +414,6 @@ export function useModsScanner() {
           originalFile.contents,
         );
         setRepairedSongIniPaths((currentPaths) =>
-          removePath(currentPaths, relativePath),
-        );
-        setVerifiedContentIssueSongPaths((currentPaths) =>
           removePath(currentPaths, relativePath),
         );
         setSongIniScanResult((currentResult) =>
@@ -543,8 +537,6 @@ export function useModsScanner() {
     setDisabledSongIniPaths([]);
     setDeletedSongIniConflictPaths([]);
     setIncludedSongPaths([]);
-    setVerifiedContentIssueSongPaths([]);
-    setVerifyingContentIssueSongPath("");
     setSavingScannedSongPaths([]);
     setRestoringScannedSongPaths([]);
     setSongIniValidationError("");
@@ -638,9 +630,6 @@ export function useModsScanner() {
             ? addPath(nextPaths, result.relative_path)
             : nextPaths;
         });
-        setVerifiedContentIssueSongPaths((currentPaths) =>
-          removePath(currentPaths, relativePath),
-        );
         setScanStatus("readySongRepair");
         setScanToast({
           message: `${result.relative_path} ${isIncluded ? "included" : "excluded"}`,
@@ -672,9 +661,6 @@ export function useModsScanner() {
           addPath(currentPaths, relativePath),
         );
         setIncludedSongPaths((currentPaths) =>
-          removePath(currentPaths, relativePath),
-        );
-        setVerifiedContentIssueSongPaths((currentPaths) =>
           removePath(currentPaths, relativePath),
         );
         setSongIniScanResult((currentResult) =>
@@ -763,9 +749,6 @@ export function useModsScanner() {
         setIncludedSongPaths((currentPaths) =>
           removePath(currentPaths, relativePath),
         );
-        setVerifiedContentIssueSongPaths((currentPaths) =>
-          removePath(currentPaths, relativePath),
-        );
         setSongIniScanResult((currentResult) =>
           currentResult
             ? {
@@ -813,8 +796,6 @@ export function useModsScanner() {
     setDisabledSongIniPaths([]);
     setDeletedSongIniConflictPaths([]);
     setIncludedSongPaths([]);
-    setVerifiedContentIssueSongPaths([]);
-    setVerifyingContentIssueSongPath("");
     setSavingScannedSongPaths([]);
     setRestoringScannedSongPaths([]);
     setSongIniValidationError("");
@@ -1171,8 +1152,6 @@ export function useModsScanner() {
     setSongsIncluded,
     undoSongIni,
     validateSongIni,
-    verifiedContentIssueSongPaths,
-    verifyingContentIssueSongPath,
-    verifyContentIssueSong,
+    verifyContentIssueSongs,
   };
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { CleanModsWizard } from "./components/CleanModsWizard";
+import { AboutDialog } from "./components/AboutDialog";
 import { CategorizeWizard } from "./components/CategorizeWizard";
 import { ExperimentalWarningDialog } from "./components/ExperimentalWarningDialog";
 import { FixGameIconsWizard } from "./components/FixGameIconsWizard";
@@ -13,6 +14,7 @@ import {
   type CategorizationTableState,
 } from "./components/ScannedSongsTable";
 import { SettingsDialog } from "./components/SettingsDialog";
+import { ThirdPartyLicensesDialog } from "./components/ThirdPartyLicensesDialog";
 import { UpdateDialog } from "./components/UpdateDialog";
 import { useAppUpdater } from "./hooks/useAppUpdater";
 import { useModsCleaner } from "./hooks/useModsCleaner";
@@ -22,7 +24,10 @@ import { useProjectSettings } from "./hooks/useProjectSettings";
 import "./App.css";
 
 function App() {
+  const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [isExperimentalWarningOpen, setIsExperimentalWarningOpen] =
+    useState(false);
+  const [isThirdPartyLicensesOpen, setIsThirdPartyLicensesOpen] =
     useState(false);
   const [isCategorizeWizardOpen, setIsCategorizeWizardOpen] = useState(false);
   const [categorizationTableState, setCategorizationTableState] =
@@ -134,9 +139,7 @@ function App() {
     setSongsIncluded,
     undoSongIni,
     validateSongIni,
-    verifiedContentIssueSongPaths,
-    verifyingContentIssueSongPath,
-    verifyContentIssueSong,
+    verifyContentIssueSongs,
   } = useModsScanner();
 
   useEffect(() => {
@@ -186,8 +189,8 @@ function App() {
     : cleanToast
       ? dismissCleanToast
       : dismissScanToast;
-  const confirmCleanAndClearScan = async () => {
-    const filesDeleted = await confirmClean();
+  const confirmCleanAndClearScan = async (filesToDelete: string[]) => {
+    const filesDeleted = await confirmClean(filesToDelete);
 
     if (filesDeleted > 0) {
       clearCompletedSongScan();
@@ -326,6 +329,13 @@ function App() {
           Experimental software, use at your own risk!!!
         </button>
         <button
+          className="about-button"
+          type="button"
+          onClick={() => setIsAboutOpen(true)}
+        >
+          About
+        </button>
+        <button
           className="settings-button"
           type="button"
           onClick={() => setIsSettingsOpen(true)}
@@ -356,6 +366,19 @@ function App() {
       {isExperimentalWarningOpen && (
         <ExperimentalWarningDialog
           onClose={() => setIsExperimentalWarningOpen(false)}
+        />
+      )}
+
+      {isAboutOpen && (
+        <AboutDialog
+          onClose={() => setIsAboutOpen(false)}
+          onOpenThirdPartyLicenses={() => setIsThirdPartyLicensesOpen(true)}
+        />
+      )}
+
+      {isThirdPartyLicensesOpen && (
+        <ThirdPartyLicensesDialog
+          onClose={() => setIsThirdPartyLicensesOpen(false)}
         />
       )}
 
@@ -404,7 +427,7 @@ function App() {
           onSelectSongIni={clearSongIniValidationError}
           onUndoSongIni={undoSongIni}
           onValidateSongIni={validateSongIni}
-          onVerifyContentIssueSong={verifyContentIssueSong}
+          onVerifyContentIssueSongs={verifyContentIssueSongs}
           deletedSongIniConflictPaths={deletedSongIniConflictPaths}
           disabledSongIniPaths={disabledSongIniPaths}
           includedSongPaths={includedSongPaths}
@@ -417,8 +440,6 @@ function App() {
           songIniScanResult={songIniScanResult}
           songScanProgress={songScanProgress}
           songIniValidationError={songIniValidationError}
-          verifiedContentIssueSongPaths={verifiedContentIssueSongPaths}
-          verifyingContentIssueSongPath={verifyingContentIssueSongPath}
         />
       )}
 

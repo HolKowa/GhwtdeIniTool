@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { CleanModsStatus } from "../hooks/useModsCleaner";
 import type { DeleteFilesPreview } from "../types/scanMods";
@@ -13,9 +13,33 @@ type CleanModsWizardProps = {
   deletePreview: DeleteFilesPreview | null;
   onBack: () => void;
   onCancel: () => void;
-  onConfirmDelete: () => void;
+  onConfirmDelete: (filesToDelete: string[]) => void;
   onPreview: (keepOnlyFilesPattern: string) => void;
 };
+
+type SortKey = "path" | "file";
+type SortDirection = "asc" | "desc";
+
+type DeleteFileRow = {
+  file: string;
+  path: string;
+  relativePath: string;
+};
+
+function deleteFileRow(relativePath: string): DeleteFileRow {
+  const separatorIndex = Math.max(
+    relativePath.lastIndexOf("/"),
+    relativePath.lastIndexOf("\\"),
+  );
+
+  return separatorIndex < 0
+    ? { file: relativePath, path: "", relativePath }
+    : {
+        file: relativePath.slice(separatorIndex + 1),
+        path: relativePath.slice(0, separatorIndex),
+        relativePath,
+      };
+}
 
 export function CleanModsWizard({
   cleanError,
@@ -29,16 +53,87 @@ export function CleanModsWizard({
   const [keepOnlyFilesPattern, setKeepOnlyFilesPattern] = useState(
     DEFAULT_KEEP_ONLY_FILES_PATTERN,
   );
+  const [selectedFilePaths, setSelectedFilePaths] = useState<Set<string>>(
+    new Set(),
+  );
+  const [sortKey, setSortKey] = useState<SortKey>("path");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
+  const selectAllRef = useRef<HTMLInputElement>(null);
   const keepOnlyFilesPatternError =
     validateKeepOnlyFilesPattern(keepOnlyFilesPattern);
   const isPreviewing = cleanStatus === "previewing";
   const isDeleting = cleanStatus === "deleting";
   const isDeleteStep = cleanStatus === "readyDelete" || isDeleting;
   const hasFilesToDelete = Boolean(deletePreview?.files_to_delete.length);
+  const deleteFileRows = useMemo(
+    () =>
+      (deletePreview?.files_to_delete ?? [])
+        .map(deleteFileRow)
+        .sort((left, right) => {
+          const primaryComparison = left[sortKey].localeCompare(right[sortKey]);
+          const comparison =
+            primaryComparison || left.relativePath.localeCompare(right.relativePath);
+
+          return sortDirection === "asc" ? comparison : -comparison;
+        }),
+    [deletePreview, sortDirection, sortKey],
+  );
+  const selectedFileCount = selectedFilePaths.size;
+  const areAllFilesSelected =
+    deleteFileRows.length > 0 && selectedFileCount === deleteFileRows.length;
   const stepLabel = isDeleteStep ? "Step 2" : "Step 1";
   const title = isDeleteStep
     ? "Review files to delete"
     : "Keep only files with pattern";
+
+  useEffect(() => {
+    setSelectedFilePaths(new Set(deletePreview?.files_to_delete ?? []));
+  }, [deletePreview]);
+
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate =
+        selectedFileCount > 0 && !areAllFilesSelected;
+    }
+  }, [areAllFilesSelected, selectedFileCount]);
+
+  function changeSort(nextSortKey: SortKey) {
+    if (nextSortKey === sortKey) {
+      setSortDirection((currentDirection) =>
+        currentDirection === "asc" ? "desc" : "asc",
+      );
+      return;
+    }
+
+    setSortKey(nextSortKey);
+    setSortDirection("asc");
+  }
+
+  function toggleFileSelection(relativePath: string) {
+    setSelectedFilePaths((currentSelectedFilePaths) => {
+      const nextSelectedFilePaths = new Set(currentSelectedFilePaths);
+
+      if (nextSelectedFilePaths.has(relativePath)) {
+        nextSelectedFilePaths.delete(relativePath);
+      } else {
+        nextSelectedFilePaths.add(relativePath);
+      }
+
+      return nextSelectedFilePaths;
+    });
+  }
+
+  function toggleAllFileSelections() {
+    setSelectedFilePaths(
+      areAllFilesSelected
+        ? new Set()
+        : new Set(deletePreview?.files_to_delete ?? []),
+    );
+  }
+
+  function sortIndicator(column: SortKey) {
+    return sortKey === column ? (sortDirection === "asc" ? "asc" : "desc") : "";
+  }
 
   return (
     <div className="scan-wizard-backdrop" role="presentation">
@@ -117,18 +212,61 @@ export function CleanModsWizard({
           {isDeleting && <p className="scan-wizard-muted">Deleting files...</p>}
 
           {isDeleteStep && deletePreview && (
-            <>
+            <div className="clean-delete-review">
               <p className="scan-wizard-summary">
-                {deletePreview.files_to_delete.length} files do not match the
-                keep patterns and are ready to delete.
+                {selectedFileCount} of {deletePreview.files_to_delete.length} files
+                do not match the keep patterns and are selected for deletion.
               </p>
 
               {hasFilesToDelete ? (
-                <ul className="scan-file-list">
-                  {deletePreview.files_to_delete.map((filePath) => (
-                    <li key={filePath}>{filePath}</li>
-                  ))}
-                </ul>
+                <div className="clean-files-table-wrap">
+                  <table className="clean-files-table">
+                    <thead>
+                      <tr>
+                        <th className="clean-files-select-column">
+                          <input
+                            ref={selectAllRef}
+                            aria-label="Select all files"
+                            checked={areAllFilesSelected}
+                            disabled={isDeleting}
+                            type="checkbox"
+                            onChange={toggleAllFileSelections}
+                          />
+                        </th>
+                        {(["path", "file"] as const).map((column) => (
+                          <th key={column}>
+                            <button
+                              type="button"
+                              onClick={() => changeSort(column)}
+                            >
+                              {column === "path" ? "Path" : "File"}
+                              <span aria-hidden="true">
+                                {sortIndicator(column)}
+                              </span>
+                            </button>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {deleteFileRows.map((row) => (
+                        <tr key={row.relativePath}>
+                          <td className="clean-files-select-column">
+                            <input
+                              aria-label={`Select ${row.relativePath}`}
+                              checked={selectedFilePaths.has(row.relativePath)}
+                              disabled={isDeleting}
+                              type="checkbox"
+                              onChange={() => toggleFileSelection(row.relativePath)}
+                            />
+                          </td>
+                          <td title={row.path}>{row.path || "—"}</td>
+                          <td title={row.file}>{row.file}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               ) : (
                 <p className="scan-wizard-muted">No files will be deleted.</p>
               )}
@@ -138,7 +276,7 @@ export function CleanModsWizard({
                   {error}
                 </p>
               ))}
-            </>
+            </div>
           )}
         </div>
 
@@ -158,7 +296,7 @@ export function CleanModsWizard({
             type="button"
             onClick={() =>
               isDeleteStep
-                ? onConfirmDelete()
+                ? onConfirmDelete([...selectedFilePaths])
                 : onPreview(keepOnlyFilesPattern)
             }
             disabled={
@@ -170,7 +308,7 @@ export function CleanModsWizard({
               : isDeleting
                 ? "Deleting..."
                 : isDeleteStep
-                  ? "Finish"
+                  ? "Delete"
                   : "Next"}
           </button>
         </div>

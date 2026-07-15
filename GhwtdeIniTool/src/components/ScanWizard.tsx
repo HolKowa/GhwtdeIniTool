@@ -17,7 +17,7 @@ type ScanWizardProps = {
   onSelectSongIni: () => void;
   onUndoSongIni: (relativePath: string) => void | Promise<void>;
   onValidateSongIni: (relativePath: string, contents: string) => void;
-  onVerifyContentIssueSong: (relativePath: string) => void;
+  onVerifyContentIssueSongs: (relativePaths: string[]) => void;
   deletedSongIniConflictPaths: string[];
   disabledSongIniPaths: string[];
   includedSongPaths: string[];
@@ -33,8 +33,6 @@ type ScanWizardProps = {
   songIniScanResult: SongIniScanResult | null;
   songScanProgress: SongScanProgress | null;
   songIniValidationError: string;
-  verifiedContentIssueSongPaths: string[];
-  verifyingContentIssueSongPath: string;
 };
 
 function scanProgressLabel(progress: SongScanProgress) {
@@ -64,7 +62,7 @@ export function ScanWizard({
   onSelectSongIni,
   onUndoSongIni,
   onValidateSongIni,
-  onVerifyContentIssueSong,
+  onVerifyContentIssueSongs,
   deletedSongIniConflictPaths,
   disabledSongIniPaths,
   includedSongPaths,
@@ -77,8 +75,6 @@ export function ScanWizard({
   songIniScanResult,
   songScanProgress,
   songIniValidationError,
-  verifiedContentIssueSongPaths,
-  verifyingContentIssueSongPath,
 }: ScanWizardProps) {
   const [activeStep, setActiveStep] = useState<1 | 2 | 3>(() =>
     isConflictsOnly ? 2 : 1,
@@ -225,6 +221,13 @@ export function ScanWizard({
       !disabledPathSet.has(issue.song_ini_relative_path) &&
       !deletedPathSet.has(issue.song_ini_relative_path),
   );
+  const unresolvedMissingContentFileIssues = unresolvedContentFileIssues.filter(
+    (issue) => issue.message === "Missing required file.",
+  );
+  const unresolvedUnexpectedContentFileIssues =
+    unresolvedContentFileIssues.filter(
+      (issue) => issue.message === "Unexpected file or folder.",
+    );
   const hasContentStep = songIniScanResult !== null;
   const contentIssuesBySong = useMemo(() => {
     const groups = new Map<string, typeof unresolvedContentFileIssues>();
@@ -245,37 +248,18 @@ export function ScanWizard({
         "",
     }));
 
-    for (const relativePath of verifiedContentIssueSongPaths) {
-      if (
-        groups.has(relativePath) ||
-        disabledPathSet.has(relativePath) ||
-        deletedPathSet.has(relativePath)
-      ) {
-        continue;
-      }
-
-      const song = songByPath.get(relativePath);
-
-      if (song) {
-        rows.push({
-          relativePath,
-          issues: [],
-          folderAbsolutePath: song.folder_absolute_path,
-        });
-      }
-    }
-
     return rows;
   }, [
     deletedPathSet,
     disabledPathSet,
     songByPath,
     unresolvedContentFileIssues,
-    verifiedContentIssueSongPaths,
   ]);
   const unresolvedConflictCount =
     unresolvedDuplicateChecksumGroups.length + unresolvedSongIniFolderConflicts.length;
   const unresolvedContentIssueCount = unresolvedContentFileIssues.length;
+  const unresolvedMissingContentIssueCount =
+    unresolvedMissingContentFileIssues.length;
   const selectedSongIniFile = faultySongIniFiles.find(
     (file) => file.relative_path === selectedSongIniPath,
   );
@@ -298,7 +282,7 @@ export function ScanWizard({
     activeStep === 1 && isScanWorkflow && unresolvedSongIniCount === 0;
   const canFinishConflictStep = activeStep === 2 && unresolvedConflictCount === 0;
   const canFinishContentStep =
-    activeStep === 3 && unresolvedContentIssueCount === 0;
+    activeStep === 3 && unresolvedMissingContentIssueCount === 0;
   const title =
     activeStep === 1
       ? "Check song INI format"
@@ -567,73 +551,94 @@ export function ScanWizard({
 
   const renderContentStep = () => (
     <>
-      <p className="scan-wizard-summary">
-        {unresolvedContentIssueCount} content issue
-        {unresolvedContentIssueCount === 1 ? "" : "s"} remaining.
-      </p>
+      <div className="content-issue-summary-row">
+        <div className="content-issue-summary-details">
+          <p className="scan-wizard-summary">
+            {unresolvedContentIssueCount} content issue
+            {unresolvedContentIssueCount === 1 ? "" : "s"} found. {" "}
+            {unresolvedMissingContentIssueCount} missing required file
+            {unresolvedMissingContentIssueCount === 1 ? "" : "s"} must be
+            fixed before finishing.
+          </p>
 
-      {songIniConflictError && (
-        <p className="scan-wizard-error">{songIniConflictError}</p>
-      )}
+          {unresolvedUnexpectedContentFileIssues.length > 0 && (
+            <p className="scan-wizard-muted">
+              Unexpected files and folders are listed for review but do not
+              need to be removed.
+            </p>
+          )}
 
-      {contentIssuesBySong.map(({
-        relativePath,
-        issues,
-        folderAbsolutePath,
-      }) => {
-        const firstIssue = issues[0];
-        const isDisabled = disabledPathSet.has(relativePath);
-        const isDeleted = deletedPathSet.has(relativePath);
-        const isVerifiedFine = issues.length === 0;
-        const isVerifyingThisSong =
-          isVerifyingSong && verifyingContentIssueSongPath === relativePath;
+          {songIniConflictError && (
+            <p className="scan-wizard-error">{songIniConflictError}</p>
+          )}
+        </div>
 
-        return (
-          <div className="song-conflict-group" key={relativePath}>
-            <div className="song-conflict-group-header">
-              <span>
-                {relativePath}
-                {firstIssue ? ` (${firstIssue.checksum})` : ""}
-              </span>
-              <div className="song-conflict-actions">
-                <button
-                  className="secondary-btn"
-                  type="button"
-                  onClick={() => onCopyContentIssuePath(folderAbsolutePath)}
-                  disabled={isBusy || !folderAbsolutePath}
-                >
-                  Copy path
-                </button>
-                <button
-                  className="secondary-btn"
-                  type="button"
-                  onClick={() => onVerifyContentIssueSong(relativePath)}
-                  disabled={isBusy || isDisabled || isDeleted}
-                >
-                  {isVerifyingThisSong ? "Verifying..." : "Verify"}
-                </button>
-                <button
-                  className="secondary-btn"
-                  type="button"
-                  onClick={() => onDisableSongIni(relativePath)}
-                  disabled={isBusy || isDisabled || isDeleted}
-                >
-                  {isDisabled ? "Disabled" : "Disable"}
-                </button>
+        {unresolvedContentIssueCount > 0 && (
+          <button
+            className="secondary-btn"
+            type="button"
+            onClick={() =>
+              onVerifyContentIssueSongs(
+                Array.from(
+                  new Set(
+                    unresolvedContentFileIssues.map(
+                      (issue) => issue.song_ini_relative_path,
+                    ),
+                  ),
+                ),
+              )
+            }
+            disabled={isBusy}
+          >
+            {isVerifyingSong ? "Verifying..." : "Verify all content issues"}
+          </button>
+        )}
+      </div>
+
+      <div className="content-issue-groups">
+        {contentIssuesBySong.map(({
+          relativePath,
+          issues,
+          folderAbsolutePath,
+        }) => {
+          const firstIssue = issues[0];
+          const isDisabled = disabledPathSet.has(relativePath);
+          const isDeleted = deletedPathSet.has(relativePath);
+
+          return (
+            <div className="song-conflict-group" key={relativePath}>
+              <div className="song-conflict-group-header">
+                <span>
+                  {relativePath}
+                  {firstIssue ? ` (${firstIssue.checksum})` : ""}
+                </span>
+                <div className="song-conflict-actions">
+                  <button
+                    className="secondary-btn"
+                    type="button"
+                    onClick={() => onCopyContentIssuePath(folderAbsolutePath)}
+                    disabled={isBusy || !folderAbsolutePath}
+                  >
+                    Copy path
+                  </button>
+                  <button
+                    className="secondary-btn"
+                    type="button"
+                    onClick={() => onDisableSongIni(relativePath)}
+                    disabled={isBusy || isDisabled || isDeleted}
+                  >
+                    {isDisabled ? "Disabled" : "Disable"}
+                  </button>
+                </div>
               </div>
-            </div>
-            <ul className="song-conflict-list">
-              {isVerifiedFine ? (
-                <li className="song-content-issue-row">
-                  <span>
-                    <strong>Fine</strong>
-                    <small>No content file issues found.</small>
-                  </span>
-                </li>
-              ) : (
-                issues.map((issue) => (
+              <ul className="song-conflict-list">
+                {issues.map((issue) => (
                   <li
-                    className="song-content-issue-row"
+                    className={`song-content-issue-row${
+                      issue.message === "Missing required file."
+                        ? " song-content-issue-row-error"
+                        : ""
+                    }`}
                     key={`${issue.absolute_path}-${issue.message}`}
                   >
                     <span>
@@ -641,18 +646,18 @@ export function ScanWizard({
                       <small>{contentIssueDisplayPath(issue)}</small>
                     </span>
                   </li>
-                ))
-              )}
-            </ul>
-          </div>
-        );
-      })}
+                ))}
+              </ul>
+            </div>
+          );
+        })}
+      </div>
 
       {hasContentStep &&
-        unresolvedContentIssueCount === 0 &&
+        unresolvedMissingContentIssueCount === 0 &&
         contentIssuesBySong.length === 0 && (
         <p className="scan-wizard-muted">
-          All content file issues have been resolved.
+          No missing required content files were found.
         </p>
       )}
 

@@ -67,6 +67,9 @@ jobs:
         with:
           cache: true
 
+      - name: Install cargo-about
+        run: cargo install --locked --features cli cargo-about
+
       - name: Cache Rust target directory
         uses: actions/cache@v4
         with:
@@ -90,6 +93,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          GHWTDE_LICENSE_TARGET: x86_64-pc-windows-msvc
         with:
           projectPath: GhwtdeIniTool
           tauriScript: pnpm tauri
@@ -112,6 +116,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          GHWTDE_LICENSE_TARGET: x86_64-pc-windows-msvc
         with:
           projectPath: GhwtdeIniTool
           tauriScript: pnpm tauri
@@ -152,6 +157,9 @@ jobs:
         with:
           cache: true
 
+      - name: Install cargo-about
+        run: cargo install --locked --features cli cargo-about
+
       - name: Cache Rust target directory
         uses: actions/cache@v4
         with:
@@ -188,6 +196,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          GHWTDE_LICENSE_TARGET: x86_64-unknown-linux-gnu
         with:
           projectPath: GhwtdeIniTool
           tauriScript: pnpm tauri

@@ -430,6 +430,12 @@ export function ScannedSongsTable({
     );
   }
 
+  function hasEmptyRequiredMetadata(song: ScannedSong) {
+    const metadata = rowMetadata(song);
+
+    return metadata.artist.trim() === "" || metadata.title.trim() === "";
+  }
+
   function updateMetadataValue(
     song: ScannedSong,
     key: MetadataColumnKey,
@@ -462,6 +468,10 @@ export function ScannedSongsTable({
   }
 
   async function saveRow(song: ScannedSong) {
+    if (hasEmptyRequiredMetadata(song)) {
+      return;
+    }
+
     try {
       await onSaveMetadata(
         song.relative_path,
@@ -559,10 +569,14 @@ export function ScannedSongsTable({
   }
 
   function metadataCell(song: ScannedSong, column: MetadataColumnKey) {
+    const isRequired = column === "artist" || column === "title";
+    const isInvalid = isRequired && rowMetadata(song)[column].trim() === "";
+
     return (
       <input
         aria-label={`${column} for ${song.relative_path}`}
-        className="scanned-songs-metadata-input"
+        aria-invalid={isInvalid || undefined}
+        className={`scanned-songs-metadata-input${isInvalid ? " input-error" : ""}`}
         value={rowMetadata(song)[column]}
         onChange={(event) =>
           updateMetadataValue(song, column, event.target.value)
@@ -891,7 +905,9 @@ export function ScannedSongsTable({
                           className="scanned-songs-action-btn"
                           type="button"
                           onClick={() => saveRow(song)}
-                          disabled={!isDirty || isRowBusy}
+                          disabled={
+                            !isDirty || isRowBusy || hasEmptyRequiredMetadata(song)
+                          }
                         >
                           {isSaving ? "Saving" : "Save"}
                         </button>

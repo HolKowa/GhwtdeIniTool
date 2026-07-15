@@ -10,6 +10,9 @@ This repository currently contains a basic Tauri 2 desktop application in the
 |-- .github/
 |   `-- workflows/
 |       `-- build.yml
+|-- docs/
+|   `-- DEVELOPMENT.md
+|-- README.md
 |-- GhwtdeIniTool/
 |   |-- src/
 |   |-- src-tauri/
@@ -20,8 +23,7 @@ This repository currently contains a basic Tauri 2 desktop application in the
 |   |-- vite.config.ts
 |   |-- tsconfig.json
 |   |-- tsconfig.node.json
-|   |-- index.html
-|   `-- README.md
+|   `-- index.html
 `-- LICENSE
 ```
 
@@ -39,9 +41,12 @@ Important files:
 - `GhwtdeIniTool/src/App.tsx` coordinates startup, settings, and update UI.
 - `GhwtdeIniTool/src/App.css` contains the current app styling.
 - `GhwtdeIniTool/src/components/CleanModsWizard.tsx` renders the two-step MODS
-  cleanup wizard for keep-pattern entry and delete confirmation.
+  cleanup wizard for keep-pattern entry plus sortable, selectable delete
+  confirmation.
 - `GhwtdeIniTool/src/components/CategorizeWizard.tsx` renders the two-step
   song categorization preview and confirmation workflow.
+- `GhwtdeIniTool/src/components/AboutDialog.tsx` renders product version,
+  GitHub support, and third-party license links.
 - `GhwtdeIniTool/src/components/ExperimentalWarningDialog.tsx` renders the
   read-only experimental-use disclaimer dialog.
 - `GhwtdeIniTool/src/components/FixGameIconsWizard.tsx` renders the custom
@@ -104,10 +109,14 @@ Current frontend behavior:
 - The settings button can reopen the dialog after startup.
 - A persistent red experimental-risk warning appears beside Settings; selecting
   it opens a read-only dialog with the experimental-use disclaimer text.
+- The top-right About link opens a dedicated dialog that shows the installed
+  Tauri app version, opens the GitHub repository for support and bug reports,
+  and provides access to the bundled third-party license text.
 - The Clean MODS folder button opens a two-step wizard that asks for a
-  keep-pattern, previews MODS files that do not match it, allows returning from
-  preview to edit the pattern, and deletes only after the user finishes the
-  review step. The pattern defaults to
+  keep-pattern, previews MODS files that do not match it in sortable Path and
+  File columns, allows individual or all previewed files to be deselected,
+  allows returning from preview to edit the pattern, and deletes only the
+  selected files after the user finishes the review step. The pattern defaults to
   `song*.ini,*_song.pak.xen,*.fsb.xen,category*.ini,*.img.xen,Readme.txt`
   each time and is not saved.
 - The Restore INI files button opens a dialog with separate actions to restore
@@ -138,10 +147,11 @@ Current frontend behavior:
   The final step validates each active song folder's `Content` and
   `Content/MUSIC` layout against the parsed checksum, accepts those folder and
   checksum-derived file names case-insensitively without renaming them, reports
-  missing/misnamed/extra files, lets the user copy the native absolute path to
-  the related song folder, verify a song again after external file fixes, and
-  can disable that `song.ini`. Verified songs remain visible as fine when their
-  content issues are resolved. Debug/Tauri dev runs
+  missing/misnamed/extra files, requires missing files to be resolved before
+  the scan can finish, lists extra files without blocking completion, lets the
+  user copy the native absolute path to the related song folder, verify all
+  affected songs together after external file fixes or folder deletions, and
+  can disable that `song.ini`. Debug/Tauri dev runs
   temporarily suppress missing `Content/MUSIC` warnings when that folder is
   absent so local development can omit bulky MUSIC assets. The wizard scales
   with the app window while keeping preview content scrollable, and shows
@@ -159,9 +169,14 @@ Current frontend behavior:
   gamelogo stem, and can fix folders by moving multiple gamelogos into
   `Category_<gamelogo_stem>` subfolders and generating or replacing
   `category.ini` files. Step 2 previews songs whose `GameIcon` is not known
-  from official or custom gamelogos, shows backend-guessed replacements, lets
-  only the replacement value be edited, and applies the new values to
-  `song.ini` files before refreshing the scanned-song table.
+  from official or custom gamelogos, shows backend-guessed replacements based
+  on valid siblings or matching custom categories in the songs' parent folder,
+  displays each song's MODS-relative parent folder, lets only the replacement
+  value be edited or cleared, and can bulk-fill the pending replacements for
+  listed invalid sibling songs before applying the final batch to `song.ini`
+  files. Clearing a value removes the `GameIcon` entry entirely. The
+  categorization-generated top-level `IniToolCategories` folder is excluded
+  from custom GameIcon discovery.
 - After the Scan MODS folder wizard is finished, the main view shows a compact
   scanned-song table populated from parsed active `song.ini` files. It displays
   exact `[SongInfo]` `Artist`, `Title`, `Year`, `Genre`, and `GameIcon` values,
@@ -188,16 +203,23 @@ Current frontend behavior:
   rows are faintly highlighted, and re-including multiple songs from the same
   duplicate group reopens the duplicate resolver directly on the conflict step.
   The top action row includes Categorize alongside Analyze instruments and Fix
-  GameIcons. Categorize currently opens only its first informational step: it
-  reports the table sort order, active filters, unsaved metadata edits, the
-  selected-song cap, the projected 200-song categories, and whether the
-  existing `IniToolCategories` folder contains files other than `category.ini`.
-  Its Next button is disabled until the later filesystem categorization step is
-  implemented.
+  GameIcons. Categorize uses a two-step wizard: it reports the table sort order,
+  active filters, unsaved metadata edits, selected-song cap, projected 200-song
+  categories, and whether the existing `IniToolCategories` folder contains
+  files other than `category.ini`; its review step shows each generated category
+  before applying. Applying recreates `IniToolCategories`, writes category
+  metadata, assigns included songs to 200-song categories, and excludes all
+  remaining songs. Each generated category also receives a 256×256 raw-PNG
+  Neversoft `gamelogo_initoolNN.img.xen` with white outlined New Rocker text;
+  its `[CategoryInfo] Logo` uses the matching `gamelogo_initoolNN` stem.
 - The settings dialog lets the user choose a MODS folder, choose an official
   GAMELOGOS folder after MODS is set, toggle whether original `song.ini` files
   are kept before their first edit, and accept a one-time experimental-use
   disclaimer before workflows can be used.
+- Scanned-song saves require non-empty Artist and Title values. Empty Year,
+  Genre, or GameIcon values remove their `[SongInfo]` entries rather than
+  writing empty `Key=` lines; the shared INI writer applies that omission rule
+  to any empty update value.
 - When a MODS folder is saved, settings try to auto-fill the official GAMELOGOS
   folder by replacing each exact `MODS` path component with `IMAGES`, nearest
   first, appending `GAMELOGOS`, dropping folders below the matched `MODS`
@@ -216,6 +238,10 @@ Frontend scripts from `GhwtdeIniTool/package.json`:
 
 - `pnpm dev` starts the Vite development server.
 - `pnpm build` runs TypeScript checking and builds the frontend.
+- `pnpm licenses:generate` generates the release-only third-party notice from
+  the New Rocker OFL source notice, `pnpm-lock.yaml`, and `src-tauri/Cargo.lock`.
+  `pnpm tauri build` runs it automatically and requires the one-time Rust tool
+  installation `cargo install --locked --features cli cargo-about`.
 - `pnpm preview` previews the built frontend.
 - `pnpm tauri` runs the Tauri CLI.
 
@@ -234,6 +260,9 @@ Important files:
   from PAK/QB contents.
 - `GhwtdeIniTool/src-tauri/Cargo.toml` defines Rust dependencies and crate
   metadata.
+- `GhwtdeIniTool/src-tauri/about.toml` and `about.hbs` configure the
+  production Rust dependency notices generated by `cargo-about`; the template
+  renders every discovered license group and its using crates.
 - `GhwtdeIniTool/src-tauri/tauri.conf.json` defines app metadata, windows,
   bundling, updater settings, and frontend build integration.
 - `GhwtdeIniTool/src-tauri/capabilities/default.json` defines default Tauri
@@ -260,7 +289,8 @@ Current backend behavior:
   `song.ini` files, and returns refreshed table rows.
 - Exposes `scan_game_icon_categories` and `fix_game_icon_categories` for the
   GameIcon wizard. These commands recursively scan MODS for case-insensitive
-  `gamelogo_*.img.xen` files, parse sibling `category.ini` files with duplicate
+  `gamelogo_*.img.xen` files, excluding the top-level `IniToolCategories`
+  output folder, parse sibling `category.ini` files with duplicate
   key rejection, compare `[CategoryInfo] Logo` to the gamelogo stem, return
   original and custom gamelogo stems without `.img.xen`, and fix custom
   categories by splitting multi-gamelogo folders, renaming invalid or
@@ -284,6 +314,13 @@ Current backend behavior:
   `[project]` section. Windows folder paths use conventional readable forms
   such as `C:\Games\GHWT\DATA\MODS`, without the `\\?\` prefix or escaped
   backslashes.
+- `src-tauri/resources/licenses/NewRocker-OFL-1.1.txt` is the maintained source
+  notice for the bundled New Rocker font. `THIRD_PARTY_LICENSES.txt` is an
+  ignored, release-generated file compiled into production executables and
+  displayed by the top-bar Third-party licenses dialog, which uses a large
+  scrollable viewport. Development builds embed a short placeholder instead.
+- `src-tauri/resources/fonts/NewRocker-Regular.ttf` is compiled into the backend
+  executable for category-logo rendering; it is not a separate runtime file.
 - Reads and writes `mods_dir`, `official_gamelogos_dir`, and
   `keep_original_song_ini`. Missing `official_gamelogos_dir` values default to
   unset, missing `keep_original_song_ini` values default to `true`, and legacy
