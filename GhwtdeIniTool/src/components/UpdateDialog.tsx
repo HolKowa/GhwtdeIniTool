@@ -3,6 +3,7 @@ import type { UpdateStatus } from "../hooks/useAppUpdater";
 type UpdateDialogProps = {
   downloadProgress: number;
   errorMessage: string;
+  onDisableStartupChecks: () => void;
   onInstall: () => void;
   onSkip: () => void;
   onStartDownload: () => void;
@@ -12,6 +13,7 @@ type UpdateDialogProps = {
 export function UpdateDialog({
   downloadProgress,
   errorMessage,
+  onDisableStartupChecks,
   onInstall,
   onSkip,
   onStartDownload,
@@ -35,6 +37,9 @@ export function UpdateDialog({
               </button>
               <button className="skip-btn" onClick={onSkip}>
                 Skip
+              </button>
+              <button className="skip-btn" onClick={onDisableStartupChecks}>
+                Don't check again
               </button>
             </div>
           </>

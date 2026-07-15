@@ -94,11 +94,12 @@ Important files:
 
 Current frontend behavior:
 
-- On React startup, `App.tsx` calls `checkForUpdates()` and `loadSettings()`.
+- On React startup, `App.tsx` loads settings, then checks for updates only when
+  `check_for_updates_on_startup` is enabled.
 - Update checks use `@tauri-apps/plugin-updater`. If an update is available,
   the update dialog can start the download, show percentage progress, install
   the downloaded update, relaunch through `@tauri-apps/plugin-process`, skip the
-  update, or show an error.
+  update, disable future launch-time update checks, or show an error.
 - If the updater check fails, the frontend currently treats it as no update and
   does not show an error dialog.
 - Settings are loaded from the Rust `load_project_settings` command.
@@ -227,6 +228,8 @@ Current frontend behavior:
   component, and using the first existing directory.
 - Settings changes are saved immediately through `save_project_settings`; there
   is no separate Apply or Save button.
+- Settings includes a startup update-check checkbox; disabling it prevents
+  updater requests on future launches until it is re-enabled.
 - Keep-pattern entries are comma-separated, trimmed, matched case-insensitively
   against file names, and support `*` wildcards. An empty keep-pattern keeps
   all files.
@@ -326,10 +329,12 @@ Current backend behavior:
   scrollable viewport. Development builds embed a short placeholder instead.
 - `src-tauri/resources/fonts/NewRocker-Regular.ttf` is compiled into the backend
   executable for category-logo rendering; it is not a separate runtime file.
-- Reads and writes `mods_dir`, `official_gamelogos_dir`, and
-  `keep_original_song_ini`. Missing `official_gamelogos_dir` values default to
-  unset, missing `keep_original_song_ini` values default to `true`, and legacy
-  `keep_only_files_pattern` entries in old settings files are ignored.
+- Reads and writes `mods_dir`, `official_gamelogos_dir`,
+  `keep_original_song_ini`, and `check_for_updates_on_startup`. Missing
+  `official_gamelogos_dir` values default to unset, while missing
+  `keep_original_song_ini` and `check_for_updates_on_startup` values default
+  to `true`; legacy `keep_only_files_pattern` entries in old settings files are
+  ignored.
 - Reports `mods_dir_available` and `official_gamelogos_dir_available` by
   checking whether each stored path still exists as a directory.
 - Requires `mods_dir` to be an existing directory before saving settings.
@@ -381,7 +386,11 @@ The repository has one GitHub Actions workflow:
 Current workflow behavior:
 
 - Builds Windows artifacts on pushes to `main` and `integration`.
-- Can optionally build Linux artifacts through manual workflow dispatch.
+- Publishes Windows installers and a signed x86_64 Linux AppImage to a GitHub
+  Release on pushes to `main`; its combined `latest.json` supports both updater
+  targets.
+- Can build a signed Linux AppImage as an artifact through manual workflow
+  dispatch, including from `integration`, without creating a release.
 - Uses Node.js 24, pnpm, and Rust.
 - Builds the Tauri app with signing secrets.
 - Uploads installer and portable artifacts.

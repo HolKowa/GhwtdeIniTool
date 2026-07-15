@@ -13,6 +13,7 @@ export function saveProjectSettings(settings: ProjectSettings) {
       mods_dir: settings.mods_dir,
       official_gamelogos_dir: settings.official_gamelogos_dir,
       keep_original_song_ini: settings.keep_original_song_ini,
+      check_for_updates_on_startup: settings.check_for_updates_on_startup,
     },
   });
 }

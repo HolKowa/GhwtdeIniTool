@@ -5,5 +5,6 @@ export type ProjectSettings = {
   official_gamelogos_dir: string | null;
   official_gamelogos_dir_available: boolean;
   keep_original_song_ini: boolean;
+  check_for_updates_on_startup: boolean;
   settings_file: string;
 };

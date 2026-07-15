@@ -17,7 +17,7 @@ cd GhwtdeIniTool
 - Rust stable.
 - `cargo-about` to regenerate third-party notices for releases.
 - Tauri system dependencies for your OS.
-- `jq` if you want to generate local Linux updater fixtures.
+- `jq` if you want to generate local Linux AppImage updater fixtures.
 
 Install frontend dependencies from the app directory:
 
@@ -125,12 +125,16 @@ cargo check
 
 ## Updater Behavior
 
-The app checks for updates on launch.
+The app checks for updates on launch by default. Users can disable this from
+the update popup or Settings; the preference is stored in `ghwtdeinitool.ini`.
 
 - If no update is available, nothing is shown.
 - If the update server cannot be reached during the initial check, nothing is shown.
-- If an update is available, a popup is shown with `Update` and `Skip`.
+- If an update is available, a popup is shown with `Update`, `Skip`, and
+  `Don't check again`.
 - `Skip` closes the popup and shows no extra message.
+- `Don't check again` disables future launch-time update checks until the
+  Settings checkbox is re-enabled.
 - Download/install errors are shown only after the user chooses to update.
 
 ## Signing Keys
@@ -157,7 +161,7 @@ The public key must match `plugins.updater.pubkey` in `src-tauri/tauri.conf.json
 
 ## Local Updater Testing
 
-Local updater testing currently targets Linux `.deb` artifacts. Create signing
+Local updater testing currently targets Linux AppImage artifacts. Create signing
 keys first, then use those signing values while building the local fixture.
 
 1. Put valid signing values in `.env.local`:
@@ -176,7 +180,7 @@ pnpm updater:build-linux
 This creates:
 
 ```text
-public/updater-local/ghwtdeinitool_0.9.0_amd64.deb
+public/updater-local/ghwtdeinitool_0.9.0_amd64.AppImage
 public/updater-local/latest.json
 ```
 
@@ -211,13 +215,15 @@ On pushes to `integration`:
 
 On pushes to `main`:
 
-- Windows is built.
+- Windows installers and a signed x86_64 Linux AppImage are built.
 - A GitHub Release is created automatically by `tauri-apps/tauri-action`.
 - The release tag/name uses the app version from Tauri.
-- `latest.json` is included for the updater.
+- `latest.json` includes updater metadata for Windows and the Linux AppImage.
 
-Manual workflow dispatch can also build Linux artifacts when `build-linux` is
-enabled.
+On `integration`, use **Actions** → **Build & Release** → **Run workflow** and
+enable **Also build for Linux** to upload a signed AppImage as a workflow
+artifact. This test build does not create a GitHub Release or publish updater
+metadata.
 
 Before creating a release:
 
@@ -254,7 +260,34 @@ pnpm build
 pnpm tauri build
 ```
 
-6. Push or merge to `main`.
+To verify the Linux release artifact locally on Ubuntu or another Debian-based
+development environment, install the same Tauri dependencies used by CI:
+
+```sh
+sudo apt-get update
+sudo apt-get install -y \
+  libwebkit2gtk-4.1-dev \
+  build-essential \
+  curl \
+  wget \
+  file \
+  libxdo-dev \
+  libssl-dev \
+  libayatana-appindicator3-dev \
+  librsvg2-dev
+```
+
+Then build only the AppImage:
+
+```sh
+pnpm tauri build -- --bundles appimage
+```
+
+The output is `src-tauri/target/release/bundle/appimage/` and is suitable for
+testing on x86_64 Ubuntu and Arch Linux.
+
+6. Push or merge to `main`; CI publishes the Windows installers and Linux
+   AppImage automatically.
 
 ## Useful Commands
 
@@ -263,6 +296,7 @@ pnpm install
 pnpm tauri dev
 pnpm build
 pnpm tauri build
+pnpm tauri build -- --bundles appimage
 pnpm updater:build-linux
 cd src-tauri && cargo check
 ```

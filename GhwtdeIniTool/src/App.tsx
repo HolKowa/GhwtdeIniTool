@@ -52,6 +52,7 @@ function App() {
     chooseModsFolder,
     isSettingsOpen,
     loadSettings,
+    setCheckForUpdatesOnStartup,
     setKeepOriginalSongIni,
     setIsSettingsOpen,
     settings,
@@ -143,9 +144,19 @@ function App() {
   } = useModsScanner();
 
   useEffect(() => {
-    checkForUpdates();
-    loadSettings();
+    void (async () => {
+      const loadedSettings = await loadSettings();
+      if (loadedSettings?.check_for_updates_on_startup) {
+        await checkForUpdates();
+      }
+    })();
   }, [checkForUpdates, loadSettings]);
+
+  const disableStartupUpdateChecks = async () => {
+    if (await setCheckForUpdatesOnStartup(false)) {
+      skipUpdate();
+    }
+  };
 
   const shouldShowUpdatePopup =
     updateStatus === "available" ||
@@ -356,6 +367,7 @@ function App() {
               setIsSettingsOpen(false);
             }
           }}
+          onCheckForUpdatesOnStartupChange={setCheckForUpdatesOnStartup}
           onKeepOriginalSongIniChange={setKeepOriginalSongIni}
           settings={settings}
           settingsError={settingsError}
@@ -386,6 +398,7 @@ function App() {
         <UpdateDialog
           downloadProgress={downloadProgress}
           errorMessage={errorMessage}
+          onDisableStartupChecks={disableStartupUpdateChecks}
           onInstall={installUpdate}
           onSkip={skipUpdate}
           onStartDownload={startDownload}
