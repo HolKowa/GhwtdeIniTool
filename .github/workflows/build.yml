@@ -135,7 +135,7 @@ jobs:
           releaseDraft: false
           prerelease: false
           uploadUpdaterJson: true
-          updaterJsonPreferNsis: false
+          updaterJsonPreferNsis: true
 
   build-linux:
     if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && github.event.inputs.build-linux == 'true')
@@ -250,4 +250,4 @@ jobs:
           releaseDraft: false
           prerelease: false
           uploadUpdaterJson: true
-          updaterJsonPreferNsis: false
+          updaterJsonPreferNsis: true
