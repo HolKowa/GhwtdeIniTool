@@ -39,13 +39,14 @@ Useful variables:
 
 ```sh
 # Repository used to generate the GitHub Releases updater endpoint.
-GHWTDE_UPDATER_REPOSITORY=HolKowa/GhwtdeIniLoader
+GHWTDE_UPDATER_REPOSITORY=HolKowa/GhwtdeIniTool
 
 # Optional direct updater endpoint override.
 # Useful for local updater testing.
 GHWTDE_UPDATER_ENDPOINT=http://localhost:1420/updater-local/latest.json
 
-# Optional app version override.
+# Development-only app version override for updater testing.
+# It applies only to `pnpm tauri dev`, never to packaged builds or GitHub Actions.
 # Set this lower than latest.json's version to force an update to appear.
 GHWTDE_APP_VERSION=0.0.0
 
@@ -57,7 +58,19 @@ TAURI_SIGNING_PRIVATE_KEY_PASSWORD="your private key password here"
 The `pnpm tauri` script loads `.env` and `.env.local`. If
 `GHWTDE_UPDATER_ENDPOINT`, `GHWTDE_UPDATER_REPOSITORY`, or `GITHUB_REPOSITORY`
 is set, it writes `src-tauri/tauri.updater.generated.json` and passes it to
-Tauri for commands such as `dev` and `build`.
+Tauri for commands such as `dev` and `build`. `GHWTDE_APP_VERSION` is included
+in that generated config only for `dev`.
+
+## Versioning
+
+`src-tauri/tauri.conf.json` is the single release-version source. Update its
+top-level `version` field for every release. That version is used by local
+packaged builds and GitHub Actions, including the About dialog, bundle names,
+GitHub Release tag/name, and updater metadata.
+
+`GHWTDE_APP_VERSION` is a development-only override for `pnpm tauri dev`; do
+not use it to set a release version. It cannot change a packaged build or a
+GitHub Actions artifact.
 
 ## Development
 
@@ -157,15 +170,18 @@ TAURI_SIGNING_PRIVATE_KEY_PASSWORD="your private key password here"
 2. Build a signed local updater fixture:
 
 ```sh
-pnpm updater:build-linux 99.0.0
+pnpm updater:build-linux
 ```
 
 This creates:
 
 ```text
-public/updater-local/ghwtdeinitool_99.0.0_amd64.deb
+public/updater-local/ghwtdeinitool_0.9.0_amd64.deb
 public/updater-local/latest.json
 ```
+
+The fixture version comes from `src-tauri/tauri.conf.json`; update that file
+before building a fixture for a different version.
 
 3. Set local updater settings in `.env.local`:
 
@@ -180,8 +196,8 @@ GHWTDE_APP_VERSION=0.0.0
 pnpm tauri dev
 ```
 
-Because `GHWTDE_APP_VERSION` is lower than `99.0.0`, the updater should show the
-update popup.
+Because `GHWTDE_APP_VERSION` is lower than `0.9.0`, the updater should show the
+update popup. This override applies only to this development run.
 
 ## Releases
 
@@ -206,11 +222,10 @@ enabled.
 Before creating a release:
 
 1. Update the app version in `src-tauri/tauri.conf.json`.
-2. Make sure no local-only updater overrides are being used for the release:
+2. Make sure no local updater endpoint override is being used for the release:
 
 ```sh
 GHWTDE_UPDATER_ENDPOINT
-GHWTDE_APP_VERSION
 ```
 
 3. Make sure the GitHub repository has these secrets:
@@ -248,7 +263,7 @@ pnpm install
 pnpm tauri dev
 pnpm build
 pnpm tauri build
-pnpm updater:build-linux 99.0.0
+pnpm updater:build-linux
 cd src-tauri && cargo check
 ```
 

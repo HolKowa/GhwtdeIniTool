@@ -13,7 +13,7 @@ const generatedConfigPath = join(
 loadEnvFile(join(root, ".env"));
 loadEnvFile(join(root, ".env.local"));
 prepareReleaseLicenses();
-const hasGeneratedConfig = writeUpdaterConfig();
+const hasGeneratedConfig = writeUpdaterConfig(process.argv[2]);
 runTauri(hasGeneratedConfig);
 
 function prepareReleaseLicenses() {
@@ -63,12 +63,13 @@ function stripEnvValue(value: string) {
   return trimmed.replace(/\s+#.*$/, "");
 }
 
-function writeUpdaterConfig() {
+function writeUpdaterConfig(command: string | undefined) {
   const repository =
     process.env.GHWTDE_UPDATER_REPOSITORY?.trim() ||
     process.env.GITHUB_REPOSITORY?.trim();
   const endpoint = process.env.GHWTDE_UPDATER_ENDPOINT?.trim();
-  const appVersion = process.env.GHWTDE_APP_VERSION?.trim();
+  const appVersion =
+    command === "dev" ? process.env.GHWTDE_APP_VERSION?.trim() : undefined;
 
   if (!endpoint && !repository) {
     return false;

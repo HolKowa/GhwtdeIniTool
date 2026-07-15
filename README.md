@@ -28,7 +28,7 @@ edits a song INI file.
 ## Download
 
 Download the latest release from the
-[GitHub Releases page](https://github.com/HolKowa/GhwtdeIniLoader/releases).
+[GitHub Releases page](https://github.com/HolKowa/GhwtdeIniTool/releases).
 
 ## Quick start
 
