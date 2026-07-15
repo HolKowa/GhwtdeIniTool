@@ -67,6 +67,17 @@ jobs:
         with:
           cache: true
 
+      - name: Cache cargo-about
+        id: cargo-about-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.os == 'Windows' && '~/.cargo/bin/cargo-about.exe' || '~/.cargo/bin/cargo-about' }}
+          key: ${{ runner.os }}-cargo-about-cli-v1
+
+      - name: Install cargo-about
+        if: steps.cargo-about-cache.outputs.cache-hit != 'true'
+        run: cargo install --locked --features cli cargo-about
+
       - name: Cache Rust target directory
         uses: actions/cache@v4
         with:
@@ -90,6 +101,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          GHWTDE_LICENSE_TARGET: x86_64-pc-windows-msvc
         with:
           projectPath: GhwtdeIniTool
           tauriScript: pnpm tauri
@@ -112,6 +124,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          GHWTDE_LICENSE_TARGET: x86_64-pc-windows-msvc
         with:
           projectPath: GhwtdeIniTool
           tauriScript: pnpm tauri
@@ -121,12 +134,14 @@ jobs:
             ## v__VERSION__
           releaseDraft: false
           prerelease: false
-          includeUpdaterJson: true
+          uploadUpdaterJson: true
           updaterJsonPreferNsis: false
 
   build-linux:
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.build-linux == 'true'
-    runs-on: ubuntu-latest
+    if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && github.event.inputs.build-linux == 'true')
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
     defaults:
       run:
         working-directory: GhwtdeIniTool
@@ -151,6 +166,17 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache: true
+
+      - name: Cache cargo-about
+        id: cargo-about-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.os == 'Windows' && '~/.cargo/bin/cargo-about.exe' || '~/.cargo/bin/cargo-about' }}
+          key: ${{ runner.os }}-cargo-about-cli-v1
+
+      - name: Install cargo-about
+        if: steps.cargo-about-cache.outputs.cache-hit != 'true'
+        run: cargo install --locked --features cli cargo-about
 
       - name: Cache Rust target directory
         uses: actions/cache@v4
@@ -183,21 +209,45 @@ jobs:
         run: rm -rf src-tauri/target/release/bundle src-tauri/target/release/ghwtdeinitool
 
       - name: Build Tauri app
+        if: github.ref != 'refs/heads/main' || github.event_name != 'push'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          GHWTDE_LICENSE_TARGET: x86_64-unknown-linux-gnu
         with:
           projectPath: GhwtdeIniTool
           tauriScript: pnpm tauri
+          args: --bundles appimage
 
       - name: Upload Linux build artifacts
+        if: github.ref != 'refs/heads/main' || github.event_name != 'push'
         uses: actions/upload-artifact@v4
         with:
           name: ghwtdeinitool-linux-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            GhwtdeIniTool/src-tauri/target/release/bundle/**
-            GhwtdeIniTool/src-tauri/target/release/ghwtdeinitool
+            GhwtdeIniTool/src-tauri/target/release/bundle/appimage/**
           if-no-files-found: error
           retention-days: 30
+
+      - name: Build and release Tauri app
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          GHWTDE_LICENSE_TARGET: x86_64-unknown-linux-gnu
+        with:
+          projectPath: GhwtdeIniTool
+          tauriScript: pnpm tauri
+          args: --bundles appimage
+          tagName: v__VERSION__
+          releaseName: v__VERSION__
+          releaseBody: |
+            ## v__VERSION__
+          releaseDraft: false
+          prerelease: false
+          uploadUpdaterJson: true
+          updaterJsonPreferNsis: false

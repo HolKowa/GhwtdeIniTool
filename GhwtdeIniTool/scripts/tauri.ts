@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,8 +12,27 @@ const generatedConfigPath = join(
 
 loadEnvFile(join(root, ".env"));
 loadEnvFile(join(root, ".env.local"));
-const hasGeneratedConfig = writeUpdaterConfig();
+prepareReleaseLicenses();
+const hasGeneratedConfig = writeUpdaterConfig(process.argv[2]);
 runTauri(hasGeneratedConfig);
+
+function prepareReleaseLicenses() {
+  if (process.argv[2] !== "build") {
+    return;
+  }
+
+  execFileSync(
+    "pnpm",
+    ["licenses:generate"],
+    {
+      cwd: root,
+      // Windows exposes pnpm as a .cmd shim, which execFileSync cannot run directly.
+      shell: process.platform === "win32",
+      stdio: "inherit",
+    },
+  );
+  process.env.GHWTDE_INCLUDE_THIRD_PARTY_LICENSES = "1";
+}
 
 function loadEnvFile(path: string) {
   if (!existsSync(path)) {
@@ -44,20 +63,25 @@ function stripEnvValue(value: string) {
   return trimmed.replace(/\s+#.*$/, "");
 }
 
-function writeUpdaterConfig() {
+function writeUpdaterConfig(command: string | undefined) {
   const repository =
     process.env.GHWTDE_UPDATER_REPOSITORY?.trim() ||
     process.env.GITHUB_REPOSITORY?.trim();
+  const endpoint = process.env.GHWTDE_UPDATER_ENDPOINT?.trim();
+  const appVersion =
+    command === "dev" ? process.env.GHWTDE_APP_VERSION?.trim() : undefined;
 
-  if (!repository) {
+  if (!endpoint && !repository) {
     return false;
   }
 
   const config = {
+    ...(appVersion ? { version: appVersion } : {}),
     plugins: {
       updater: {
         endpoints: [
-          `https://github.com/${repository}/releases/latest/download/latest.json`,
+          endpoint ||
+            `https://github.com/${repository}/releases/latest/download/latest.json`,
         ],
       },
     },

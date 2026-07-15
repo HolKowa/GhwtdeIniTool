@@ -1,175 +1,508 @@
-import { useState, useEffect, useRef } from "react";
-import { check } from "@tauri-apps/plugin-updater";
-import type { Update } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
+import { useEffect, useState } from "react";
+
+import { CleanModsWizard } from "./components/CleanModsWizard";
+import { AboutDialog } from "./components/AboutDialog";
+import { CategorizeWizard } from "./components/CategorizeWizard";
+import { ExperimentalWarningDialog } from "./components/ExperimentalWarningDialog";
+import { FixGameIconsWizard } from "./components/FixGameIconsWizard";
+import { InstrumentAnalyzeWizard } from "./components/InstrumentAnalyzeWizard";
+import { RestoreIniWizard } from "./components/RestoreIniWizard";
+import { ScanToast } from "./components/ScanToast";
+import { ScanWizard } from "./components/ScanWizard";
+import {
+  ScannedSongsTable,
+  type CategorizationTableState,
+} from "./components/ScannedSongsTable";
+import { SettingsDialog } from "./components/SettingsDialog";
+import { ThirdPartyLicensesDialog } from "./components/ThirdPartyLicensesDialog";
+import { UpdateDialog } from "./components/UpdateDialog";
+import { useAppUpdater } from "./hooks/useAppUpdater";
+import { useModsCleaner } from "./hooks/useModsCleaner";
+import { useModsScanner } from "./hooks/useModsScanner";
+import { useIniRestorer } from "./hooks/useIniRestorer";
+import { useProjectSettings } from "./hooks/useProjectSettings";
 import "./App.css";
 
-function getUpdaterHeaders(): HeadersInit | undefined {
-  const token = import.meta.env.VITE_GITHUB_UPDATER_TOKEN?.trim();
-
-  if (!token) {
-    return undefined;
-  }
-
-  return {
-    Authorization: `Bearer ${token}`,
-  };
-}
-
 function App() {
-  const [updateStatus, setUpdateStatus] = useState<
-    | "checking"
-    | "available"
-    | "downloading"
-    | "ready"
-    | "skipped"
-    | "none"
-    | "error"
-  >("checking");
-  const [downloadProgress, setDownloadProgress] = useState(0);
-  const [errorMessage, setErrorMessage] = useState("");
-  const updateRef = useRef<Update | null>(null);
+  const [isAboutOpen, setIsAboutOpen] = useState(false);
+  const [isExperimentalWarningOpen, setIsExperimentalWarningOpen] =
+    useState(false);
+  const [isThirdPartyLicensesOpen, setIsThirdPartyLicensesOpen] =
+    useState(false);
+  const [isCategorizeWizardOpen, setIsCategorizeWizardOpen] = useState(false);
+  const [categorizationTableState, setCategorizationTableState] =
+    useState<CategorizationTableState>({
+      hasActiveFilters: false,
+      hasUnsavedSongChanges: false,
+      orderedSongPaths: [],
+      sortKey: "artist",
+    });
+  const {
+    checkForUpdates,
+    downloadProgress,
+    errorMessage,
+    installUpdate,
+    skipUpdate,
+    startDownload,
+    updateStatus,
+  } = useAppUpdater();
+  const {
+    acceptDisclaimer,
+    chooseGameLogosFolder,
+    chooseModsFolder,
+    isSettingsOpen,
+    loadSettings,
+    setCheckForUpdatesOnStartup,
+    setKeepOriginalSongIni,
+    setIsSettingsOpen,
+    settings,
+    settingsError,
+    settingsStatus,
+  } = useProjectSettings();
+  const {
+    backToCleanPattern,
+    cancelClean,
+    cleanError,
+    cleanMods,
+    cleanStatus,
+    cleanToast,
+    confirmClean,
+    deletePreview,
+    dismissCleanToast,
+    isCleanWizardOpen,
+    previewClean,
+  } = useModsCleaner();
+  const {
+    cancelRestore,
+    confirmRestore,
+    dismissRestoreToast,
+    isRestoreWizardOpen,
+    openRestoreWizard,
+    restoreError,
+    restoreErrors,
+    restoreStatus,
+    restoreToast,
+  } = useIniRestorer();
+  const {
+    analyzeInstruments,
+    applyCategorization,
+    applyGameIconSongFixRows,
+    cancelInstrumentAnalyzer,
+    cancelScan,
+    categorizeSongsError,
+    categorizeSongsStatus,
+    clearCompletedSongScan,
+    clearSongIniValidationError,
+    closeInstrumentAnalyzer,
+    confirmScan,
+    copyContentIssuePath,
+    deleteSongIniConflict,
+    deletedSongIniConflictPaths,
+    disableSongIni,
+    disabledSongIniPaths,
+    enableSongIni,
+    fixGameIconCategoryFolders,
+    dismissScanToast,
+    gameIconCategoryError,
+    gameIconCategoryResult,
+    gameIconCategoryStatus,
+    gameIconSongFixPreview,
+    hasCompletedSongScan,
+    includedSongPaths,
+    instrumentAnalyzeError,
+    instrumentAnalyzeProgress,
+    instrumentAnalyzeResult,
+    instrumentAnalyzeStatus,
+    isGameIconWizardOpen,
+    isInstrumentWizardOpen,
+    isScanWizardConflictsOnly,
+    isScanWizardOpen,
+    closeGameIconCategories,
+    openInstrumentAnalyzer,
+    openGameIconCategories,
+    previewGameIconSongFixRows,
+    originalFaultySongIniFiles,
+    repairedSongIniPaths,
+    restoringScannedSongPaths,
+    restoreScannedSongOriginal,
+    scanError,
+    scanMods,
+    scanStatus,
+    scanToast,
+    saveScannedSongMetadata,
+    savingScannedSongPaths,
+    songIniConflictError,
+    songIniScanResult,
+    songScanProgress,
+    songIniValidationError,
+    setSongIncluded,
+    setDuplicateSongIncluded,
+    setSongsIncluded,
+    undoSongIni,
+    validateSongIni,
+    verifyContentIssueSongs,
+  } = useModsScanner();
 
   useEffect(() => {
-    checkForUpdates();
-  }, []);
-
-  async function checkForUpdates() {
-    try {
-      const update = await check({ headers: getUpdaterHeaders() });
-      if (!update) {
-        setUpdateStatus("none");
-        return;
+    void (async () => {
+      const loadedSettings = await loadSettings();
+      if (loadedSettings?.check_for_updates_on_startup) {
+        await checkForUpdates();
       }
+    })();
+  }, [checkForUpdates, loadSettings]);
 
-      updateRef.current = update;
-      setUpdateStatus("available");
-    } catch (err) {
-      setUpdateStatus("error");
-      setErrorMessage(String(err));
+  const disableStartupUpdateChecks = async () => {
+    if (await setCheckForUpdatesOnStartup(false)) {
+      skipUpdate();
     }
-  }
+  };
 
-  async function startDownload(update: Update) {
-    setUpdateStatus("downloading");
-    let downloaded = 0;
-    let contentLength = 0;
+  const shouldShowUpdatePopup =
+    updateStatus === "available" ||
+    updateStatus === "downloading" ||
+    updateStatus === "ready" ||
+    updateStatus === "error";
+  const canCloseSettings = Boolean(
+    settings?.disclaimer_accepted &&
+      settings.mods_dir_available &&
+      settings.official_gamelogos_dir_available,
+  );
+  const isScanBusy =
+    scanStatus === "scanningSongs" ||
+    scanStatus === "validatingSong" ||
+    scanStatus === "undoingSong" ||
+    scanStatus === "verifyingSong" ||
+    scanStatus === "disablingSong" ||
+    scanStatus === "enablingSong" ||
+    scanStatus === "deletingSongConflict";
+  const isCleanBusy =
+    cleanStatus === "previewing" || cleanStatus === "deleting";
+  const isRestoreBusy = restoreStatus === "restoring";
+  const isInstrumentAnalyzeBusy = instrumentAnalyzeStatus === "analyzing";
+  const isGameIconBusy =
+    gameIconCategoryStatus === "scanning" || gameIconCategoryStatus === "fixing";
+  const isWorkflowOpen =
+    isRestoreWizardOpen ||
+    isCleanWizardOpen ||
+    isScanWizardOpen ||
+    isInstrumentWizardOpen ||
+    isGameIconWizardOpen ||
+    isCategorizeWizardOpen;
+  const hasScannedSongs = hasCompletedSongScan && Boolean(songIniScanResult);
+  const canAnalyzeInstruments =
+    hasScannedSongs && !isWorkflowOpen;
+  const canFixGameIcons = hasScannedSongs && !isWorkflowOpen;
+  const canCategorize = hasScannedSongs && !isWorkflowOpen;
+  const activeToast = restoreToast ?? cleanToast ?? scanToast;
+  const dismissActiveToast = restoreToast
+    ? dismissRestoreToast
+    : cleanToast
+      ? dismissCleanToast
+      : dismissScanToast;
+  const confirmCleanAndClearScan = async (filesToDelete: string[]) => {
+    const filesDeleted = await confirmClean(filesToDelete);
 
-    try {
-      await update.download(
-        (event) => {
-          switch (event.event) {
-            case "Started":
-              contentLength = event.data.contentLength ?? 0;
-              break;
-            case "Progress":
-              downloaded += event.data.chunkLength;
-              if (contentLength > 0) {
-                setDownloadProgress(
-                  Math.round((downloaded / contentLength) * 100)
-                );
-              }
-              break;
-            case "Finished":
-              setDownloadProgress(100);
-              break;
-          }
-        },
-        { headers: getUpdaterHeaders() }
-      );
-
-      setUpdateStatus("ready");
-    } catch (err) {
-      setUpdateStatus("error");
-      setErrorMessage(String(err));
+    if (filesDeleted > 0) {
+      clearCompletedSongScan();
     }
-  }
+  };
+  const confirmRestoreAndClearScan = async (
+    mode: Parameters<typeof confirmRestore>[0],
+  ) => {
+    const filesRestored = await confirmRestore(mode);
 
-  async function handleInstall() {
-    try {
-      const update = updateRef.current;
-      if (update) {
-        await update.install();
-        await relaunch();
-      }
-    } catch (err) {
-      setErrorMessage(String(err));
+    if (filesRestored > 0) {
+      clearCompletedSongScan();
     }
-  }
-
-  function handleSkip() {
-    setUpdateStatus("skipped");
-  }
+  };
 
   return (
     <main className="container">
-      <h1>GhwtdeIniTool</h1>
-      <p>Welcome to GhwtdeIniTool.</p>
-
-      <div className="update-section">
-        {updateStatus === "checking" && (
-          <div className="update-card checking">
-            <span className="update-spinner" />
-            <span>Checking for updates…</span>
-          </div>
+      <div className="scan-panel">
+        <button
+          className="restore-button"
+          type="button"
+          onClick={openRestoreWizard}
+          disabled={
+            isWorkflowOpen ||
+            isScanBusy ||
+            isCleanBusy ||
+            isRestoreBusy ||
+            isGameIconBusy
+          }
+        >
+          {isRestoreBusy ? "Restoring..." : "Restore INI files"}
+        </button>
+        <button
+          className="clean-button"
+          type="button"
+          onClick={cleanMods}
+          disabled={
+            isWorkflowOpen ||
+            isScanBusy ||
+            isCleanBusy ||
+            isRestoreBusy ||
+            isGameIconBusy
+          }
+        >
+          {isCleanBusy ? "Cleaning..." : "Clean MODS folder"}
+        </button>
+        <button
+          className="scan-button"
+          type="button"
+          onClick={scanMods}
+          disabled={
+            isWorkflowOpen ||
+            isScanBusy ||
+            isCleanBusy ||
+            isRestoreBusy ||
+            isGameIconBusy
+          }
+        >
+          {isScanBusy ? "Scanning..." : "Scan MODS folder"}
+        </button>
+        {hasScannedSongs && (
+          <button
+            className="instrument-button"
+            type="button"
+            onClick={openInstrumentAnalyzer}
+            disabled={
+              !canAnalyzeInstruments ||
+              isScanBusy ||
+              isCleanBusy ||
+              isRestoreBusy ||
+              isInstrumentAnalyzeBusy ||
+              isGameIconBusy
+            }
+          >
+            {isInstrumentAnalyzeBusy ? "Analyzing..." : "Analyze instruments"}
+          </button>
         )}
-
-        {updateStatus === "none" && (
-          <div className="update-card up-to-date">
-            <span>✓ You're on the latest version</span>
-          </div>
+        {hasScannedSongs && (
+          <button
+            className="game-icon-button"
+            type="button"
+            onClick={openGameIconCategories}
+            disabled={
+              !canFixGameIcons ||
+              isScanBusy ||
+              isCleanBusy ||
+              isRestoreBusy ||
+              isInstrumentAnalyzeBusy ||
+              isGameIconBusy
+            }
+          >
+            {isGameIconBusy ? "Fixing..." : "Fix GameIcons"}
+          </button>
         )}
-
-        {updateStatus === "available" && (
-          <div className="update-card available">
-            <span>⬇ An update is available</span>
-            <div className="update-buttons">
-              <button
-                className="update-now-btn"
-                onClick={() => startDownload(updateRef.current!)}
-              >
-                Update Now
-              </button>
-              <button className="skip-btn" onClick={handleSkip}>
-                Skip
-              </button>
-            </div>
-          </div>
-        )}
-
-        {updateStatus === "skipped" && (
-          <div className="update-card skipped">
-            <span>Update skipped — check again on next launch</span>
-          </div>
-        )}
-
-        {updateStatus === "downloading" && (
-          <div className="update-card downloading">
-            <span>Downloading update… {downloadProgress}%</span>
-            <div className="progress-bar">
-              <div
-                className="progress-fill"
-                style={{ width: `${downloadProgress}%` }}
-              />
-            </div>
-          </div>
-        )}
-
-        {updateStatus === "ready" && (
-          <div className="update-card ready">
-            <span>✓ Update downloaded!</span>
-            <button className="install-btn" onClick={handleInstall}>
-              Restart & Install
-            </button>
-          </div>
-        )}
-
-        {updateStatus === "error" && (
-          <div className="update-card error">
-            <span>✗ Update check failed: {errorMessage}</span>
-          </div>
+        {hasScannedSongs && (
+          <button
+            className="categorize-button"
+            type="button"
+            onClick={() => setIsCategorizeWizardOpen(true)}
+            disabled={
+              !canCategorize ||
+              isScanBusy ||
+              isCleanBusy ||
+              isRestoreBusy ||
+              isInstrumentAnalyzeBusy ||
+              isGameIconBusy
+            }
+          >
+            Categorize
+          </button>
         )}
       </div>
+
+      {hasScannedSongs && songIniScanResult && (
+        <ScannedSongsTable
+          duplicateChecksumGroups={songIniScanResult.duplicate_checksum_groups}
+          includedSongPaths={includedSongPaths}
+          onCategorizationStateChange={setCategorizationTableState}
+          onCopyFolderPath={copyContentIssuePath}
+          onRestoreOriginal={restoreScannedSongOriginal}
+          onSaveMetadata={saveScannedSongMetadata}
+          onSetSongIncluded={setSongIncluded}
+          onSetSongsIncluded={setSongsIncluded}
+          restoringSongPaths={restoringScannedSongPaths}
+          savingSongPaths={savingScannedSongPaths}
+          songs={songIniScanResult?.songs ?? []}
+        />
+      )}
+
+      <div className="app-controls">
+        <button
+          className="experimental-warning-button"
+          type="button"
+          onClick={() => setIsExperimentalWarningOpen(true)}
+        >
+          Experimental software, use at your own risk!!!
+        </button>
+        <button
+          className="about-button"
+          type="button"
+          onClick={() => setIsAboutOpen(true)}
+        >
+          About
+        </button>
+        <button
+          className="settings-button"
+          type="button"
+          onClick={() => setIsSettingsOpen(true)}
+          aria-label="Open settings"
+        >
+          Settings
+        </button>
+      </div>
+
+      {isSettingsOpen && (
+        <SettingsDialog
+          canClose={canCloseSettings}
+          onAcceptDisclaimer={acceptDisclaimer}
+          onChangeGameLogosFolder={chooseGameLogosFolder}
+          onChangeFolder={chooseModsFolder}
+          onClose={() => {
+            if (canCloseSettings) {
+              setIsSettingsOpen(false);
+            }
+          }}
+          onCheckForUpdatesOnStartupChange={setCheckForUpdatesOnStartup}
+          onKeepOriginalSongIniChange={setKeepOriginalSongIni}
+          settings={settings}
+          settingsError={settingsError}
+          settingsStatus={settingsStatus}
+        />
+      )}
+
+      {isExperimentalWarningOpen && (
+        <ExperimentalWarningDialog
+          onClose={() => setIsExperimentalWarningOpen(false)}
+        />
+      )}
+
+      {isAboutOpen && (
+        <AboutDialog
+          onClose={() => setIsAboutOpen(false)}
+          onOpenThirdPartyLicenses={() => setIsThirdPartyLicensesOpen(true)}
+        />
+      )}
+
+      {isThirdPartyLicensesOpen && (
+        <ThirdPartyLicensesDialog
+          onClose={() => setIsThirdPartyLicensesOpen(false)}
+        />
+      )}
+
+      {shouldShowUpdatePopup && (
+        <UpdateDialog
+          downloadProgress={downloadProgress}
+          errorMessage={errorMessage}
+          onDisableStartupChecks={disableStartupUpdateChecks}
+          onInstall={installUpdate}
+          onSkip={skipUpdate}
+          onStartDownload={startDownload}
+          updateStatus={updateStatus}
+        />
+      )}
+
+      {isRestoreWizardOpen && (
+        <RestoreIniWizard
+          error={restoreError}
+          errors={restoreErrors}
+          onCancel={cancelRestore}
+          onConfirm={confirmRestoreAndClearScan}
+          status={restoreStatus}
+        />
+      )}
+
+      {isCleanWizardOpen && (
+        <CleanModsWizard
+          cleanError={cleanError}
+          cleanStatus={cleanStatus}
+          deletePreview={deletePreview}
+          onBack={backToCleanPattern}
+          onCancel={cancelClean}
+          onConfirmDelete={confirmCleanAndClearScan}
+          onPreview={previewClean}
+        />
+      )}
+
+      {isScanWizardOpen && (
+        <ScanWizard
+          onCancel={cancelScan}
+          onConfirm={confirmScan}
+          onCopyContentIssuePath={copyContentIssuePath}
+          onDeleteSongIniConflict={deleteSongIniConflict}
+          onDisableSongIni={disableSongIni}
+          onEnableSongIni={enableSongIni}
+          onSetDuplicateSongIncluded={setDuplicateSongIncluded}
+          onSelectSongIni={clearSongIniValidationError}
+          onUndoSongIni={undoSongIni}
+          onValidateSongIni={validateSongIni}
+          onVerifyContentIssueSongs={verifyContentIssueSongs}
+          deletedSongIniConflictPaths={deletedSongIniConflictPaths}
+          disabledSongIniPaths={disabledSongIniPaths}
+          includedSongPaths={includedSongPaths}
+          isConflictsOnly={isScanWizardConflictsOnly}
+          originalFaultySongIniFiles={originalFaultySongIniFiles}
+          repairedSongIniPaths={repairedSongIniPaths}
+          scanError={scanError}
+          scanStatus={scanStatus}
+          songIniConflictError={songIniConflictError}
+          songIniScanResult={songIniScanResult}
+          songScanProgress={songScanProgress}
+          songIniValidationError={songIniValidationError}
+        />
+      )}
+
+      {isInstrumentWizardOpen && (
+        <InstrumentAnalyzeWizard
+          error={instrumentAnalyzeError}
+          onAnalyze={analyzeInstruments}
+          onCancel={cancelInstrumentAnalyzer}
+          onClose={closeInstrumentAnalyzer}
+          progress={instrumentAnalyzeProgress}
+          result={instrumentAnalyzeResult}
+          status={instrumentAnalyzeStatus}
+        />
+      )}
+
+      {isGameIconWizardOpen && (
+        <FixGameIconsWizard
+          error={gameIconCategoryError}
+          fixPreview={gameIconSongFixPreview}
+          onApplyFixes={applyGameIconSongFixRows}
+          onClose={closeGameIconCategories}
+          onFix={fixGameIconCategoryFolders}
+          onPreviewFixes={previewGameIconSongFixRows}
+          result={gameIconCategoryResult}
+          status={gameIconCategoryStatus}
+        />
+      )}
+
+      {isCategorizeWizardOpen && (
+        <CategorizeWizard
+          error={categorizeSongsError}
+          hasActiveFilters={categorizationTableState.hasActiveFilters}
+          hasUnsavedSongChanges={
+            categorizationTableState.hasUnsavedSongChanges
+          }
+          includedSongCount={includedSongPaths.length}
+          includedSongPaths={includedSongPaths}
+          modsDir={settings?.mods_dir ?? null}
+          onApply={applyCategorization}
+          onClose={() => setIsCategorizeWizardOpen(false)}
+          orderedSongPaths={categorizationTableState.orderedSongPaths}
+          songs={songIniScanResult?.songs ?? []}
+          sortKey={categorizationTableState.sortKey}
+          status={categorizeSongsStatus}
+        />
+      )}
+
+      {activeToast && (
+        <ScanToast onDismiss={dismissActiveToast} toast={activeToast} />
+      )}
     </main>
   );
 }

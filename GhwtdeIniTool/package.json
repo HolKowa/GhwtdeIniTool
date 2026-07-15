@@ -5,11 +5,14 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "licenses:generate": "node scripts/generate-third-party-licenses.mjs",
     "preview": "vite preview",
+    "updater:build-linux": "bash scripts/build-local-linux-update.sh",
     "tauri": "node scripts/tauri.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-opener": "^2",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.10.1",
@@ -17,6 +20,7 @@
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@quantco/pnpm-licenses": "^2.4.2",
     "@tauri-apps/cli": "^2",
     "@types/node": "^25.9.1",
     "@types/react": "^19.1.8",

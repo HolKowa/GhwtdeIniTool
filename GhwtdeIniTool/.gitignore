@@ -10,10 +10,12 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+public/updater-local
 .env
 .env.*
 !.env.example
 src-tauri/tauri.updater.generated.json
+src-tauri/resources/THIRD_PARTY_LICENSES.txt
 *.local
 
 # Editor directories and files
