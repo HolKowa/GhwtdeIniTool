@@ -318,10 +318,11 @@ Current backend behavior:
   diagnostics, warnings, errors, the lookup strategy, selected entry hash,
   matching section count, and matched QB filename when known in a
   frontend-ready serialized shape.
-- Stores project settings in `ghwtdeinitool.ini` next to the executable under a
-  `[project]` section. Windows folder paths use conventional readable forms
-  such as `C:\Games\GHWT\DATA\MODS`, without the `\\?\` prefix or escaped
-  backslashes.
+- Stores project settings in `ghwtdeinitool.ini` in Tauri's per-user app-config
+  directory under a `[project]` section. This remains writable for installed
+  apps and does not migrate legacy INI files beside an executable. Windows
+  folder paths use conventional readable forms such as
+  `C:\Games\GHWT\DATA\MODS`, without the `\\?\` prefix or escaped backslashes.
 - `src-tauri/resources/licenses/NewRocker-OFL-1.1.txt` is the maintained source
   notice for the bundled New Rocker font. `THIRD_PARTY_LICENSES.txt` is an
   ignored, release-generated file compiled into production executables and
@@ -386,16 +387,18 @@ The repository has one GitHub Actions workflow:
 Current workflow behavior:
 
 - Builds Windows artifacts on pushes to `main` and `integration`.
-- Publishes Windows installers and a signed x86_64 Linux AppImage to a GitHub
-  Release on pushes to `main`; its combined `latest.json` supports both updater
-  targets.
+- Publishes an NSIS Windows installer and a signed x86_64 Linux AppImage to a
+  GitHub Release on pushes to `main`; its combined `latest.json` supports both
+  updater targets and uses NSIS for Windows updates.
 - Can build a signed Linux AppImage as an artifact through manual workflow
   dispatch, including from `integration`, without creating a release.
 - Uses Node.js 24, pnpm, and Rust.
 - Caches the platform-specific `cargo-about` executable, so repeat runs skip
   its costly `cargo install` compilation.
 - Builds the Tauri app with signing secrets.
-- Uploads installer and portable artifacts.
+- Uploads NSIS installer and portable executable artifacts for integration
+  builds. A portable executable is replaced manually; its updater action starts
+  the NSIS installer instead of replacing the portable file.
 - Creates a GitHub release when pushing to `main`.
 
 ## Tests

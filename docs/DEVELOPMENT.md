@@ -90,19 +90,18 @@ longer omits MUSIC assets.
 
 ## Project Settings INI
 
-The app stores the last selected MODS folder in `ghwtdeinitool.ini` next to the
-running executable.
+The app stores settings in `ghwtdeinitool.ini` in Tauri's per-user app-config
+directory. On Windows this is under `%APPDATA%`, so settings remain writable
+regardless of where the executable is installed. Existing INI files next to an
+older executable are not migrated; configure the app again after upgrading.
 
 In development, that file is usually here:
 
 ```text
-src-tauri/target/debug/ghwtdeinitool.ini
+<platform app-config directory>/com.vscode.ghwtdeinitool/ghwtdeinitool.ini
 ```
 
-In production, the file is next to the installed app executable. On Windows,
-that is typically the same directory as `ghwtdeinitool.exe`. If the app is
-installed in a protected location, writing this file may require a writable app
-directory or elevated permissions.
+The installed app does not need administrator rights to save its settings.
 
 Run only the frontend dev server:
 
@@ -136,6 +135,11 @@ the update popup or Settings; the preference is stored in `ghwtdeinitool.ini`.
 - `Don't check again` disables future launch-time update checks until the
   Settings checkbox is re-enabled.
 - Download/install errors are shown only after the user chooses to update.
+- Windows releases use the NSIS installer only. It installs for the current
+  user under `%LOCALAPPDATA%` by default and is the installer used by updates.
+- A portable EXE is not self-updating. Selecting **Update** from one starts the
+  NSIS installer and leaves the portable EXE unchanged; download and replace a
+  portable EXE manually if you want to keep using it that way.
 
 ## Signing Keys
 
@@ -215,7 +219,7 @@ On pushes to `integration`:
 
 On pushes to `main`:
 
-- Windows installers and a signed x86_64 Linux AppImage are built.
+- The NSIS Windows installer and a signed x86_64 Linux AppImage are built.
 - A GitHub Release is created automatically by `tauri-apps/tauri-action`.
 - The release tag/name uses the app version from Tauri.
 - `latest.json` includes updater metadata for Windows and the Linux AppImage.
