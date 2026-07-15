@@ -22,9 +22,14 @@ function prepareReleaseLicenses() {
   }
 
   execFileSync(
-    process.platform === "win32" ? "pnpm.cmd" : "pnpm",
+    "pnpm",
     ["licenses:generate"],
-    { cwd: root, stdio: "inherit" },
+    {
+      cwd: root,
+      // Windows exposes pnpm as a .cmd shim, which execFileSync cannot run directly.
+      shell: process.platform === "win32",
+      stdio: "inherit",
+    },
   );
   process.env.GHWTDE_INCLUDE_THIRD_PARTY_LICENSES = "1";
 }
