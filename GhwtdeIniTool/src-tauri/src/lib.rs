@@ -12,7 +12,7 @@ use std::{
     sync::Mutex,
     time::{Duration, Instant, UNIX_EPOCH},
 };
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 mod song_pak_analyzer;
 
@@ -125,6 +125,10 @@ struct RestoreIniResult {
 
 #[derive(Default)]
 struct SongIniStore(Mutex<Vec<ParsedSongIni>>);
+
+struct SettingsStore {
+    path: PathBuf,
+}
 
 #[derive(Clone, Serialize)]
 struct ParsedSongIni {
@@ -399,8 +403,10 @@ struct StoredProjectSettings {
 }
 
 #[tauri::command]
-fn load_project_settings() -> Result<ProjectSettings, String> {
-    let settings_path = settings_file_path().map_err(settings_error)?;
+fn load_project_settings(
+    settings_store: tauri::State<'_, SettingsStore>,
+) -> Result<ProjectSettings, String> {
+    let settings_path = settings_store.path.clone();
     let settings = match fs::read_to_string(&settings_path) {
         Ok(contents) => read_project_settings_from_ini(&contents),
         Err(err) if err.kind() == io::ErrorKind::NotFound => StoredProjectSettings::default(),
@@ -411,8 +417,11 @@ fn load_project_settings() -> Result<ProjectSettings, String> {
 }
 
 #[tauri::command]
-fn save_project_settings(settings: ProjectSettingsInput) -> Result<ProjectSettings, String> {
-    let settings_path = settings_file_path().map_err(settings_error)?;
+fn save_project_settings(
+    settings: ProjectSettingsInput,
+    settings_store: tauri::State<'_, SettingsStore>,
+) -> Result<ProjectSettings, String> {
+    let settings_path = settings_store.path.clone();
     let previous_settings = match fs::read_to_string(&settings_path) {
         Ok(contents) => read_project_settings_from_ini(&contents),
         Err(err) if err.kind() == io::ErrorKind::NotFound => StoredProjectSettings::default(),
@@ -420,6 +429,15 @@ fn save_project_settings(settings: ProjectSettingsInput) -> Result<ProjectSettin
     };
     let settings = validate_project_settings(settings, &previous_settings)?;
     let contents = write_project_settings_to_ini(&settings);
+
+    if let Some(settings_dir) = settings_path.parent() {
+        fs::create_dir_all(settings_dir).map_err(|err| {
+            format!(
+                "Failed to create settings directory at {}: {err}",
+                settings_dir.display()
+            )
+        })?;
+    }
 
     fs::write(&settings_path, contents).map_err(|err| {
         format!(
@@ -439,20 +457,26 @@ fn third_party_licenses() -> String {
 #[tauri::command]
 fn preview_keep_only_files_delete(
     keep_only_files_pattern: String,
+    settings_store: tauri::State<'_, SettingsStore>,
 ) -> Result<DeleteFilesPreview, String> {
-    let settings = scan_settings()?;
+    let settings = scan_settings(&settings_store.path)?;
     preview_keep_only_files_delete_paths(&settings.mods_dir, &keep_only_files_pattern)
 }
 
 #[tauri::command]
-fn delete_keep_only_files(files_to_delete: Vec<String>) -> Result<DeleteFilesResult, String> {
-    let settings = scan_settings()?;
+fn delete_keep_only_files(
+    files_to_delete: Vec<String>,
+    settings_store: tauri::State<'_, SettingsStore>,
+) -> Result<DeleteFilesResult, String> {
+    let settings = scan_settings(&settings_store.path)?;
     delete_keep_only_files_paths(&settings.mods_dir, &files_to_delete)
 }
 
 #[tauri::command]
-fn preview_ini_tool_categories() -> Result<IniToolCategoriesPreview, String> {
-    let settings = scan_settings()?;
+fn preview_ini_tool_categories(
+    settings_store: tauri::State<'_, SettingsStore>,
+) -> Result<IniToolCategoriesPreview, String> {
+    let settings = scan_settings(&settings_store.path)?;
     preview_ini_tool_categories_paths(&settings.mods_dir)
 }
 
@@ -460,8 +484,9 @@ fn preview_ini_tool_categories() -> Result<IniToolCategoriesPreview, String> {
 fn categorize_songs(
     input: CategorizeSongsInput,
     store: tauri::State<'_, SongIniStore>,
+    settings_store: tauri::State<'_, SettingsStore>,
 ) -> Result<CategorizeSongsResult, String> {
-    let settings = scan_settings()?;
+    let settings = scan_settings(&settings_store.path)?;
     categorize_songs_paths(&settings, input, &store)
 }
 
@@ -469,8 +494,9 @@ fn categorize_songs(
 fn scan_song_ini_files(
     app: tauri::AppHandle,
     store: tauri::State<'_, SongIniStore>,
+    settings_store: tauri::State<'_, SettingsStore>,
 ) -> Result<SongIniScanResult, String> {
-    let settings = scan_settings()?;
+    let settings = scan_settings(&settings_store.path)?;
     scan_song_ini_files_paths_with_progress(&settings, &store, |progress| {
         let _ = app.emit("song_scan_progress", progress);
     })
@@ -481,8 +507,9 @@ fn validate_song_ini_file(
     relative_path: String,
     contents: String,
     store: tauri::State<'_, SongIniStore>,
+    settings_store: tauri::State<'_, SettingsStore>,
 ) -> Result<SongIniValidationResult, String> {
-    let settings = scan_settings()?;
+    let settings = scan_settings(&settings_store.path)?;
     validate_song_ini_file_path(&settings, &relative_path, &contents, &store)
 }
 
@@ -491,8 +518,9 @@ fn undo_song_ini_repair(
     relative_path: String,
     contents: String,
     store: tauri::State<'_, SongIniStore>,
+    settings_store: tauri::State<'_, SettingsStore>,
 ) -> Result<SongIniValidationResult, String> {
-    let settings = scan_settings()?;
+    let settings = scan_settings(&settings_store.path)?;
     undo_song_ini_repair_path(&settings, &relative_path, &contents, &store)
 }
 
@@ -500,8 +528,9 @@ fn undo_song_ini_repair(
 fn verify_content_issue_songs(
     relative_paths: Vec<String>,
     store: tauri::State<'_, SongIniStore>,
+    settings_store: tauri::State<'_, SettingsStore>,
 ) -> Result<SongContentVerificationResult, String> {
-    let settings = scan_settings()?;
+    let settings = scan_settings(&settings_store.path)?;
     verify_content_issue_songs_paths(&settings, &relative_paths, &store)
 }
 
@@ -509,8 +538,9 @@ fn verify_content_issue_songs(
 fn disable_song_ini_file(
     relative_path: String,
     store: tauri::State<'_, SongIniStore>,
+    settings_store: tauri::State<'_, SettingsStore>,
 ) -> Result<SongIniDisableResult, String> {
-    let settings = scan_settings()?;
+    let settings = scan_settings(&settings_store.path)?;
     disable_song_ini_file_path(&settings, &relative_path, &store)
 }
 
@@ -518,8 +548,9 @@ fn disable_song_ini_file(
 fn enable_song_ini_file(
     relative_path: String,
     store: tauri::State<'_, SongIniStore>,
+    settings_store: tauri::State<'_, SettingsStore>,
 ) -> Result<SongIniEnableResult, String> {
-    let settings = scan_settings()?;
+    let settings = scan_settings(&settings_store.path)?;
     enable_song_ini_file_path(&settings, &relative_path, &store)
 }
 
@@ -527,8 +558,9 @@ fn enable_song_ini_file(
 fn delete_song_ini_conflict_file(
     relative_path: String,
     store: tauri::State<'_, SongIniStore>,
+    settings_store: tauri::State<'_, SettingsStore>,
 ) -> Result<SongIniDeleteResult, String> {
-    let settings = scan_settings()?;
+    let settings = scan_settings(&settings_store.path)?;
     delete_song_ini_conflict_file_path(&settings, &relative_path, &store)
 }
 
@@ -537,8 +569,9 @@ fn set_scanned_song_included(
     relative_path: String,
     is_included: bool,
     store: tauri::State<'_, SongIniStore>,
+    settings_store: tauri::State<'_, SettingsStore>,
 ) -> Result<SongIniValidationResult, String> {
-    let settings = scan_settings()?;
+    let settings = scan_settings(&settings_store.path)?;
     set_scanned_song_included_path(&settings, &relative_path, is_included, &store)
 }
 
@@ -548,8 +581,9 @@ fn update_scanned_song_metadata(
     metadata: ScannedSongMetadataInput,
     is_included: bool,
     store: tauri::State<'_, SongIniStore>,
+    settings_store: tauri::State<'_, SettingsStore>,
 ) -> Result<SongIniValidationResult, String> {
-    let settings = scan_settings()?;
+    let settings = scan_settings(&settings_store.path)?;
     update_scanned_song_metadata_path(&settings, &relative_path, metadata, is_included, &store)
 }
 
@@ -558,8 +592,9 @@ fn restore_original_song_ini(
     relative_path: String,
     is_included: bool,
     store: tauri::State<'_, SongIniStore>,
+    settings_store: tauri::State<'_, SettingsStore>,
 ) -> Result<SongIniValidationResult, String> {
-    let settings = scan_settings()?;
+    let settings = scan_settings(&settings_store.path)?;
     restore_original_song_ini_path(&settings, &relative_path, is_included, &store)
 }
 
@@ -567,28 +602,34 @@ fn restore_original_song_ini(
 fn restore_all_original_song_ini(
     action: RestoreIniAction,
     store: tauri::State<'_, SongIniStore>,
+    settings_store: tauri::State<'_, SettingsStore>,
 ) -> Result<RestoreIniResult, String> {
-    let settings = scan_settings()?;
+    let settings = scan_settings(&settings_store.path)?;
     restore_all_ini_paths(&settings, action, &store)
 }
 
 #[tauri::command]
-fn scan_game_icon_categories() -> Result<GameIconCategoryScanResult, String> {
-    let settings = scan_settings()?;
+fn scan_game_icon_categories(
+    settings_store: tauri::State<'_, SettingsStore>,
+) -> Result<GameIconCategoryScanResult, String> {
+    let settings = scan_settings(&settings_store.path)?;
     scan_game_icon_categories_paths(&settings)
 }
 
 #[tauri::command]
-fn fix_game_icon_categories() -> Result<GameIconCategoryScanResult, String> {
-    let settings = scan_settings()?;
+fn fix_game_icon_categories(
+    settings_store: tauri::State<'_, SettingsStore>,
+) -> Result<GameIconCategoryScanResult, String> {
+    let settings = scan_settings(&settings_store.path)?;
     fix_game_icon_categories_paths(&settings)
 }
 
 #[tauri::command]
 fn preview_game_icon_song_fixes(
     store: tauri::State<'_, SongIniStore>,
+    settings_store: tauri::State<'_, SettingsStore>,
 ) -> Result<GameIconSongFixPreview, String> {
-    let settings = scan_settings()?;
+    let settings = scan_settings(&settings_store.path)?;
     preview_game_icon_song_fixes_paths(&settings, &store)
 }
 
@@ -596,8 +637,9 @@ fn preview_game_icon_song_fixes(
 fn apply_game_icon_song_fixes(
     fixes: Vec<GameIconSongFixInput>,
     store: tauri::State<'_, SongIniStore>,
+    settings_store: tauri::State<'_, SettingsStore>,
 ) -> Result<GameIconSongFixApplyResult, String> {
-    let settings = scan_settings()?;
+    let settings = scan_settings(&settings_store.path)?;
     apply_game_icon_song_fixes_paths(&settings, fixes, &store)
 }
 
@@ -606,8 +648,9 @@ async fn analyze_scanned_song_instruments(
     app: tauri::AppHandle,
     mode: InstrumentAnalyzeMode,
     store: tauri::State<'_, SongIniStore>,
+    settings_store: tauri::State<'_, SettingsStore>,
 ) -> Result<InstrumentAnalyzeResult, String> {
-    let settings = scan_settings()?;
+    let settings = scan_settings(&settings_store.path)?;
     let parsed_songs = stored_parsed_songs(&store)?;
     drop(store);
 
@@ -634,8 +677,7 @@ struct ScanSettings {
     keep_original_song_ini: bool,
 }
 
-fn scan_settings() -> Result<ScanSettings, String> {
-    let settings_path = settings_file_path().map_err(settings_error)?;
+fn scan_settings(settings_path: &Path) -> Result<ScanSettings, String> {
     let settings = match fs::read_to_string(&settings_path) {
         Ok(contents) => read_project_settings_from_ini(&contents),
         Err(err) if err.kind() == io::ErrorKind::NotFound => StoredProjectSettings::default(),
@@ -4646,18 +4688,6 @@ fn is_disabled_song_ini(path: &Path) -> bool {
         .is_some_and(|name| name.eq_ignore_ascii_case("song.disabled.ini"))
 }
 
-fn settings_file_path() -> io::Result<PathBuf> {
-    let exe_path = env::current_exe()?;
-    let exe_dir = exe_path.parent().ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::NotFound,
-            "Could not determine executable directory.",
-        )
-    })?;
-
-    Ok(exe_dir.join(SETTINGS_FILE_NAME))
-}
-
 fn read_project_settings_from_ini(contents: &str) -> StoredProjectSettings {
     let mut settings = StoredProjectSettings::default();
     let mut in_project_section = false;
@@ -4875,16 +4905,16 @@ fn normalize_settings_path_string(path: String) -> String {
     path
 }
 
+fn settings_error(err: io::Error) -> String {
+    format!("Failed to read settings file: {err}")
+}
+
 fn parse_ini_bool(value: &str) -> Option<bool> {
     match value.trim().to_ascii_lowercase().as_str() {
         "true" | "1" | "yes" | "on" => Some(true),
         "false" | "0" | "no" | "off" => Some(false),
         _ => None,
     }
-}
-
-fn settings_error(err: io::Error) -> String {
-    format!("Failed to locate settings file next to the executable: {err}")
 }
 
 impl Default for StoredProjectSettings {
@@ -8754,6 +8784,17 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            let settings_path = app
+                .path()
+                .app_config_dir()
+                .map_err(|err| format!("Failed to determine app settings directory: {err}"))?
+                .join(SETTINGS_FILE_NAME);
+            app.manage(SettingsStore {
+                path: settings_path,
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             load_project_settings,
             save_project_settings,
