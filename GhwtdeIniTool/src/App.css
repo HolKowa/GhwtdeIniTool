@@ -703,11 +703,15 @@ td.scanned-songs-action-column {
 }
 
 .third-party-licenses-panel {
-  width: min(100%, 780px);
+  display: flex;
+  width: min(80vw, calc(100vw - 3rem));
+  height: min(80vh, calc(100vh - 3rem));
+  flex-direction: column;
 }
 
 .third-party-licenses-text {
-  max-height: min(65vh, 42rem);
+  flex: 1;
+  min-height: 0;
   margin: 1rem 0 0;
   overflow: auto;
   padding: 0.9rem;
@@ -2125,6 +2129,11 @@ td.scanned-songs-action-column {
   }
 
   .scan-wizard-panel {
+    width: calc(100vw - 2rem);
+    height: calc(100vh - 2rem);
+  }
+
+  .third-party-licenses-panel {
     width: calc(100vw - 2rem);
     height: calc(100vh - 2rem);
   }
