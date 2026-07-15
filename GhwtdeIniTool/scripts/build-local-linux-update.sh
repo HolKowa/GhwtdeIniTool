@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [ "$#" -ne 1 ]; then
-  echo "Usage: $0 <version>"
-  echo "Example: $0 99.0.0"
+if [ "$#" -ne 0 ]; then
+  echo "Usage: $0"
   exit 1
 fi
 
@@ -13,15 +12,15 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
-VERSION="$1"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+VERSION="$(jq -r '.version // empty' "$ROOT/src-tauri/tauri.conf.json")"
 
 if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.+][0-9A-Za-z.-]+)?$ ]]; then
-  echo "Version must look like a semantic version, for example 99.0.0"
+  echo "Version in src-tauri/tauri.conf.json must be a semantic version, for example 99.0.0"
   exit 1
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LOCAL_UPDATER_DIR="$ROOT/public/updater-local"
 DEB_NAME="ghwtdeinitool_${VERSION}_amd64.deb"
 DEB_PATH="$ROOT/src-tauri/target/release/bundle/deb/$DEB_NAME"
@@ -31,7 +30,7 @@ BASE_URL="http://localhost:1420/updater-local"
 cd "$ROOT"
 
 echo "Building signed Linux .deb updater artifact for version $VERSION..."
-env GHWTDE_APP_VERSION="$VERSION" pnpm tauri build --bundles deb
+pnpm tauri build --bundles deb
 
 if [ ! -f "$DEB_PATH" ]; then
   echo "Expected bundle was not created: $DEB_PATH"
