@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,8 +12,22 @@ const generatedConfigPath = join(
 
 loadEnvFile(join(root, ".env"));
 loadEnvFile(join(root, ".env.local"));
+prepareReleaseLicenses();
 const hasGeneratedConfig = writeUpdaterConfig();
 runTauri(hasGeneratedConfig);
+
+function prepareReleaseLicenses() {
+  if (process.argv[2] !== "build") {
+    return;
+  }
+
+  execFileSync(
+    process.platform === "win32" ? "pnpm.cmd" : "pnpm",
+    ["licenses:generate"],
+    { cwd: root, stdio: "inherit" },
+  );
+  process.env.GHWTDE_INCLUDE_THIRD_PARTY_LICENSES = "1";
+}
 
 function loadEnvFile(path: string) {
   if (!existsSync(path)) {

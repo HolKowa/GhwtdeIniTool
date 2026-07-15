@@ -220,12 +220,17 @@ TAURI_SIGNING_PRIVATE_KEY
 TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 ```
 
-4. Regenerate the third-party notice:
+4. Install `cargo-about` once. `pnpm tauri build` generates and embeds the
+   third-party notice automatically; `pnpm tauri dev` embeds a short
+   development placeholder instead:
 
 ```sh
 cargo install --locked --features cli cargo-about # once
-pnpm licenses:generate
 ```
+
+Set `GHWTDE_LICENSE_TARGET` to a Rust target triple when a local release build
+should embed notices for only that platform. GitHub Actions sets this for each
+release job; leaving it unset generates the conservative all-platform notice.
 
 5. Build locally if possible:
 
@@ -256,4 +261,5 @@ These are intentionally not committed:
 - `dist/`
 - `public/updater-local/`
 - `src-tauri/tauri.updater.generated.json`
+- `src-tauri/resources/THIRD_PARTY_LICENSES.txt` (generated for release builds)
 - Tauri build output under `src-tauri/target/`

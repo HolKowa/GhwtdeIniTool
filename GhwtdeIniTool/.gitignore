@@ -15,6 +15,7 @@ public/updater-local
 .env.*
 !.env.example
 src-tauri/tauri.updater.generated.json
+src-tauri/resources/THIRD_PARTY_LICENSES.txt
 *.local
 
 # Editor directories and files

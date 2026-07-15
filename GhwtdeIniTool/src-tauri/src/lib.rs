@@ -26,7 +26,8 @@ const CATEGORY_LOGO_MAX_LINE_HEIGHT: u32 = 68;
 const CATEGORY_LOGO_LINE_GAP: u32 = 6;
 const PNG_SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
 const IMG_XEN_HEADER_SIZE: usize = 40;
-const THIRD_PARTY_LICENSES: &str = include_str!("../resources/THIRD_PARTY_LICENSES.txt");
+const THIRD_PARTY_LICENSES: &str =
+    include_str!(concat!(env!("OUT_DIR"), "/third_party_licenses.txt"));
 const MOD_INFO_KEYS: &[&str] = &["Key", "Name", "Description", "Author", "Version"];
 const SONG_INFO_KEYS: &[&str] = &[
     "Key",

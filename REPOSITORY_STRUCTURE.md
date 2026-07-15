@@ -238,10 +238,10 @@ Frontend scripts from `GhwtdeIniTool/package.json`:
 
 - `pnpm dev` starts the Vite development server.
 - `pnpm build` runs TypeScript checking and builds the frontend.
-- `pnpm licenses:generate` generates the embedded third-party notice from the
-  New Rocker OFL source notice, `pnpm-lock.yaml`, and `src-tauri/Cargo.lock`.
-  It requires the one-time Rust tool installation
-  `cargo install --locked --features cli cargo-about`.
+- `pnpm licenses:generate` generates the release-only third-party notice from
+  the New Rocker OFL source notice, `pnpm-lock.yaml`, and `src-tauri/Cargo.lock`.
+  `pnpm tauri build` runs it automatically and requires the one-time Rust tool
+  installation `cargo install --locked --features cli cargo-about`.
 - `pnpm preview` previews the built frontend.
 - `pnpm tauri` runs the Tauri CLI.
 
@@ -315,11 +315,10 @@ Current backend behavior:
   such as `C:\Games\GHWT\DATA\MODS`, without the `\\?\` prefix or escaped
   backslashes.
 - `src-tauri/resources/licenses/NewRocker-OFL-1.1.txt` is the maintained source
-  notice for the bundled New Rocker font. `THIRD_PARTY_LICENSES.txt` is a
-  generated file compiled into the executable and displayed by the top-bar
-  Third-party licenses dialog, which uses a large scrollable viewport. Run
-  `pnpm licenses:generate` before a release to recreate it from the font
-  notice and production frontend/Rust dependency notices.
+  notice for the bundled New Rocker font. `THIRD_PARTY_LICENSES.txt` is an
+  ignored, release-generated file compiled into production executables and
+  displayed by the top-bar Third-party licenses dialog, which uses a large
+  scrollable viewport. Development builds embed a short placeholder instead.
 - `src-tauri/resources/fonts/NewRocker-Regular.ttf` is compiled into the backend
   executable for category-logo rendering; it is not a separate runtime file.
 - Reads and writes `mods_dir`, `official_gamelogos_dir`, and

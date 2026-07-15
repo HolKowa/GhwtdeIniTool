@@ -107,6 +107,5 @@ are available in the [development guide](docs/DEVELOPMENT.md).
 This project is licensed under the [MIT License](LICENSE).
 
 Third-party libraries, fonts, and other components remain subject to their
-respective licenses. See
-[THIRD_PARTY_LICENSES.txt](GhwtdeIniTool/src-tauri/resources/THIRD_PARTY_LICENSES.txt)
-for details.
+respective licenses. Release builds include their generated notices in the
+application's Third-party licenses dialog.

@@ -21,6 +21,7 @@ const generatedMarker = "\n\n===================================================
 const temporaryDirectory = mkdtempSync(join(tmpdir(), "ghwtdeinitool-licenses-"));
 const frontendLicenses = join(temporaryDirectory, "frontend-licenses.txt");
 const rustLicenses = join(temporaryDirectory, "rust-licenses.txt");
+const cargoAboutTarget = process.env.GHWTDE_LICENSE_TARGET?.trim();
 
 try {
   execFileSync(
@@ -41,6 +42,7 @@ try {
       "generate",
       "--locked",
       "--fail",
+      ...(cargoAboutTarget ? ["--target", cargoAboutTarget] : []),
       "--output-file",
       rustLicenses,
       "about.hbs",
