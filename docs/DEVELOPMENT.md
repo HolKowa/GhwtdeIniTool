@@ -1,17 +1,25 @@
-# GhwtdeIniTool
+# Development Guide
 
 GhwtdeIniTool is a desktop app built with React, TypeScript, Vite, and Tauri 2.
-The frontend lives in `src/` and the Tauri/Rust backend lives in `src-tauri/`.
+The frontend lives in `GhwtdeIniTool/src/` and the Tauri/Rust backend lives in
+`GhwtdeIniTool/src-tauri/`.
+
+Unless stated otherwise, run app commands from the app directory:
+
+```sh
+cd GhwtdeIniTool
+```
 
 ## Requirements
 
 - Node.js 24, matching the GitHub Actions workflow.
 - pnpm 11.x.
 - Rust stable.
+- `cargo-about` to regenerate third-party notices for releases.
 - Tauri system dependencies for your OS.
 - `jq` if you want to generate local Linux updater fixtures.
 
-Install frontend dependencies from this directory:
+Install frontend dependencies from the app directory:
 
 ```sh
 pnpm install
@@ -212,14 +220,21 @@ TAURI_SIGNING_PRIVATE_KEY
 TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 ```
 
-4. Build locally if possible:
+4. Regenerate the third-party notice:
+
+```sh
+cargo install --locked --features cli cargo-about # once
+pnpm licenses:generate
+```
+
+5. Build locally if possible:
 
 ```sh
 pnpm build
 pnpm tauri build
 ```
 
-5. Push or merge to `main`.
+6. Push or merge to `main`.
 
 ## Useful Commands
 

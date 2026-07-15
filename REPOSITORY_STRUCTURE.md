@@ -10,6 +10,9 @@ This repository currently contains a basic Tauri 2 desktop application in the
 |-- .github/
 |   `-- workflows/
 |       `-- build.yml
+|-- docs/
+|   `-- DEVELOPMENT.md
+|-- README.md
 |-- GhwtdeIniTool/
 |   |-- src/
 |   |-- src-tauri/
@@ -20,8 +23,7 @@ This repository currently contains a basic Tauri 2 desktop application in the
 |   |-- vite.config.ts
 |   |-- tsconfig.json
 |   |-- tsconfig.node.json
-|   |-- index.html
-|   `-- README.md
+|   `-- index.html
 `-- LICENSE
 ```
 
