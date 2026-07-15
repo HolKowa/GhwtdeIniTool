@@ -392,6 +392,8 @@ Current workflow behavior:
 - Can build a signed Linux AppImage as an artifact through manual workflow
   dispatch, including from `integration`, without creating a release.
 - Uses Node.js 24, pnpm, and Rust.
+- Caches the platform-specific `cargo-about` executable, so repeat runs skip
+  its costly `cargo install` compilation.
 - Builds the Tauri app with signing secrets.
 - Uploads installer and portable artifacts.
 - Creates a GitHub release when pushing to `main`.
