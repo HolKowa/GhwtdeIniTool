@@ -34,7 +34,12 @@ try {
       "--output-file",
       frontendLicenses,
     ],
-    { cwd: projectDirectory, stdio: "inherit" },
+    {
+      cwd: projectDirectory,
+      // Windows exposes pnpm as a .cmd shim, which execFileSync cannot run directly.
+      shell: process.platform === "win32",
+      stdio: "inherit",
+    },
   );
   execFileSync(
     process.env.CARGO_ABOUT ?? "cargo-about",
