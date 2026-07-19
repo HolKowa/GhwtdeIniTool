@@ -39,6 +39,7 @@ type SortKey = CategorizationSortKey;
 type SortDirection = "asc" | "desc";
 type IncludeFilter = "all" | "included" | "excluded";
 type MetadataDropdownFilterKey = "year" | "genre" | "game_icon";
+type InstrumentLevel = "easy" | "medium" | "hard" | "expert";
 type ContextMenuState = {
   x: number;
   y: number;
@@ -53,7 +54,20 @@ const metadataDropdownFilterKeys = new Set<MetadataColumnKey>([
   "genre",
   "game_icon",
 ]);
-
+const instrumentLevels: Array<{ key: InstrumentLevel; label: string; shortLabel: string }> = [
+  { key: "easy", label: "Easy", shortLabel: "E" },
+  { key: "medium", label: "Medium", shortLabel: "M" },
+  { key: "hard", label: "Hard", shortLabel: "H" },
+  { key: "expert", label: "Expert", shortLabel: "X" },
+];
+const instrumentFilterOptions = [
+  ...instrumentLevels.map((level) => level.label),
+  "No",
+  ...instrumentLevels.map((level) => `No ${level.label}`),
+  "Unknown",
+  "Error",
+];
+const vocalFilterOptions = ["Yes", "No", "Unknown", "Error"];
 const columns: Column[] = [
   { key: "artist", label: "Artist", type: "metadata" },
   { key: "title", label: "Title", type: "metadata" },
@@ -107,10 +121,11 @@ const instrumentValueRanks: Record<string, number> = {
   Error: 0,
   Unknown: 1,
   No: 2,
-  Easy: 3,
-  Medium: 4,
-  Hard: 5,
-  Expert: 6,
+  Yes: 3,
+  Easy: 4,
+  Medium: 5,
+  Hard: 6,
+  Expert: 7,
 };
 
 export function ScannedSongsTable({
@@ -186,36 +201,6 @@ export function ScannedSongsTable({
 
     return options;
   }, [songs]);
-  const instrumentFilterOptions = useMemo(() => {
-    const options = {} as Record<InstrumentColumnKey, string[]>;
-
-    columns.forEach((column) => {
-      if (column.type !== "instrument") {
-        return;
-      }
-
-      const valueSet = new Set(
-        songs.map((song) => song.instruments[column.key].value),
-      );
-
-      options[column.key] = Array.from(valueSet).sort((left, right) => {
-        const rankComparison =
-          (instrumentValueRanks[left] ?? 0) - (instrumentValueRanks[right] ?? 0);
-
-        if (rankComparison !== 0) {
-          return rankComparison;
-        }
-
-        return left.localeCompare(right, undefined, {
-          numeric: true,
-          sensitivity: "base",
-        });
-      });
-    });
-
-    return options;
-  }, [songs]);
-
   const sortedSongs = useMemo(() => {
     const nextSongs = [...songs];
 
@@ -557,17 +542,6 @@ export function ScannedSongsTable({
     return trimmedValue.length > 0 ? value : emptyFieldLabel;
   }
 
-  function displayCell(value: string) {
-    const displayedValue = displayValue(value);
-    const isEmpty = displayedValue === emptyFieldLabel;
-
-    return (
-      <span className={isEmpty ? "scanned-songs-empty-value" : undefined}>
-        {displayedValue}
-      </span>
-    );
-  }
-
   function metadataCell(song: ScannedSong, column: MetadataColumnKey) {
     const isRequired = column === "artist" || column === "title";
     const isInvalid = isRequired && rowMetadata(song)[column].trim() === "";
@@ -668,14 +642,6 @@ export function ScannedSongsTable({
     setContextMenu(null);
   }
 
-  function columnValue(song: ScannedSong, column: Column) {
-    if (column.type === "instrument") {
-      return song.instruments[column.key].value;
-    }
-
-    return displayValue(song[column.key]);
-  }
-
   function columnTitle(song: ScannedSong, column: Column) {
     if (column.type === "instrument") {
       return song.instruments[column.key].tooltip;
@@ -684,11 +650,77 @@ export function ScannedSongsTable({
     return song[column.key];
   }
 
+  function instrumentCell(song: ScannedSong, column: InstrumentColumnKey) {
+    const instrument = song.instruments[column];
+
+    if (instrument.value === "Unknown" || instrument.value === "Error") {
+      return (
+        <span
+          className={`scanned-songs-instrument-state ${
+            instrument.value === "Error" ? "error" : "unknown"
+          }`}
+        >
+          {instrument.value}
+        </span>
+      );
+    }
+
+    if (column === "vocals") {
+      return (
+        <span
+          className={`scanned-songs-vocals-availability ${
+            instrument.value === "Yes" ? "available" : "missing"
+          }`}
+        >
+          {instrument.value}
+        </span>
+      );
+    }
+
+    const availabilityLabel = instrumentLevels
+      .map((level) => `${level.label} ${instrument[level.key] ? "available" : "missing"}`)
+      .join(", ");
+
+    return (
+      <span
+        aria-label={availabilityLabel}
+        className="scanned-songs-instrument-levels"
+        role="img"
+      >
+        {instrumentLevels.map((level) => (
+          <span
+            aria-hidden="true"
+            className={`scanned-songs-instrument-level${
+              instrument[level.key] ? " available" : " missing"
+            }`}
+            key={level.key}
+          >
+            {level.shortLabel}
+          </span>
+        ))}
+      </span>
+    );
+  }
+
   function matchesFilter(song: ScannedSong, column: Column, filter: string) {
     if (column.type === "instrument") {
-      const value = song.instruments[column.key].value.toLocaleLowerCase();
+      const instrument = song.instruments[column.key];
+      const missingLevelLabel = filter.startsWith("no ")
+        ? filter.slice("no ".length)
+        : null;
+      const level = instrumentLevels.find((candidate) =>
+        candidate.label.toLocaleLowerCase() === (missingLevelLabel ?? filter),
+      );
 
-      return value === filter;
+      if (level) {
+        return missingLevelLabel
+          ? instrument.value !== "Unknown" &&
+              instrument.value !== "Error" &&
+              !instrument[level.key]
+          : instrument[level.key];
+      }
+
+      return instrument.value.toLocaleLowerCase() === filter;
     }
 
     if (metadataDropdownFilterKeys.has(column.key)) {
@@ -697,7 +729,6 @@ export function ScannedSongsTable({
 
     return displayValue(song[column.key]).toLocaleLowerCase().includes(filter);
   }
-
   function compareColumnValues(left: ScannedSong, right: ScannedSong, key: SortKey) {
     const column = columns.find((candidate) => candidate.key === key);
 
@@ -824,7 +855,10 @@ export function ScannedSongsTable({
                         }
                       >
                         <option value="">All</option>
-                        {instrumentFilterOptions[column.key].map((value) => (
+                        {(column.key === "vocals"
+                          ? vocalFilterOptions
+                          : instrumentFilterOptions
+                        ).map((value) => (
                           <option key={value} value={value}>
                             {value}
                           </option>
@@ -883,7 +917,7 @@ export function ScannedSongsTable({
                       <td key={column.key} title={columnTitle(song, column)}>
                         {column.type === "metadata"
                           ? metadataCell(song, column.key)
-                          : displayCell(columnValue(song, column))}
+                          : instrumentCell(song, column.key)}
                       </td>
                     ))}
                     <td className="scanned-songs-action-column">

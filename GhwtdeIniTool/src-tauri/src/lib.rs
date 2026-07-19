@@ -18,7 +18,7 @@ mod song_pak_analyzer;
 
 const SETTINGS_FILE_NAME: &str = "ghwtdeinitool.ini";
 const INSTRUMENT_SIDECAR_FILE_NAME: &str = "song.instruments.ini";
-const INSTRUMENT_ANALYZER_VERSION: &str = "1";
+const INSTRUMENT_ANALYZER_VERSION: &str = "2";
 const CATEGORY_LOGO_SIZE: u32 = 256;
 const CATEGORY_LOGO_STROKE_WIDTH: i32 = 3;
 const CATEGORY_LOGO_MAX_LINE_WIDTH: u32 = 228;
@@ -3610,7 +3610,7 @@ fn instrument_analyze_mode_value(mode: InstrumentAnalyzeMode) -> &'static str {
 fn is_known_instrument_value(value: &str) -> bool {
     matches!(
         value,
-        "Unknown" | "No" | "Easy" | "Medium" | "Hard" | "Expert" | "Error"
+        "Unknown" | "No" | "Yes" | "Easy" | "Medium" | "Hard" | "Expert" | "Error"
     )
 }
 
@@ -3723,7 +3723,28 @@ fn difficulty_column(
 }
 
 fn vocals_column(supported: bool, errors: &[String]) -> InstrumentColumnSummary {
-    instrument_column("Vocals", false, false, false, supported, errors)
+    let value = if !supported && !errors.is_empty() {
+        "Error"
+    } else if supported {
+        "Yes"
+    } else {
+        "No"
+    };
+    let tooltip = if value == "Error" {
+        errors.join("\n")
+    } else {
+        format!("Vocals: {value}")
+    };
+
+    InstrumentColumnSummary {
+        value: value.to_string(),
+        tooltip,
+        easy: supported,
+        medium: supported,
+        hard: supported,
+        expert: supported,
+        errors: errors.to_vec(),
+    }
 }
 
 fn empty_column(label: &str, errors: &[String]) -> InstrumentColumnSummary {
@@ -5508,14 +5529,21 @@ mod tests {
     }
 
     #[test]
-    fn vocals_column_maps_supported_vocals_to_expert() {
+    fn vocals_column_maps_supported_vocals_to_yes_at_all_levels() {
         let supported = vocals_column(true, &[]);
         let unsupported = vocals_column(false, &[]);
         let error = vocals_column(false, &["Missing vocals data.".to_string()]);
 
-        assert_eq!(supported.value, "Expert");
+        assert_eq!(supported.value, "Yes");
+        assert!(supported.easy);
+        assert!(supported.medium);
+        assert!(supported.hard);
         assert!(supported.expert);
         assert_eq!(unsupported.value, "No");
+        assert!(!unsupported.easy);
+        assert!(!unsupported.medium);
+        assert!(!unsupported.hard);
+        assert!(!unsupported.expert);
         assert_eq!(error.value, "Error");
         assert_eq!(error.tooltip, "Missing vocals data.");
     }
@@ -5579,7 +5607,7 @@ mod tests {
             .expect("scan should succeed");
 
         assert_eq!(result.songs[0].instruments.guitar.value, "Expert");
-        assert_eq!(result.songs[0].instruments.vocals.value, "Expert");
+        assert_eq!(result.songs[0].instruments.vocals.value, "Yes");
     }
 
     #[test]
@@ -5607,6 +5635,44 @@ mod tests {
             .expect("scan should succeed");
 
         assert_eq!(result.songs[0].instruments.guitar.value, "Unknown");
+    }
+
+    #[test]
+    fn song_scan_ignores_previous_instrument_analyzer_version() {
+        let project = TestProject::new("instrument-sidecar-previous-version");
+        let song_ini_path = project.mods_dir.join("song.ini");
+        write_test_file_contents(
+            &song_ini_path,
+            valid_song_ini("Previous", "previous_checksum").as_str(),
+        );
+        let identity = current_pak_identity(&song_ini_path, "previous_checksum");
+        let instruments = ScannedSongInstruments {
+            guitar: instrument_column("Guitar", false, false, false, true, &[]),
+            bass: empty_column("Bass", &[]),
+            drums: empty_column("Drums", &[]),
+            vocals: vocals_column(true, &[]),
+            coop_guitar: empty_column("CoopGuitar", &[]),
+            coop_bass: empty_column("CoopBass", &[]),
+        };
+        write_instrument_sidecar(
+            &song_ini_path,
+            "previous_checksum",
+            &identity,
+            &instruments,
+        )
+        .expect("sidecar should write");
+        let sidecar_path = instrument_sidecar_path(&song_ini_path);
+        let previous_contents = fs::read_to_string(&sidecar_path)
+            .expect("sidecar should be readable")
+            .replace("AnalyzerVersion=2", "AnalyzerVersion=1");
+        fs::write(&sidecar_path, previous_contents).expect("sidecar should be writable");
+        let store = SongIniStore::default();
+
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should succeed");
+
+        assert_eq!(result.songs[0].instruments.guitar.value, "Unknown");
+        assert_eq!(result.songs[0].instruments.vocals.value, "Unknown");
     }
 
     #[test]

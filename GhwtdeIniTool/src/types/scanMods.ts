@@ -67,6 +67,7 @@ export type SongContentIssue = {
 export type InstrumentValue =
   | "Unknown"
   | "No"
+  | "Yes"
   | "Easy"
   | "Medium"
   | "Hard"

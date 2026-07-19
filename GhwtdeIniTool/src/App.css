@@ -316,6 +316,44 @@ td.scanned-songs-action-column {
   cursor: pointer;
 }
 
+.scanned-songs-instrument-levels {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.16rem;
+}
+
+.scanned-songs-instrument-level {
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.scanned-songs-instrument-level.available {
+  color: #1d4fae;
+}
+
+.scanned-songs-instrument-level.missing {
+  color: #9a9a9a;
+}
+
+.scanned-songs-vocals-availability {
+  font-weight: 700;
+}
+
+.scanned-songs-vocals-availability.available {
+  color: #1d4fae;
+}
+
+.scanned-songs-vocals-availability.missing,
+.scanned-songs-instrument-state.unknown {
+  color: #777;
+}
+
+.scanned-songs-instrument-state.error {
+  color: #b71c1c;
+  font-weight: 700;
+}
+
 .scanned-songs-metadata-input {
   height: 1.45rem;
 }
@@ -360,11 +398,6 @@ td.scanned-songs-action-column {
 
 .scanned-songs-table tbody tr.selected.duplicate-checksum:hover td {
   background: #ede3bd;
-}
-
-.scanned-songs-empty-value {
-  color: #777;
-  font-style: italic;
 }
 
 .scanned-songs-actions {
@@ -1899,10 +1932,6 @@ td.scanned-songs-action-column {
 
   .scanned-songs-table tbody tr.selected:hover td {
     background: #30446d;
-  }
-
-  .scanned-songs-empty-value {
-    color: #aaa;
   }
 
   .scanned-songs-context-menu {

@@ -61,7 +61,9 @@ Important files:
   repair, duplicate checksum, disabled-file conflict, and content layout
   wizard.
 - `GhwtdeIniTool/src/components/ScannedSongsTable.tsx` renders the compact
-  sortable/filterable parsed-song results table shown after a completed scan.
+  sortable/filterable parsed-song results table shown after a completed scan,
+  including per-level instrument availability letters, Yes/No vocal status,
+  and native level-aware instrument filters with inverse missing-level options.
 - `GhwtdeIniTool/src/components/SettingsDialog.tsx` renders project settings.
 - `GhwtdeIniTool/src/components/UpdateDialog.tsx` renders updater states.
 - `GhwtdeIniTool/src/hooks/useProjectSettings.ts` owns settings state and
