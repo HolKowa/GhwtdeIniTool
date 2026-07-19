@@ -15,6 +15,8 @@ import {
   restoreOriginalSongIni,
   scanGameIconCategories,
   scanOfficialCategories,
+  scanModsFolderNames,
+  sanitizeModsFolderNames,
   scanSongIniFiles,
   setScannedSongIncluded,
   undoSongIniRepair,
@@ -34,6 +36,7 @@ import type {
   InstrumentAnalyzeProgress,
   InstrumentAnalyzeResult,
   OfficialCategoryScanResult,
+  FolderSanitizeScanResult,
   ScannedSongMetadata,
   SongScanProgress,
   SongIniScanResult,
@@ -75,6 +78,7 @@ export type GameIconCategoryStatus =
   | "error";
 
 export type OfficialCategoryStatus = "idle" | "scanning" | "disabling" | "enabling" | "error";
+export type FolderSanitizeStatus = "idle" | "scanning" | "sanitizing" | "error";
 
 export type CategorizeSongsStatus = "idle" | "categorizing" | "error";
 
@@ -161,6 +165,9 @@ export function useModsScanner() {
   const [officialCategoryStatus, setOfficialCategoryStatus] = useState<OfficialCategoryStatus>("idle");
   const [officialCategoryResult, setOfficialCategoryResult] = useState<OfficialCategoryScanResult | null>(null);
   const [officialCategoryError, setOfficialCategoryError] = useState("");
+  const [folderSanitizeStatus, setFolderSanitizeStatus] = useState<FolderSanitizeStatus>("idle");
+  const [folderSanitizeResult, setFolderSanitizeResult] = useState<FolderSanitizeScanResult | null>(null);
+  const [folderSanitizeError, setFolderSanitizeError] = useState("");
   const [categorizeSongsStatus, setCategorizeSongsStatus] =
     useState<CategorizeSongsStatus>("idle");
   const [categorizeSongsError, setCategorizeSongsError] = useState("");
@@ -912,6 +919,39 @@ export function useModsScanner() {
     setOfficialCategoryStatus("idle");
     setOfficialCategoryResult(null);
     setOfficialCategoryError("");
+    setFolderSanitizeStatus("idle");
+    setFolderSanitizeResult(null);
+    setFolderSanitizeError("");
+  }, []);
+
+  const refreshModsFolderNames = useCallback(async () => {
+    setFolderSanitizeStatus("scanning");
+    setFolderSanitizeError("");
+    try {
+      await waitForNextFrame();
+      const result = await scanModsFolderNames();
+      setFolderSanitizeResult(result);
+      setFolderSanitizeStatus("idle");
+    } catch (err) {
+      setFolderSanitizeError(String(err));
+      setFolderSanitizeStatus("error");
+    }
+  }, []);
+
+  const sanitizeModsFolders = useCallback(async (relativePaths: string[]) => {
+    if (relativePaths.length === 0) return;
+    setFolderSanitizeStatus("sanitizing");
+    setFolderSanitizeError("");
+    try {
+      await waitForNextFrame();
+      const result = await sanitizeModsFolderNames(relativePaths);
+      setFolderSanitizeResult(result);
+      setFolderSanitizeStatus("idle");
+      if (result.errors.length > 0) setFolderSanitizeError(result.errors.join("\n"));
+    } catch (err) {
+      setFolderSanitizeError(String(err));
+      setFolderSanitizeStatus("error");
+    }
   }, []);
 
   const disableOfficialCategoryRow = useCallback(async (relativePath: string) => {
@@ -1224,6 +1264,9 @@ export function useModsScanner() {
     enableOfficialCategoryRow,
     enableSongIni,
     fixGameIconCategoryFolders,
+    folderSanitizeError,
+    folderSanitizeResult,
+    folderSanitizeStatus,
     dismissScanToast,
     gameIconCategoryError,
     gameIconCategoryResult,
@@ -1249,6 +1292,7 @@ export function useModsScanner() {
     officialCategoryStatus,
     previewGameIconSongFixRows,
     refreshOfficialCategories,
+    refreshModsFolderNames,
     originalFaultySongIniFiles,
     repairedSongIniPaths,
     restoringScannedSongPaths,
@@ -1258,6 +1302,7 @@ export function useModsScanner() {
     scanStatus,
     scanToast,
     saveScannedSongMetadata,
+    sanitizeModsFolders,
     savingScannedSongPaths,
     songIniConflictError,
     songIniScanResult,

@@ -923,7 +923,9 @@ td.scanned-songs-action-column {
   flex: 1;
   margin-top: 1rem;
   min-height: 0;
+  padding-right: 0.75rem;
   overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .scan-wizard-summary,
@@ -1536,6 +1538,53 @@ td.scanned-songs-action-column {
   line-height: 1.35;
 }
 
+.folder-sanitize-header {
+  --folder-sanitize-label-width: 130px;
+  padding: 9px 10px;
+  background: #ffebee;
+  color: #b71c1c;
+}
+
+.folder-sanitize-path,
+.song-content-issue-row .folder-sanitize-path {
+  display: flex !important;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0;
+  min-width: 0;
+}
+
+.folder-sanitize-path > strong {
+  flex: 0 0 var(--folder-sanitize-label-width, 130px);
+  font-weight: 700;
+}
+
+.song-conflict-group-header .folder-sanitize-path > span,
+.folder-sanitize-path > span {
+  color: inherit;
+  font-size: inherit;
+  font-weight: 400;
+  text-transform: none;
+  overflow-wrap: anywhere;
+}
+
+.folder-sanitize-path-value {
+  flex: 1 1 0;
+  min-width: 0;
+  text-transform: none !important;
+}
+
+.folder-sanitize-path > small {
+  flex: 0 0 calc(100% - var(--folder-sanitize-label-width, 130px));
+  margin-left: var(--folder-sanitize-label-width, 130px);
+}
+
+.folder-sanitize-rename-row {
+  --folder-sanitize-label-width: 130px;
+  padding: 9px 10px !important;
+}
+
 .song-conflict-group-header span:first-child,
 .song-conflict-list span {
   min-width: 0;
@@ -1550,6 +1599,14 @@ td.scanned-songs-action-column {
 
 .song-conflict-group-header span:last-child.resolved {
   color: #2e7d32;
+}
+
+.song-conflict-group-header span.folder-sanitize-path-value {
+  color: inherit;
+  font-size: 0.8rem;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 .song-conflict-actions {

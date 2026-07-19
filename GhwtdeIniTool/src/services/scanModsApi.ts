@@ -11,6 +11,7 @@ import type {
   GameIconSongFixPreview,
   InstrumentAnalyzeMode,
   InstrumentAnalyzeResult,
+  FolderSanitizeScanResult,
   OfficialCategoryScanResult,
   IniToolCategoriesPreview,
   RestoreIniAction,
@@ -162,4 +163,12 @@ export function disableOfficialCategory(relativePath: string) {
 
 export function enableOfficialCategory(relativePath: string) {
   return invoke<void>("enable_official_category", { relativePath });
+}
+
+export function scanModsFolderNames() {
+  return invoke<FolderSanitizeScanResult>("scan_mods_folder_names");
+}
+
+export function sanitizeModsFolderNames(relativePaths: string[]) {
+  return invoke<FolderSanitizeScanResult>("sanitize_mods_folder_names", { relativePaths });
 }

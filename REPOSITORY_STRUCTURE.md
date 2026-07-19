@@ -54,7 +54,8 @@ Important files:
 - `GhwtdeIniTool/src/components/FixGameIconsWizard.tsx` renders the custom
   GameIcon category scan/fix wizard.
 - `GhwtdeIniTool/src/components/FixModsFolderWizard.tsx` renders the official
-  category-checksum collision workflow, including category disable/enable.
+  category validation workflow plus folder-name sanitization preview and rename
+  actions.
 - `GhwtdeIniTool/src/components/InstrumentAnalyzeWizard.tsx` renders the
   separate instrument sidecar analysis wizard and progress state.
 - `GhwtdeIniTool/src/components/RestoreIniWizard.tsx` renders the bulk
@@ -77,7 +78,7 @@ Important files:
   dialog state.
 - `GhwtdeIniTool/src/hooks/useModsScanner.ts` owns `song.ini` scan, step-one
   undo snapshots, instrument analysis, song categorization, GameIcon category
-  fixing, and official category collision state.
+  fixing, official category collision state, and MODS folder-name sanitization.
 - `GhwtdeIniTool/src/hooks/useAppUpdater.ts` owns updater state and actions.
 - `GhwtdeIniTool/src/services/projectSettingsApi.ts` wraps the Tauri settings
   commands.
