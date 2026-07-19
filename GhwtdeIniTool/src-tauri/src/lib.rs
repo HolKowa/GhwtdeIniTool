@@ -172,6 +172,7 @@ struct SongIniScanResult {
 #[derive(Clone, Debug, Serialize)]
 struct ScannedSong {
     relative_path: String,
+    checksum: String,
     folder_absolute_path: String,
     artist: String,
     title: String,
@@ -182,6 +183,28 @@ struct ScannedSong {
     is_included: bool,
     instruments: ScannedSongInstruments,
 }
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SongBackupExportInput {
+    destination_dir: String,
+    songs: Vec<SongBackupRow>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+struct SongBackupRow {
+    checksum: String,
+    included: bool,
+    artist: String,
+    title: String,
+    year: String,
+    genre: String,
+    gameicon: String,
+    relative_folder: String,
+}
+
+#[derive(Serialize)]
+struct SongBackupExportResult { path: String }
 
 #[derive(Clone, Debug, Serialize)]
 struct ScannedSongInstruments {
@@ -488,6 +511,45 @@ fn categorize_songs(
 ) -> Result<CategorizeSongsResult, String> {
     let settings = scan_settings(&settings_store.path)?;
     categorize_songs_paths(&settings, input, &store)
+}
+
+#[tauri::command]
+fn export_song_backup(input: SongBackupExportInput) -> Result<SongBackupExportResult, String> {
+    let destination = PathBuf::from(&input.destination_dir);
+    if !destination.is_dir() { return Err("The selected export folder does not exist.".to_string()); }
+    let timestamp = backup_timestamp()?;
+    let path = destination.join(format!("ghwtde-song-backup-{timestamp}.csv"));
+    let mut csv = String::from("checksum,included,artist,title,year,genre,gameicon,relative_folder\n");
+    for song in input.songs {
+        let fields = [song.checksum, song.included.to_string(), song.artist, song.title, song.year, song.genre, song.gameicon, song.relative_folder];
+        csv.push_str(&fields.iter().map(|field| csv_escape(field)).collect::<Vec<_>>().join(","));
+        csv.push('\n');
+    }
+    fs::write(&path, csv).map_err(|err| format!("Failed to write {}: {err}", path.display()))?;
+    Ok(SongBackupExportResult { path: path.display().to_string() })
+}
+
+fn backup_timestamp() -> Result<String, String> {
+    let seconds = UNIX_EPOCH.elapsed().map_err(|err| format!("Failed to create backup timestamp: {err}"))?.as_secs() as i64;
+    let days = seconds / 86_400;
+    let remaining = seconds % 86_400;
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let day_of_era = z - era * 146_097;
+    let year_of_era = (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let year = year_of_era + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_prime = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_prime + 2) / 5 + 1;
+    let month = month_prime + if month_prime < 10 { 3 } else { -9 };
+    let year = year + if month <= 2 { 1 } else { 0 };
+    Ok(format!("{year:04}-{month:02}-{day:02}-{hours:02}{minutes:02}{seconds:02}", hours = remaining / 3_600, minutes = remaining % 3_600 / 60, seconds = remaining % 60))
+}
+
+#[tauri::command]
+fn import_song_backup(file_path: String) -> Result<Vec<SongBackupRow>, String> {
+    let contents = fs::read_to_string(&file_path).map_err(|err| format!("Failed to read {file_path}: {err}"))?;
+    parse_song_backup_csv(&contents)
 }
 
 #[tauri::command]
@@ -3087,6 +3149,7 @@ fn scanned_song(mods_dir: &Path, song: &ParsedSongIni) -> ScannedSong {
 
     ScannedSong {
         relative_path: song.relative_path.clone(),
+        checksum: song_ini_checksum(song).unwrap_or_default(),
         folder_absolute_path,
         artist: song_info_value(song, "Artist"),
         title: song_info_value(song, "Title"),
@@ -3097,6 +3160,35 @@ fn scanned_song(mods_dir: &Path, song: &ParsedSongIni) -> ScannedSong {
         is_included: is_song_ini(&song_ini_path),
         instruments,
     }
+}
+
+fn csv_escape(value: &str) -> String {
+    if value.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else { value.to_string() }
+}
+
+fn parse_song_backup_csv(contents: &str) -> Result<Vec<SongBackupRow>, String> {
+    let records = parse_csv_records(contents)?;
+    let Some(header) = records.first() else { return Err("The backup CSV is empty.".to_string()); };
+    let expected = ["checksum", "included", "artist", "title", "year", "genre", "gameicon", "relative_folder"];
+    if header.iter().map(String::as_str).collect::<Vec<_>>() != expected { return Err("The backup CSV has unsupported headers.".to_string()); }
+    records.into_iter().skip(1).enumerate().map(|(index, row)| {
+        if row.len() != expected.len() { return Err(format!("CSV row {} has {} columns; expected {}.", index + 2, row.len(), expected.len())); }
+        let included = match row[1].trim().to_ascii_lowercase().as_str() { "true" => true, "false" => false, _ => return Err(format!("CSV row {} has an invalid included value.", index + 2)) };
+        Ok(SongBackupRow { checksum: row[0].clone(), included, artist: row[2].clone(), title: row[3].clone(), year: row[4].clone(), genre: row[5].clone(), gameicon: row[6].clone(), relative_folder: row[7].clone() })
+    }).collect()
+}
+
+fn parse_csv_records(contents: &str) -> Result<Vec<Vec<String>>, String> {
+    let mut records = Vec::new(); let mut row = Vec::new(); let mut field = String::new(); let mut quoted = false; let mut chars = contents.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if quoted { if ch == '"' { if chars.peek() == Some(&'"') { chars.next(); field.push('"'); } else { quoted = false; } } else { field.push(ch); } continue; }
+        match ch { '"' if field.is_empty() => quoted = true, ',' => { row.push(std::mem::take(&mut field)); }, '\n' => { if field.ends_with('\r') { field.pop(); } row.push(std::mem::take(&mut field)); records.push(std::mem::take(&mut row)); }, _ => field.push(ch) }
+    }
+    if quoted { return Err("The backup CSV has an unterminated quoted value.".to_string()); }
+    if !field.is_empty() || !row.is_empty() { row.push(field); records.push(row); }
+    Ok(records)
 }
 
 fn scanned_song_instruments(song_ini_path: &Path, song: &ParsedSongIni) -> ScannedSongInstruments {
@@ -5003,6 +5095,30 @@ mod tests {
 
         assert!(licenses.contains("Copyright (c) 2011, Pablo Impallari"));
         assert!(licenses.contains("SIL OPEN FONT LICENSE Version 1.1"));
+    }
+
+    #[test]
+    fn song_backup_csv_round_trips_quoted_metadata() {
+        let csv = "checksum,included,artist,title,year,genre,gameicon,relative_folder\nabc,true,\"Artist, The\",\"A \"\"Quoted\"\" Title\",2001,Rock,ghwt,Folder/Sub\n";
+        let rows = parse_song_backup_csv(csv).expect("CSV should parse");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].artist, "Artist, The");
+        assert_eq!(rows[0].title, "A \"Quoted\" Title");
+        assert_eq!(csv_escape(&rows[0].title), "\"A \"\"Quoted\"\" Title\"");
+    }
+
+    #[test]
+    fn song_backup_csv_rejects_invalid_headers_and_rows() {
+        assert!(parse_song_backup_csv("checksum,included\na,true\n").is_err());
+        assert!(parse_song_backup_csv("checksum,included,artist,title,year,genre,gameicon,relative_folder\na,maybe,x,y,,,,Folder\n").is_err());
+    }
+
+    #[test]
+    fn song_backup_timestamp_uses_dated_filename_format() {
+        let timestamp = backup_timestamp().expect("timestamp should be available");
+        assert_eq!(timestamp.len(), 17);
+        assert_eq!(&timestamp[4..5], "-");
+        assert_eq!(&timestamp[7..8], "-");
     }
     use std::{
         fs,
@@ -8937,6 +9053,8 @@ pub fn run() {
             delete_keep_only_files,
             preview_ini_tool_categories,
             categorize_songs,
+            export_song_backup,
+            import_song_backup,
             scan_song_ini_files,
             validate_song_ini_file,
             undo_song_ini_repair,

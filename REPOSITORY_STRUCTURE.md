@@ -45,6 +45,8 @@ Important files:
   confirmation.
 - `GhwtdeIniTool/src/components/CategorizeWizard.tsx` renders the two-step
   song categorization preview and confirmation workflow.
+- `GhwtdeIniTool/src/components/BackupWizard.tsx` renders CSV backup export,
+  import-field selection, and UI-only import preview/confirmation.
 - `GhwtdeIniTool/src/components/AboutDialog.tsx` renders product version,
   GitHub support, and third-party license links.
 - `GhwtdeIniTool/src/components/ExperimentalWarningDialog.tsx` renders the
@@ -81,6 +83,8 @@ Important files:
   delete, `song.ini` scan/validation/step-one undo/disable/enable/conflict
   delete, instrument analysis, and GameIcon category commands.
 - `GhwtdeIniTool/src/services/modsFolderDialog.ts` wraps Tauri folder pickers.
+- `GhwtdeIniTool/src/services/scanModsApi.ts` also wraps CSV backup import and
+  export commands.
 - `GhwtdeIniTool/src/types/projectSettings.ts` defines the frontend settings
   shape returned by Rust.
 - `GhwtdeIniTool/src/types/scanMods.ts` defines the frontend MODS scan,
@@ -239,6 +243,12 @@ Current frontend behavior:
   rejects path separators or reserved filename characters.
 - The frontend displays unavailable configured folders as muted paths but keeps
   the stored path visible.
+- After a completed song scan, Backup beside Categorize opens a CSV export/import
+  wizard. Export writes every scanned song's current UI state (including
+  unsaved metadata and inclusion changes) to a dated CSV. Import previews
+  selected-field changes matched by checksum and, for duplicate checksums, the
+  MODS-relative song folder; Finish updates table state only and does not save
+  `song.ini` files.
 
 Frontend scripts from `GhwtdeIniTool/package.json`:
 
@@ -290,6 +300,9 @@ Current backend behavior:
   `restore_original_song_ini` for consuming a sibling `song.original.ini` back
   into the active `song.ini`, plus `restore_all_original_song_ini` for bulk
   restore from normal or pre-format-fix backups.
+- Exposes `export_song_backup` and `import_song_backup` for CSV file I/O; CSV
+  row matching and the UI-only import preview remain in the frontend so unsaved
+  table state is respected.
 - `scan_song_ini_files` emits throttled `song_scan_progress` events while
   finding songs, reading `song.ini` files, checking content, and finishing;
   phase transitions and completion emit immediately.

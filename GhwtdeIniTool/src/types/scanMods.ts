@@ -95,6 +95,7 @@ export type ScannedSongInstruments = {
 
 export type ScannedSong = {
   relative_path: string;
+  checksum: string;
   folder_absolute_path: string;
   artist: string;
   title: string;
@@ -105,6 +106,19 @@ export type ScannedSong = {
   is_included: boolean;
   instruments: ScannedSongInstruments;
 };
+
+export type SongBackupRow = {
+  checksum: string;
+  included: boolean;
+  artist: string;
+  title: string;
+  year: string;
+  genre: string;
+  gameicon: string;
+  relative_folder: string;
+};
+
+export type SongBackupExportResult = { path: string };
 
 export type ScannedSongMetadata = {
   artist: string;

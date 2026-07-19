@@ -12,6 +12,7 @@ type ScannedSongsTableProps = {
   includedSongPaths: string[];
   onCopyFolderPath: (absolutePath: string) => void;
   onCategorizationStateChange: (state: CategorizationTableState) => void;
+  onDraftMetadataChange: (metadata: Record<string, ScannedSongMetadata>) => void;
   onRestoreOriginal: (relativePath: string, isIncluded: boolean) => Promise<void>;
   onSaveMetadata: (
     relativePath: string,
@@ -22,6 +23,8 @@ type ScannedSongsTableProps = {
   onSetSongsIncluded: (relativePaths: string[], isIncluded: boolean) => void;
   restoringSongPaths: string[];
   savingSongPaths: string[];
+  importedMetadataByPath: Record<string, ScannedSongMetadata>;
+  onImportedMetadataApplied: () => void;
   songs: ScannedSong[];
 };
 
@@ -133,12 +136,15 @@ export function ScannedSongsTable({
   includedSongPaths,
   onCopyFolderPath,
   onCategorizationStateChange,
+  onDraftMetadataChange,
   onRestoreOriginal,
   onSaveMetadata,
   onSetSongIncluded,
   onSetSongsIncluded,
   restoringSongPaths,
   savingSongPaths,
+  importedMetadataByPath,
+  onImportedMetadataApplied,
   songs,
 }: ScannedSongsTableProps) {
   const [sortKey, setSortKey] = useState<SortKey>("artist");
@@ -374,6 +380,14 @@ export function ScannedSongsTable({
     sortKey,
     sortedSongs,
   ]);
+
+  useEffect(() => { onDraftMetadataChange(editedRows); }, [editedRows, onDraftMetadataChange]);
+
+  useEffect(() => {
+    if (Object.keys(importedMetadataByPath).length === 0) return;
+    setEditedRows((current) => ({ ...current, ...importedMetadataByPath }));
+    onImportedMetadataApplied();
+  }, [importedMetadataByPath, onImportedMetadataApplied]);
 
   function updateFilter(key: SortKey, value: string) {
     setFilters((currentFilters) => ({

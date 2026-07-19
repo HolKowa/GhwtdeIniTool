@@ -15,6 +15,8 @@ import type {
   RestoreIniAction,
   RestoreIniResult,
   ScannedSongMetadata,
+  SongBackupExportResult,
+  SongBackupRow,
   SongIniDeleteResult,
   SongIniDisableResult,
   SongIniEnableResult,
@@ -22,6 +24,14 @@ import type {
   SongIniValidationResult,
   SongContentVerificationResult,
 } from "../types/scanMods";
+
+export function exportSongBackup(destinationDir: string, songs: SongBackupRow[]) {
+  return invoke<SongBackupExportResult>("export_song_backup", { input: { destinationDir, songs } });
+}
+
+export function importSongBackup(filePath: string) {
+  return invoke<SongBackupRow[]>("import_song_backup", { filePath });
+}
 
 export function previewKeepOnlyFilesDelete(keepOnlyFilesPattern: string) {
   return invoke<DeleteFilesPreview>("preview_keep_only_files_delete", {

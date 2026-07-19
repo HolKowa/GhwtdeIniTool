@@ -59,8 +59,10 @@ button {
   left: 1rem;
   z-index: 5;
   display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
   gap: 0.5rem;
-  width: min(58rem, calc(100vw - 10rem));
+  width: min(70rem, calc(100vw - 10rem));
   text-align: left;
 }
 
@@ -69,7 +71,8 @@ button {
 .scan-button,
 .instrument-button,
 .game-icon-button,
-.categorize-button {
+.categorize-button,
+.backup-button {
   padding: 0.5rem 1rem;
   border: none;
   border-radius: 6px;
@@ -77,6 +80,8 @@ button {
   color: #ffffff;
   font-size: 0.9rem;
   cursor: pointer;
+  flex: 0 0 auto;
+  white-space: nowrap;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
   transition: background 0.2s;
 }
@@ -120,6 +125,23 @@ button {
 .categorize-button {
   background: #616161;
 }
+
+.backup-button {
+  background: #5d4037;
+}
+
+.backup-button:disabled { cursor: not-allowed; opacity: 0.75; }
+.backup-fields { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 1rem; }
+.backup-fields label { min-width: 7rem; }
+.backup-review-groups { margin-top: 0.75rem; }
+.backup-review-card { overflow: hidden; border: 1px solid #d9d9d9; border-radius: 6px; }
+.backup-review-card + .backup-review-card { margin-top: 0.75rem; }
+.backup-review-card-header { padding: 0.55rem 0.65rem; background: #f4f4f4; color: #1f1f1f; font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; font-size: 0.8rem; line-height: 1.35; overflow-wrap: anywhere; }
+.backup-review-change { display: grid; grid-template-columns: 7rem minmax(12rem, 1fr) 1.5rem minmax(12rem, 1fr); align-items: start; gap: 0.75rem; padding: 0.55rem 0.65rem; color: #1f1f1f; font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; font-size: 0.8rem; line-height: 1.35; }
+.backup-review-change + .backup-review-change { border-top: 1px solid #eeeeee; }
+.backup-review-change > span { min-width: 0; overflow-wrap: anywhere; }
+.backup-change-label { font-weight: 600; }
+.backup-change-arrow { text-align: center; }
 
 .restore-button:disabled,
 .clean-button:disabled,

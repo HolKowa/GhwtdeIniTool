@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { CleanModsWizard } from "./components/CleanModsWizard";
 import { AboutDialog } from "./components/AboutDialog";
 import { CategorizeWizard } from "./components/CategorizeWizard";
+import { BackupWizard } from "./components/BackupWizard";
 import { ExperimentalWarningDialog } from "./components/ExperimentalWarningDialog";
 import { FixGameIconsWizard } from "./components/FixGameIconsWizard";
 import { InstrumentAnalyzeWizard } from "./components/InstrumentAnalyzeWizard";
@@ -21,6 +22,7 @@ import { useModsCleaner } from "./hooks/useModsCleaner";
 import { useModsScanner } from "./hooks/useModsScanner";
 import { useIniRestorer } from "./hooks/useIniRestorer";
 import { useProjectSettings } from "./hooks/useProjectSettings";
+import type { ScannedSongMetadata } from "./types/scanMods";
 import "./App.css";
 
 function App() {
@@ -30,6 +32,13 @@ function App() {
   const [isThirdPartyLicensesOpen, setIsThirdPartyLicensesOpen] =
     useState(false);
   const [isCategorizeWizardOpen, setIsCategorizeWizardOpen] = useState(false);
+  const [isBackupWizardOpen, setIsBackupWizardOpen] = useState(false);
+  const [backupToast, setBackupToast] = useState<{
+    message: string;
+    tone: "success" | "error";
+  } | null>(null);
+  const [draftMetadata, setDraftMetadata] = useState<Record<string, ScannedSongMetadata>>({});
+  const [importedMetadataByPath, setImportedMetadataByPath] = useState<Record<string, ScannedSongMetadata>>({});
   const [categorizationTableState, setCategorizationTableState] =
     useState<CategorizationTableState>({
       hasActiveFilters: false,
@@ -188,18 +197,27 @@ function App() {
     isScanWizardOpen ||
     isInstrumentWizardOpen ||
     isGameIconWizardOpen ||
-    isCategorizeWizardOpen;
+    isCategorizeWizardOpen ||
+    isBackupWizardOpen;
   const hasScannedSongs = hasCompletedSongScan && Boolean(songIniScanResult);
   const canAnalyzeInstruments =
     hasScannedSongs && !isWorkflowOpen;
   const canFixGameIcons = hasScannedSongs && !isWorkflowOpen;
   const canCategorize = hasScannedSongs && !isWorkflowOpen;
-  const activeToast = restoreToast ?? cleanToast ?? scanToast;
+  const activeToast = restoreToast ?? cleanToast ?? scanToast ?? backupToast;
   const dismissActiveToast = restoreToast
     ? dismissRestoreToast
     : cleanToast
       ? dismissCleanToast
-      : dismissScanToast;
+      : scanToast
+        ? dismissScanToast
+        : () => setBackupToast(null);
+
+  useEffect(() => {
+    if (!backupToast) return;
+    const timeout = window.setTimeout(() => setBackupToast(null), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [backupToast]);
   const confirmCleanAndClearScan = async (filesToDelete: string[]) => {
     const filesDeleted = await confirmClean(filesToDelete);
 
@@ -313,6 +331,9 @@ function App() {
             Categorize
           </button>
         )}
+        {hasScannedSongs && (
+          <button className="backup-button" type="button" onClick={() => setIsBackupWizardOpen(true)} disabled={!canCategorize || isScanBusy || isCleanBusy || isRestoreBusy || isInstrumentAnalyzeBusy || isGameIconBusy}>Backup</button>
+        )}
       </div>
 
       {hasScannedSongs && songIniScanResult && (
@@ -320,6 +341,7 @@ function App() {
           duplicateChecksumGroups={songIniScanResult.duplicate_checksum_groups}
           includedSongPaths={includedSongPaths}
           onCategorizationStateChange={setCategorizationTableState}
+          onDraftMetadataChange={setDraftMetadata}
           onCopyFolderPath={copyContentIssuePath}
           onRestoreOriginal={restoreScannedSongOriginal}
           onSaveMetadata={saveScannedSongMetadata}
@@ -327,6 +349,8 @@ function App() {
           onSetSongsIncluded={setSongsIncluded}
           restoringSongPaths={restoringScannedSongPaths}
           savingSongPaths={savingScannedSongPaths}
+          importedMetadataByPath={importedMetadataByPath}
+          onImportedMetadataApplied={() => setImportedMetadataByPath({})}
           songs={songIniScanResult?.songs ?? []}
         />
       )}
@@ -497,6 +521,23 @@ function App() {
           songs={songIniScanResult?.songs ?? []}
           sortKey={categorizationTableState.sortKey}
           status={categorizeSongsStatus}
+        />
+      )}
+
+      {isBackupWizardOpen && songIniScanResult && (
+        <BackupWizard
+          songs={songIniScanResult.songs}
+          includedSongPaths={includedSongPaths}
+          draftMetadata={draftMetadata}
+          onClose={() => setIsBackupWizardOpen(false)}
+          onApply={(metadata, included) => {
+            setImportedMetadataByPath(metadata);
+            Object.entries(included).forEach(([path, isIncluded]) => setSongIncluded(path, isIncluded));
+          }}
+          onExported={(path) => setBackupToast({
+            message: `Song backup exported to ${path}`,
+            tone: "success",
+          })}
         />
       )}
 
