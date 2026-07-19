@@ -6,12 +6,17 @@ import {
   applyGameIconSongFixes,
   categorizeSongs,
   deleteSongIniConflictFile,
+  disableOfficialCategory,
   disableSongIniFile,
+  enableOfficialCategory,
   enableSongIniFile,
   fixGameIconCategories,
   previewGameIconSongFixes,
   restoreOriginalSongIni,
   scanGameIconCategories,
+  scanOfficialCategories,
+  scanModsFolderNames,
+  sanitizeModsFolderNames,
   scanSongIniFiles,
   setScannedSongIncluded,
   undoSongIniRepair,
@@ -30,6 +35,8 @@ import type {
   InstrumentAnalyzeMode,
   InstrumentAnalyzeProgress,
   InstrumentAnalyzeResult,
+  OfficialCategoryScanResult,
+  FolderSanitizeScanResult,
   ScannedSongMetadata,
   SongScanProgress,
   SongIniScanResult,
@@ -69,6 +76,9 @@ export type GameIconCategoryStatus =
   | "previewing"
   | "applying"
   | "error";
+
+export type OfficialCategoryStatus = "idle" | "scanning" | "disabling" | "enabling" | "error";
+export type FolderSanitizeStatus = "idle" | "scanning" | "sanitizing" | "error";
 
 export type CategorizeSongsStatus = "idle" | "categorizing" | "error";
 
@@ -151,6 +161,13 @@ export function useModsScanner() {
   const [gameIconSongFixPreview, setGameIconSongFixPreview] =
     useState<GameIconSongFixPreview | null>(null);
   const [gameIconCategoryError, setGameIconCategoryError] = useState("");
+  const [isOfficialCategoryWizardOpen, setIsOfficialCategoryWizardOpen] = useState(false);
+  const [officialCategoryStatus, setOfficialCategoryStatus] = useState<OfficialCategoryStatus>("idle");
+  const [officialCategoryResult, setOfficialCategoryResult] = useState<OfficialCategoryScanResult | null>(null);
+  const [officialCategoryError, setOfficialCategoryError] = useState("");
+  const [folderSanitizeStatus, setFolderSanitizeStatus] = useState<FolderSanitizeStatus>("idle");
+  const [folderSanitizeResult, setFolderSanitizeResult] = useState<FolderSanitizeScanResult | null>(null);
+  const [folderSanitizeError, setFolderSanitizeError] = useState("");
   const [categorizeSongsStatus, setCategorizeSongsStatus] =
     useState<CategorizeSongsStatus>("idle");
   const [categorizeSongsError, setCategorizeSongsError] = useState("");
@@ -193,6 +210,7 @@ export function useModsScanner() {
           .filter((song) => song.is_included)
           .map((song) => song.relative_path),
       );
+      setDisabledSongIniPaths(nextSongIniScanResult.disabled_song_ini_paths);
       setOriginalFaultySongIniFiles(
         Object.fromEntries(
           nextSongIniScanResult.faulty_files.map((file) => [
@@ -701,19 +719,32 @@ export function useModsScanner() {
 
       try {
         const result = await enableSongIniFile(relativePath);
+        const refreshedResult = await verifyContentIssueSongsApi([relativePath]);
         setDisabledSongIniPaths((currentPaths) =>
           removePath(currentPaths, relativePath),
         );
-        setIncludedSongPaths((currentPaths) =>
-          result.is_included
-            ? addPath(currentPaths, result.enabled_path)
-            : removePath(currentPaths, relativePath),
+        setIncludedSongPaths(
+          refreshedResult.songs
+            .filter((song) => song.is_included)
+            .map((song) => song.relative_path),
         );
         setSongIniScanResult((currentResult) =>
           currentResult
             ? {
-                ...currentResult,
-                songs_parsed: result.songs_parsed,
+              ...currentResult,
+              songs_parsed: refreshedResult.songs_parsed,
+              songs: refreshedResult.songs,
+              duplicate_checksum_groups: refreshedResult.duplicate_checksum_groups,
+              song_ini_folder_conflicts: refreshedResult.song_ini_folder_conflicts,
+              content_file_issues: refreshedResult.content_file_issues,
+              disabled_song_ini_paths: removePath(
+                currentResult.disabled_song_ini_paths,
+                relativePath,
+              ),
+              disabled_content_file_issues:
+                currentResult.disabled_content_file_issues.filter(
+                  (issue) => issue.song_ini_relative_path !== relativePath,
+                ),
               }
             : currentResult,
         );
@@ -859,6 +890,121 @@ export function useModsScanner() {
     setGameIconSongFixPreview(null);
     setGameIconCategoryError("");
   }, []);
+
+  const refreshOfficialCategories = useCallback(async () => {
+    setOfficialCategoryStatus("scanning");
+    setOfficialCategoryError("");
+
+    try {
+      await waitForNextFrame();
+      const result = await scanOfficialCategories();
+      setOfficialCategoryResult(result);
+      setOfficialCategoryStatus("idle");
+    } catch (err) {
+      setOfficialCategoryError(String(err));
+      setOfficialCategoryStatus("error");
+    }
+  }, []);
+
+  const openOfficialCategories = useCallback(async () => {
+    setIsOfficialCategoryWizardOpen(true);
+    setIsInstrumentWizardOpen(false);
+    setIsGameIconWizardOpen(false);
+    setOfficialCategoryResult(null);
+    await refreshOfficialCategories();
+  }, [refreshOfficialCategories]);
+
+  const closeOfficialCategories = useCallback(() => {
+    setIsOfficialCategoryWizardOpen(false);
+    setOfficialCategoryStatus("idle");
+    setOfficialCategoryResult(null);
+    setOfficialCategoryError("");
+    setFolderSanitizeStatus("idle");
+    setFolderSanitizeResult(null);
+    setFolderSanitizeError("");
+  }, []);
+
+  const refreshModsFolderNames = useCallback(async () => {
+    setFolderSanitizeStatus("scanning");
+    setFolderSanitizeError("");
+    try {
+      await waitForNextFrame();
+      const result = await scanModsFolderNames();
+      setFolderSanitizeResult(result);
+      setFolderSanitizeStatus("idle");
+    } catch (err) {
+      setFolderSanitizeError(String(err));
+      setFolderSanitizeStatus("error");
+    }
+  }, []);
+
+  const sanitizeModsFolders = useCallback(async (relativePaths: string[]) => {
+    if (relativePaths.length === 0) return;
+    setFolderSanitizeStatus("sanitizing");
+    setFolderSanitizeError("");
+    try {
+      await waitForNextFrame();
+      const result = await sanitizeModsFolderNames(relativePaths);
+      setFolderSanitizeResult(result);
+      setFolderSanitizeStatus("idle");
+      if (result.errors.length > 0) setFolderSanitizeError(result.errors.join("\n"));
+    } catch (err) {
+      setFolderSanitizeError(String(err));
+      setFolderSanitizeStatus("error");
+    }
+  }, []);
+
+  const disableOfficialCategoryRow = useCallback(async (relativePath: string) => {
+    setOfficialCategoryStatus("disabling");
+    setOfficialCategoryError("");
+    try {
+      await disableOfficialCategory(relativePath);
+      await refreshOfficialCategories();
+    } catch (err) {
+      setOfficialCategoryError(String(err));
+      setOfficialCategoryStatus("error");
+    }
+  }, [refreshOfficialCategories]);
+
+  const disableAllOfficialCategories = useCallback(async () => {
+    const activeCategories = (officialCategoryResult?.categories ?? []).filter(
+      (category) => !category.is_disabled,
+    );
+
+    if (activeCategories.length === 0) {
+      return;
+    }
+
+    setOfficialCategoryStatus("disabling");
+    setOfficialCategoryError("");
+    const errors: string[] = [];
+
+    for (const category of activeCategories) {
+      try {
+        await disableOfficialCategory(category.relative_path);
+      } catch (err) {
+        errors.push(`${category.relative_path}: ${String(err)}`);
+      }
+    }
+
+    await refreshOfficialCategories();
+
+    if (errors.length > 0) {
+      setOfficialCategoryError(errors.join("\n"));
+    }
+  }, [officialCategoryResult, refreshOfficialCategories]);
+
+  const enableOfficialCategoryRow = useCallback(async (relativePath: string) => {
+    setOfficialCategoryStatus("enabling");
+    setOfficialCategoryError("");
+    try {
+      await enableOfficialCategory(relativePath);
+      await refreshOfficialCategories();
+    } catch (err) {
+      setOfficialCategoryError(String(err));
+      setOfficialCategoryStatus("error");
+    }
+  }, [refreshOfficialCategories]);
 
   const fixGameIconCategoryFolders = useCallback(async () => {
     setGameIconCategoryStatus("fixing");
@@ -1106,14 +1252,21 @@ export function useModsScanner() {
     clearCompletedSongScan,
     clearSongIniValidationError,
     closeInstrumentAnalyzer,
+    closeOfficialCategories,
     confirmScan,
     copyContentIssuePath,
     deleteSongIniConflict,
     deletedSongIniConflictPaths,
+    disableOfficialCategoryRow,
+    disableAllOfficialCategories,
     disableSongIni,
     disabledSongIniPaths,
+    enableOfficialCategoryRow,
     enableSongIni,
     fixGameIconCategoryFolders,
+    folderSanitizeError,
+    folderSanitizeResult,
+    folderSanitizeStatus,
     dismissScanToast,
     gameIconCategoryError,
     gameIconCategoryResult,
@@ -1127,12 +1280,19 @@ export function useModsScanner() {
     instrumentAnalyzeStatus,
     isGameIconWizardOpen,
     isInstrumentWizardOpen,
+    isOfficialCategoryWizardOpen,
     isScanWizardConflictsOnly,
     isScanWizardOpen,
     closeGameIconCategories,
     openInstrumentAnalyzer,
     openGameIconCategories,
+    openOfficialCategories,
+    officialCategoryError,
+    officialCategoryResult,
+    officialCategoryStatus,
     previewGameIconSongFixRows,
+    refreshOfficialCategories,
+    refreshModsFolderNames,
     originalFaultySongIniFiles,
     repairedSongIniPaths,
     restoringScannedSongPaths,
@@ -1142,6 +1302,7 @@ export function useModsScanner() {
     scanStatus,
     scanToast,
     saveScannedSongMetadata,
+    sanitizeModsFolders,
     savingScannedSongPaths,
     songIniConflictError,
     songIniScanResult,

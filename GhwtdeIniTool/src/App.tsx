@@ -3,8 +3,10 @@ import { useEffect, useState } from "react";
 import { CleanModsWizard } from "./components/CleanModsWizard";
 import { AboutDialog } from "./components/AboutDialog";
 import { CategorizeWizard } from "./components/CategorizeWizard";
+import { BackupWizard } from "./components/BackupWizard";
 import { ExperimentalWarningDialog } from "./components/ExperimentalWarningDialog";
 import { FixGameIconsWizard } from "./components/FixGameIconsWizard";
+import { FixModsFolderWizard } from "./components/FixModsFolderWizard";
 import { InstrumentAnalyzeWizard } from "./components/InstrumentAnalyzeWizard";
 import { RestoreIniWizard } from "./components/RestoreIniWizard";
 import { ScanToast } from "./components/ScanToast";
@@ -21,6 +23,7 @@ import { useModsCleaner } from "./hooks/useModsCleaner";
 import { useModsScanner } from "./hooks/useModsScanner";
 import { useIniRestorer } from "./hooks/useIniRestorer";
 import { useProjectSettings } from "./hooks/useProjectSettings";
+import type { ScannedSongMetadata } from "./types/scanMods";
 import "./App.css";
 
 function App() {
@@ -30,6 +33,13 @@ function App() {
   const [isThirdPartyLicensesOpen, setIsThirdPartyLicensesOpen] =
     useState(false);
   const [isCategorizeWizardOpen, setIsCategorizeWizardOpen] = useState(false);
+  const [isBackupWizardOpen, setIsBackupWizardOpen] = useState(false);
+  const [backupToast, setBackupToast] = useState<{
+    message: string;
+    tone: "success" | "error";
+  } | null>(null);
+  const [draftMetadata, setDraftMetadata] = useState<Record<string, ScannedSongMetadata>>({});
+  const [importedMetadataByPath, setImportedMetadataByPath] = useState<Record<string, ScannedSongMetadata>>({});
   const [categorizationTableState, setCategorizationTableState] =
     useState<CategorizationTableState>({
       hasActiveFilters: false,
@@ -94,14 +104,21 @@ function App() {
     clearCompletedSongScan,
     clearSongIniValidationError,
     closeInstrumentAnalyzer,
+    closeOfficialCategories,
     confirmScan,
     copyContentIssuePath,
     deleteSongIniConflict,
     deletedSongIniConflictPaths,
+    disableAllOfficialCategories,
+    disableOfficialCategoryRow,
     disableSongIni,
     disabledSongIniPaths,
+    enableOfficialCategoryRow,
     enableSongIni,
     fixGameIconCategoryFolders,
+    folderSanitizeError,
+    folderSanitizeResult,
+    folderSanitizeStatus,
     dismissScanToast,
     gameIconCategoryError,
     gameIconCategoryResult,
@@ -115,12 +132,19 @@ function App() {
     instrumentAnalyzeStatus,
     isGameIconWizardOpen,
     isInstrumentWizardOpen,
+    isOfficialCategoryWizardOpen,
     isScanWizardConflictsOnly,
     isScanWizardOpen,
     closeGameIconCategories,
     openInstrumentAnalyzer,
     openGameIconCategories,
+    openOfficialCategories,
+    officialCategoryError,
+    officialCategoryResult,
+    officialCategoryStatus,
     previewGameIconSongFixRows,
+    refreshOfficialCategories,
+    refreshModsFolderNames,
     originalFaultySongIniFiles,
     repairedSongIniPaths,
     restoringScannedSongPaths,
@@ -130,6 +154,7 @@ function App() {
     scanStatus,
     scanToast,
     saveScannedSongMetadata,
+    sanitizeModsFolders,
     savingScannedSongPaths,
     songIniConflictError,
     songIniScanResult,
@@ -182,24 +207,35 @@ function App() {
   const isInstrumentAnalyzeBusy = instrumentAnalyzeStatus === "analyzing";
   const isGameIconBusy =
     gameIconCategoryStatus === "scanning" || gameIconCategoryStatus === "fixing";
+  const isOfficialCategoryBusy = officialCategoryStatus === "scanning" || officialCategoryStatus === "disabling" || officialCategoryStatus === "enabling";
   const isWorkflowOpen =
     isRestoreWizardOpen ||
     isCleanWizardOpen ||
     isScanWizardOpen ||
     isInstrumentWizardOpen ||
     isGameIconWizardOpen ||
-    isCategorizeWizardOpen;
+    isOfficialCategoryWizardOpen ||
+    isCategorizeWizardOpen ||
+    isBackupWizardOpen;
   const hasScannedSongs = hasCompletedSongScan && Boolean(songIniScanResult);
   const canAnalyzeInstruments =
     hasScannedSongs && !isWorkflowOpen;
   const canFixGameIcons = hasScannedSongs && !isWorkflowOpen;
   const canCategorize = hasScannedSongs && !isWorkflowOpen;
-  const activeToast = restoreToast ?? cleanToast ?? scanToast;
+  const activeToast = restoreToast ?? cleanToast ?? scanToast ?? backupToast;
   const dismissActiveToast = restoreToast
     ? dismissRestoreToast
     : cleanToast
       ? dismissCleanToast
-      : dismissScanToast;
+      : scanToast
+        ? dismissScanToast
+        : () => setBackupToast(null);
+
+  useEffect(() => {
+    if (!backupToast) return;
+    const timeout = window.setTimeout(() => setBackupToast(null), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [backupToast]);
   const confirmCleanAndClearScan = async (filesToDelete: string[]) => {
     const filesDeleted = await confirmClean(filesToDelete);
 
@@ -247,6 +283,22 @@ function App() {
           }
         >
           {isCleanBusy ? "Cleaning..." : "Clean MODS folder"}
+        </button>
+        <button
+          className="game-icon-button"
+          type="button"
+          onClick={openOfficialCategories}
+          disabled={
+            isWorkflowOpen ||
+            isScanBusy ||
+            isCleanBusy ||
+            isRestoreBusy ||
+            isInstrumentAnalyzeBusy ||
+            isGameIconBusy ||
+            isOfficialCategoryBusy
+          }
+        >
+          {isOfficialCategoryBusy ? "Verifying..." : "Fix MODS folder"}
         </button>
         <button
           className="scan-button"
@@ -313,6 +365,9 @@ function App() {
             Categorize
           </button>
         )}
+        {hasScannedSongs && (
+          <button className="backup-button" type="button" onClick={() => setIsBackupWizardOpen(true)} disabled={!canCategorize || isScanBusy || isCleanBusy || isRestoreBusy || isInstrumentAnalyzeBusy || isGameIconBusy}>Backup</button>
+        )}
       </div>
 
       {hasScannedSongs && songIniScanResult && (
@@ -320,6 +375,7 @@ function App() {
           duplicateChecksumGroups={songIniScanResult.duplicate_checksum_groups}
           includedSongPaths={includedSongPaths}
           onCategorizationStateChange={setCategorizationTableState}
+          onDraftMetadataChange={setDraftMetadata}
           onCopyFolderPath={copyContentIssuePath}
           onRestoreOriginal={restoreScannedSongOriginal}
           onSaveMetadata={saveScannedSongMetadata}
@@ -327,6 +383,8 @@ function App() {
           onSetSongsIncluded={setSongsIncluded}
           restoringSongPaths={restoringScannedSongPaths}
           savingSongPaths={savingScannedSongPaths}
+          importedMetadataByPath={importedMetadataByPath}
+          onImportedMetadataApplied={() => setImportedMetadataByPath({})}
           songs={songIniScanResult?.songs ?? []}
         />
       )}
@@ -481,6 +539,25 @@ function App() {
         />
       )}
 
+      {isOfficialCategoryWizardOpen && (
+        <FixModsFolderWizard
+          error={officialCategoryError}
+          folderError={folderSanitizeError}
+          folderResult={folderSanitizeResult}
+          folderStatus={folderSanitizeStatus}
+          onClose={closeOfficialCategories}
+          onCopyPath={copyContentIssuePath}
+          onDisableAll={disableAllOfficialCategories}
+          onDisable={disableOfficialCategoryRow}
+          onEnable={enableOfficialCategoryRow}
+          onScanFolders={refreshModsFolderNames}
+          onSanitizeFolders={sanitizeModsFolders}
+          onVerifyAll={refreshOfficialCategories}
+          result={officialCategoryResult}
+          status={officialCategoryStatus}
+        />
+      )}
+
       {isCategorizeWizardOpen && (
         <CategorizeWizard
           error={categorizeSongsError}
@@ -497,6 +574,23 @@ function App() {
           songs={songIniScanResult?.songs ?? []}
           sortKey={categorizationTableState.sortKey}
           status={categorizeSongsStatus}
+        />
+      )}
+
+      {isBackupWizardOpen && songIniScanResult && (
+        <BackupWizard
+          songs={songIniScanResult.songs}
+          includedSongPaths={includedSongPaths}
+          draftMetadata={draftMetadata}
+          onClose={() => setIsBackupWizardOpen(false)}
+          onApply={(metadata, included) => {
+            setImportedMetadataByPath(metadata);
+            Object.entries(included).forEach(([path, isIncluded]) => setSongIncluded(path, isIncluded));
+          }}
+          onExported={(path) => setBackupToast({
+            message: `Song backup exported to ${path}`,
+            tone: "success",
+          })}
         />
       )}
 

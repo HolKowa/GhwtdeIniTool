@@ -45,12 +45,17 @@ Important files:
   confirmation.
 - `GhwtdeIniTool/src/components/CategorizeWizard.tsx` renders the two-step
   song categorization preview and confirmation workflow.
+- `GhwtdeIniTool/src/components/BackupWizard.tsx` renders CSV backup export,
+  import-field selection, and UI-only import preview/confirmation.
 - `GhwtdeIniTool/src/components/AboutDialog.tsx` renders product version,
   GitHub support, and third-party license links.
 - `GhwtdeIniTool/src/components/ExperimentalWarningDialog.tsx` renders the
   read-only experimental-use disclaimer dialog.
 - `GhwtdeIniTool/src/components/FixGameIconsWizard.tsx` renders the custom
   GameIcon category scan/fix wizard.
+- `GhwtdeIniTool/src/components/FixModsFolderWizard.tsx` renders the official
+  category validation workflow plus folder-name sanitization preview and rename
+  actions.
 - `GhwtdeIniTool/src/components/InstrumentAnalyzeWizard.tsx` renders the
   separate instrument sidecar analysis wizard and progress state.
 - `GhwtdeIniTool/src/components/RestoreIniWizard.tsx` renders the bulk
@@ -61,7 +66,9 @@ Important files:
   repair, duplicate checksum, disabled-file conflict, and content layout
   wizard.
 - `GhwtdeIniTool/src/components/ScannedSongsTable.tsx` renders the compact
-  sortable/filterable parsed-song results table shown after a completed scan.
+  sortable/filterable parsed-song results table shown after a completed scan,
+  including per-level instrument availability letters, Yes/No vocal status,
+  and native level-aware instrument filters with inverse missing-level options.
 - `GhwtdeIniTool/src/components/SettingsDialog.tsx` renders project settings.
 - `GhwtdeIniTool/src/components/UpdateDialog.tsx` renders updater states.
 - `GhwtdeIniTool/src/hooks/useProjectSettings.ts` owns settings state and
@@ -70,15 +77,18 @@ Important files:
 - `GhwtdeIniTool/src/hooks/useIniRestorer.ts` owns bulk `song.ini` restore
   dialog state.
 - `GhwtdeIniTool/src/hooks/useModsScanner.ts` owns `song.ini` scan, step-one
-  undo snapshots, instrument analysis, song categorization, and GameIcon
-  category fixing state.
+  undo snapshots, instrument analysis, song categorization, GameIcon category
+  fixing, official category collision state, and MODS folder-name sanitization.
 - `GhwtdeIniTool/src/hooks/useAppUpdater.ts` owns updater state and actions.
 - `GhwtdeIniTool/src/services/projectSettingsApi.ts` wraps the Tauri settings
   commands.
 - `GhwtdeIniTool/src/services/scanModsApi.ts` wraps the Tauri keep-pattern
   delete, `song.ini` scan/validation/step-one undo/disable/enable/conflict
-  delete, instrument analysis, and GameIcon category commands.
+  delete, instrument analysis, GameIcon category commands, and official
+  category collision commands.
 - `GhwtdeIniTool/src/services/modsFolderDialog.ts` wraps Tauri folder pickers.
+- `GhwtdeIniTool/src/services/scanModsApi.ts` also wraps CSV backup import and
+  export commands.
 - `GhwtdeIniTool/src/types/projectSettings.ts` defines the frontend settings
   shape returned by Rust.
 - `GhwtdeIniTool/src/types/scanMods.ts` defines the frontend MODS scan,
@@ -134,9 +144,9 @@ Current frontend behavior:
   stays open and lists the backend restore errors.
 - The Scan MODS folder button opens a three-step wizard that parses `song.ini`
   and `song.excluded.ini` files, stores valid parsed results in backend memory,
-  lets the user repair
-  faulty files, then resolves duplicate checksum groups and folders containing
-  multiple `song.ini`, `song.excluded.ini`, or `song.disabled.ini` variants.
+  lets the user repair faulty files, then checks Content files before resolving
+  duplicate checksum groups and folders containing multiple `song.ini`,
+  `song.excluded.ini`, or `song.disabled.ini` variants.
   Faulty step-one entries can be
   edited and repaired with their pre-repair contents preserved as
   `song.original.faulty.ini`, undone after the first edit or repair while the
@@ -146,8 +156,11 @@ Current frontend behavior:
   `song.excluded.ini` when re-enabled. Duplicate checksums are resolved by
   toggling selected songs between `song.ini` and `song.excluded.ini`; same-folder INI conflicts
   list every present variant and can delete files until one remains.
-  The final step validates each active song folder's `Content` and
-  `Content/MUSIC` layout against the parsed checksum, accepts those folder and
+  Disabled `song.disabled.ini` files are also checked for Content issues and
+  appear as resolved, non-blocking cards with an enable action; enabling one
+  restores it as `song.ini` before the final conflict-resolution step. The
+  Content step validates each active song folder's `Content` and `Content/MUSIC`
+  layout against the parsed checksum, accepts those folder and
   checksum-derived file names case-insensitively without renaming them, reports
   missing/misnamed/extra files, requires missing files to be resolved before
   the scan can finish, lists extra files without blocking completion, lets the
@@ -237,6 +250,12 @@ Current frontend behavior:
   rejects path separators or reserved filename characters.
 - The frontend displays unavailable configured folders as muted paths but keeps
   the stored path visible.
+- After a completed song scan, Backup beside Categorize opens a CSV export/import
+  wizard. Export writes every scanned song's current UI state (including
+  unsaved metadata and inclusion changes) to a dated CSV. Import previews
+  selected-field changes matched by checksum and, for duplicate checksums, the
+  MODS-relative song folder; Finish updates table state only and does not save
+  `song.ini` files.
 
 Frontend scripts from `GhwtdeIniTool/package.json`:
 
@@ -288,8 +307,12 @@ Current backend behavior:
   `restore_original_song_ini` for consuming a sibling `song.original.ini` back
   into the active `song.ini`, plus `restore_all_original_song_ini` for bulk
   restore from normal or pre-format-fix backups.
-- `scan_song_ini_files` emits `song_scan_progress` events while finding songs,
-  reading `song.ini` files, checking content, and finishing.
+- Exposes `export_song_backup` and `import_song_backup` for CSV file I/O; CSV
+  row matching and the UI-only import preview remain in the frontend so unsaved
+  table state is respected.
+- `scan_song_ini_files` emits throttled `song_scan_progress` events while
+  finding songs, reading `song.ini` files, checking content, and finishing;
+  phase transitions and completion emit immediately.
 - Exposes `analyze_scanned_song_instruments`, which analyzes instrument support
   for the current scanned song store in `missing`, `errors`, or `all` mode,
   runs the expensive PAK work on a blocking worker while emitting throttled

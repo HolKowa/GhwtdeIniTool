@@ -67,6 +67,7 @@ export type SongContentIssue = {
 export type InstrumentValue =
   | "Unknown"
   | "No"
+  | "Yes"
   | "Easy"
   | "Medium"
   | "Hard"
@@ -94,6 +95,7 @@ export type ScannedSongInstruments = {
 
 export type ScannedSong = {
   relative_path: string;
+  checksum: string;
   folder_absolute_path: string;
   artist: string;
   title: string;
@@ -104,6 +106,19 @@ export type ScannedSong = {
   is_included: boolean;
   instruments: ScannedSongInstruments;
 };
+
+export type SongBackupRow = {
+  checksum: string;
+  included: boolean;
+  artist: string;
+  title: string;
+  year: string;
+  genre: string;
+  gameicon: string;
+  relative_folder: string;
+};
+
+export type SongBackupExportResult = { path: string };
 
 export type ScannedSongMetadata = {
   artist: string;
@@ -117,10 +132,12 @@ export type SongIniScanResult = {
   songs_found: number;
   songs_parsed: number;
   songs: ScannedSong[];
+  disabled_song_ini_paths: string[];
   faulty_files: FaultySongIniFile[];
   duplicate_checksum_groups: DuplicateChecksumGroup[];
   song_ini_folder_conflicts: SongIniFolderConflict[];
   content_file_issues: SongContentIssue[];
+  disabled_content_file_issues: SongContentIssue[];
   errors: string[];
 };
 
@@ -238,4 +255,30 @@ export type GameIconSongFixApplyResult = {
   duplicate_checksum_groups: DuplicateChecksumGroup[];
   song_ini_folder_conflicts: SongIniFolderConflict[];
   content_file_issues: SongContentIssue[];
+};
+
+export type OfficialCategoryFile = {
+  relative_path: string;
+  folder_absolute_path: string;
+  checksum: string;
+  is_disabled: boolean;
+  validation_reasons: string[];
+};
+
+export type OfficialCategoryScanResult = {
+  categories: OfficialCategoryFile[];
+  errors: string[];
+};
+
+export type FolderSanitizeRow = {
+  relative_path: string;
+  absolute_path: string;
+  sanitized_name: string;
+  sanitized_relative_path: string;
+  requires_collision_suffix: boolean;
+};
+
+export type FolderSanitizeScanResult = {
+  folders: FolderSanitizeRow[];
+  errors: string[];
 };

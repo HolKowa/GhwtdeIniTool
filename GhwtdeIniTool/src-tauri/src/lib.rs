@@ -1,4 +1,5 @@
 use ab_glyph::{FontArc, PxScale};
+use deunicode::deunicode;
 use image::{ImageFormat, Rgba, RgbaImage};
 use imageproc::drawing::{draw_text_mut, text_size};
 use ini::Ini;
@@ -18,7 +19,7 @@ mod song_pak_analyzer;
 
 const SETTINGS_FILE_NAME: &str = "ghwtdeinitool.ini";
 const INSTRUMENT_SIDECAR_FILE_NAME: &str = "song.instruments.ini";
-const INSTRUMENT_ANALYZER_VERSION: &str = "1";
+const INSTRUMENT_ANALYZER_VERSION: &str = "2";
 const CATEGORY_LOGO_SIZE: u32 = 256;
 const CATEGORY_LOGO_STROKE_WIDTH: i32 = 3;
 const CATEGORY_LOGO_MAX_LINE_WIDTH: u32 = 228;
@@ -162,16 +163,19 @@ struct SongIniScanResult {
     songs_found: usize,
     songs_parsed: usize,
     songs: Vec<ScannedSong>,
+    disabled_song_ini_paths: Vec<String>,
     faulty_files: Vec<FaultySongIniFile>,
     duplicate_checksum_groups: Vec<DuplicateChecksumGroup>,
     song_ini_folder_conflicts: Vec<SongIniFolderConflict>,
     content_file_issues: Vec<SongContentIssue>,
+    disabled_content_file_issues: Vec<SongContentIssue>,
     errors: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
 struct ScannedSong {
     relative_path: String,
+    checksum: String,
     folder_absolute_path: String,
     artist: String,
     title: String,
@@ -182,6 +186,28 @@ struct ScannedSong {
     is_included: bool,
     instruments: ScannedSongInstruments,
 }
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SongBackupExportInput {
+    destination_dir: String,
+    songs: Vec<SongBackupRow>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+struct SongBackupRow {
+    checksum: String,
+    included: bool,
+    artist: String,
+    title: String,
+    year: String,
+    genre: String,
+    gameicon: String,
+    relative_folder: String,
+}
+
+#[derive(Serialize)]
+struct SongBackupExportResult { path: String }
 
 #[derive(Clone, Debug, Serialize)]
 struct ScannedSongInstruments {
@@ -378,6 +404,36 @@ struct GameIconSongFixApplyResult {
     content_file_issues: Vec<SongContentIssue>,
 }
 
+#[derive(Clone, Debug, Serialize)]
+struct OfficialCategoryScanResult {
+    categories: Vec<OfficialCategoryFile>,
+    errors: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct OfficialCategoryFile {
+    relative_path: String,
+    folder_absolute_path: String,
+    checksum: String,
+    is_disabled: bool,
+    validation_reasons: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct FolderSanitizeScanResult {
+    folders: Vec<FolderSanitizeRow>,
+    errors: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct FolderSanitizeRow {
+    relative_path: String,
+    absolute_path: String,
+    sanitized_name: String,
+    sanitized_relative_path: String,
+    requires_collision_suffix: bool,
+}
+
 #[derive(Clone, Debug)]
 struct CustomGameIconLocation {
     stem: String,
@@ -488,6 +544,45 @@ fn categorize_songs(
 ) -> Result<CategorizeSongsResult, String> {
     let settings = scan_settings(&settings_store.path)?;
     categorize_songs_paths(&settings, input, &store)
+}
+
+#[tauri::command]
+fn export_song_backup(input: SongBackupExportInput) -> Result<SongBackupExportResult, String> {
+    let destination = PathBuf::from(&input.destination_dir);
+    if !destination.is_dir() { return Err("The selected export folder does not exist.".to_string()); }
+    let timestamp = backup_timestamp()?;
+    let path = destination.join(format!("ghwtde-song-backup-{timestamp}.csv"));
+    let mut csv = String::from("checksum,included,artist,title,year,genre,gameicon,relative_folder\n");
+    for song in input.songs {
+        let fields = [song.checksum, song.included.to_string(), song.artist, song.title, song.year, song.genre, song.gameicon, song.relative_folder];
+        csv.push_str(&fields.iter().map(|field| csv_escape(field)).collect::<Vec<_>>().join(","));
+        csv.push('\n');
+    }
+    fs::write(&path, csv).map_err(|err| format!("Failed to write {}: {err}", path.display()))?;
+    Ok(SongBackupExportResult { path: path.display().to_string() })
+}
+
+fn backup_timestamp() -> Result<String, String> {
+    let seconds = UNIX_EPOCH.elapsed().map_err(|err| format!("Failed to create backup timestamp: {err}"))?.as_secs() as i64;
+    let days = seconds / 86_400;
+    let remaining = seconds % 86_400;
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let day_of_era = z - era * 146_097;
+    let year_of_era = (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let year = year_of_era + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_prime = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_prime + 2) / 5 + 1;
+    let month = month_prime + if month_prime < 10 { 3 } else { -9 };
+    let year = year + if month <= 2 { 1 } else { 0 };
+    Ok(format!("{year:04}-{month:02}-{day:02}-{hours:02}{minutes:02}{seconds:02}", hours = remaining / 3_600, minutes = remaining % 3_600 / 60, seconds = remaining % 60))
+}
+
+#[tauri::command]
+fn import_song_backup(file_path: String) -> Result<Vec<SongBackupRow>, String> {
+    let contents = fs::read_to_string(&file_path).map_err(|err| format!("Failed to read {file_path}: {err}"))?;
+    parse_song_backup_csv(&contents)
 }
 
 #[tauri::command]
@@ -641,6 +736,49 @@ fn apply_game_icon_song_fixes(
 ) -> Result<GameIconSongFixApplyResult, String> {
     let settings = scan_settings(&settings_store.path)?;
     apply_game_icon_song_fixes_paths(&settings, fixes, &store)
+}
+
+#[tauri::command]
+fn scan_official_categories(
+    settings_store: tauri::State<'_, SettingsStore>,
+) -> Result<OfficialCategoryScanResult, String> {
+    let settings = scan_settings(&settings_store.path)?;
+    scan_official_categories_paths(&settings)
+}
+
+#[tauri::command]
+fn disable_official_category(
+    relative_path: String,
+    settings_store: tauri::State<'_, SettingsStore>,
+) -> Result<(), String> {
+    let settings = scan_settings(&settings_store.path)?;
+    disable_official_category_path(&settings, &relative_path)
+}
+
+#[tauri::command]
+fn enable_official_category(
+    relative_path: String,
+    settings_store: tauri::State<'_, SettingsStore>,
+) -> Result<(), String> {
+    let settings = scan_settings(&settings_store.path)?;
+    enable_official_category_path(&settings, &relative_path)
+}
+
+#[tauri::command]
+fn scan_mods_folder_names(
+    settings_store: tauri::State<'_, SettingsStore>,
+) -> Result<FolderSanitizeScanResult, String> {
+    let settings = scan_settings(&settings_store.path)?;
+    scan_mods_folder_names_paths(&settings)
+}
+
+#[tauri::command]
+fn sanitize_mods_folder_names(
+    relative_paths: Vec<String>,
+    settings_store: tauri::State<'_, SettingsStore>,
+) -> Result<FolderSanitizeScanResult, String> {
+    let settings = scan_settings(&settings_store.path)?;
+    sanitize_mods_folder_names_paths(&settings, &relative_paths)
 }
 
 #[tauri::command]
@@ -1160,14 +1298,16 @@ fn draw_outlined_category_logo_text(
 fn scan_song_ini_files_paths_with_progress<F>(
     settings: &ScanSettings,
     store: &SongIniStore,
-    mut emit_progress: F,
+    emit_progress: F,
 ) -> Result<SongIniScanResult, String>
 where
     F: FnMut(SongScanProgress),
 {
     let mods_dir = &settings.mods_dir;
-    emit_progress(song_scan_progress("findingSongs", 0, 0, ""));
+    let mut progress_emitter = SongScanProgressEmitter::new(emit_progress);
+    progress_emitter.emit(song_scan_progress("findingSongs", 0, 0, ""), true);
     let song_ini_paths = find_scanned_song_ini_files(mods_dir)?;
+    let disabled_song_ini_paths = find_disabled_song_ini_files(mods_dir)?;
     let mut result = SongIniScanResult {
         songs_found: song_ini_paths.len(),
         ..SongIniScanResult::default()
@@ -1176,12 +1316,15 @@ where
 
     for (index, song_ini_path) in song_ini_paths.iter().enumerate() {
         let relative_path = mods_relative_path(mods_dir, &song_ini_path)?;
-        emit_progress(song_scan_progress(
-            "readingSongs",
-            index + 1,
-            song_ini_paths.len(),
-            &relative_path,
-        ));
+        progress_emitter.emit(
+            song_scan_progress(
+                "readingSongs",
+                index + 1,
+                song_ini_paths.len(),
+                &relative_path,
+            ),
+            false,
+        );
         let contents = match fs::read_to_string(&song_ini_path) {
             Ok(contents) => contents,
             Err(err) => {
@@ -1219,23 +1362,87 @@ where
 
     result.songs_parsed = parsed_songs.len();
     result.songs = scanned_songs(mods_dir, &parsed_songs);
+    for disabled_path in disabled_song_ini_paths {
+        let disabled_relative_path = mods_relative_path(mods_dir, &disabled_path)?;
+        let enabled_relative_path = mods_relative_path(
+            mods_dir,
+            &disabled_path.with_file_name("song.ini"),
+        )?;
+
+        result.disabled_song_ini_paths.push(enabled_relative_path.clone());
+
+        let Ok(contents) = fs::read_to_string(&disabled_path) else {
+            continue;
+        };
+
+        if let Ok(parsed_song) = parse_song_ini(
+            &enabled_relative_path,
+            &normalize_song_ini_key_case(&contents),
+        ) {
+            result.disabled_content_file_issues.extend(song_content_issues(
+                mods_dir,
+                &[parsed_song],
+            )?);
+        } else {
+            result.errors.push(format!(
+                "Disabled {disabled_relative_path} could not be parsed for Content checks."
+            ));
+        }
+    }
     result.duplicate_checksum_groups = duplicate_checksum_groups(&parsed_songs);
     result.song_ini_folder_conflicts = song_ini_folder_conflicts(mods_dir)?;
     result.content_file_issues = song_content_issues_with_progress(
         mods_dir,
         &parsed_songs,
         |current, total, relative_path| {
-            emit_progress(song_scan_progress(
-                "checkingContent",
-                current,
-                total,
-                relative_path,
-            ));
+            progress_emitter.emit(
+                song_scan_progress("checkingContent", current, total, relative_path),
+                false,
+            );
         },
     )?;
-    emit_progress(song_scan_progress("finishing", 0, 0, ""));
+    progress_emitter.emit(song_scan_progress("finishing", 0, 0, ""), true);
     replace_song_ini_store(store, parsed_songs)?;
     Ok(result)
+}
+
+struct SongScanProgressEmitter<F>
+where
+    F: FnMut(SongScanProgress),
+{
+    emit_progress: F,
+    last_emit: Option<Instant>,
+    last_phase: Option<String>,
+}
+
+impl<F> SongScanProgressEmitter<F>
+where
+    F: FnMut(SongScanProgress),
+{
+    fn new(emit_progress: F) -> Self {
+        Self {
+            emit_progress,
+            last_emit: None,
+            last_phase: None,
+        }
+    }
+
+    fn emit(&mut self, progress: SongScanProgress, force: bool) {
+        let phase_changed = self.last_phase.as_deref() != Some(progress.phase.as_str());
+        if !force
+            && !phase_changed
+            && self
+                .last_emit
+                .map(|last_emit| last_emit.elapsed() < Duration::from_secs(1))
+                .unwrap_or(false)
+        {
+            return;
+        }
+
+        self.last_phase = Some(progress.phase.clone());
+        (self.emit_progress)(progress);
+        self.last_emit = Some(Instant::now());
+    }
 }
 
 fn scan_game_icon_categories_paths(
@@ -1929,6 +2136,296 @@ fn official_game_icon_stems(settings: &ScanSettings) -> Vec<String> {
     stems.sort_by_key(|value| value.to_ascii_lowercase());
     stems.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
     stems
+}
+
+fn scan_official_categories_paths(
+    settings: &ScanSettings,
+) -> Result<OfficialCategoryScanResult, String> {
+    let official_checksums = official_game_icon_stems(settings)
+        .into_iter()
+        .filter_map(|stem| {
+            stem.to_ascii_lowercase()
+                .strip_prefix("gamelogo_")
+                .map(str::to_string)
+        })
+        .collect::<HashSet<_>>();
+    let mut paths = Vec::new();
+    let mut errors = Vec::new();
+    collect_category_files(&settings.mods_dir, &settings.mods_dir, &mut paths, &mut errors);
+
+    let mut categories = Vec::new();
+    for path in paths {
+        let relative_path = match mods_relative_path(&settings.mods_dir, &path) {
+            Ok(path) => path,
+            Err(err) => {
+                errors.push(err);
+                continue;
+            }
+        };
+        let contents = match fs::read_to_string(&path) {
+            Ok(contents) => contents,
+            Err(err) => {
+                categories.push(OfficialCategoryFile {
+                    relative_path,
+                    folder_absolute_path: path.parent().unwrap_or(&settings.mods_dir).display().to_string(),
+                    checksum: String::new(),
+                    is_disabled: is_disabled_category_ini(&path),
+                    validation_reasons: vec![format!("Failed to read file: {err}")],
+                });
+                continue;
+            }
+        };
+        let parse_contents = contents.trim_start_matches('\u{feff}');
+        if let Err(err) = validate_unique_ini_keys(&relative_path, parse_contents) {
+            categories.push(OfficialCategoryFile {
+                relative_path,
+                folder_absolute_path: path.parent().unwrap_or(&settings.mods_dir).display().to_string(),
+                checksum: String::new(),
+                is_disabled: is_disabled_category_ini(&path),
+                validation_reasons: vec![err],
+            });
+            continue;
+        }
+        let ini = match Ini::load_from_str(parse_contents) {
+            Ok(ini) => ini,
+            Err(err) => {
+                categories.push(OfficialCategoryFile {
+                    relative_path,
+                    folder_absolute_path: path.parent().unwrap_or(&settings.mods_dir).display().to_string(),
+                    checksum: String::new(),
+                    is_disabled: is_disabled_category_ini(&path),
+                    validation_reasons: vec![format!("Failed to parse CategoryInfo: {err}")],
+                });
+                continue;
+            }
+        };
+        let name = ini_string(&ini, "CategoryInfo", "Name")
+            .map(|value| value.trim().to_string())
+            .unwrap_or_default();
+        let checksum = ini_string(&ini, "CategoryInfo", "Checksum")
+            .map(|value| value.trim().to_string())
+            .unwrap_or_default();
+        let logo = ini_string(&ini, "CategoryInfo", "Logo")
+            .map(|value| value.trim().to_string())
+            .unwrap_or_default();
+        let mut validation_reasons = Vec::new();
+        if name.is_empty() {
+            validation_reasons.push("Missing required [CategoryInfo] Name.".to_string());
+        }
+        if checksum.is_empty() {
+            validation_reasons.push("Missing required [CategoryInfo] Checksum.".to_string());
+        }
+        if logo.is_empty() {
+            validation_reasons.push("Missing required [CategoryInfo] Logo.".to_string());
+        }
+        let matches_official_checksum = !checksum.is_empty()
+            && official_checksums.contains(&checksum.to_ascii_lowercase());
+        if matches_official_checksum {
+            validation_reasons.push(format!(
+                "Category with this checksum already exists: {checksum}."
+            ));
+        }
+        if !matches_official_checksum && validation_reasons.is_empty() {
+            continue;
+        }
+        let is_disabled = is_disabled_category_ini(&path);
+        categories.push(OfficialCategoryFile {
+            relative_path,
+            folder_absolute_path: path.parent().unwrap_or(&settings.mods_dir).display().to_string(),
+            checksum,
+            is_disabled,
+            validation_reasons,
+        });
+    }
+    categories.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+    Ok(OfficialCategoryScanResult { categories, errors })
+}
+
+fn collect_category_files(
+    mods_dir: &Path,
+    dir: &Path,
+    paths: &mut Vec<PathBuf>,
+    errors: &mut Vec<String>,
+) {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(err) => {
+            errors.push(format!("Failed to read folder {}: {err}", dir.display()));
+            return;
+        }
+    };
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(err) => {
+                errors.push(format!("Failed to read entry in {}: {err}", dir.display()));
+                continue;
+            }
+        };
+        let path = entry.path();
+        let file_type = match entry.file_type() {
+            Ok(file_type) => file_type,
+            Err(err) => {
+                errors.push(format!("Failed to inspect {}: {err}", path.display()));
+                continue;
+            }
+        };
+        if file_type.is_dir() {
+            if dir == mods_dir && is_ini_tool_categories_dir(&path) {
+                continue;
+            }
+            collect_category_files(mods_dir, &path, paths, errors);
+        } else if file_type.is_file() && (is_category_ini(&path) || is_disabled_category_ini(&path)) {
+            paths.push(path);
+        }
+    }
+}
+
+fn is_category_ini(path: &Path) -> bool {
+    path.file_name().is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case("category.ini"))
+}
+
+fn is_disabled_category_ini(path: &Path) -> bool {
+    path.file_name().is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case("category.disabled.ini"))
+}
+
+fn disable_official_category_path(settings: &ScanSettings, relative_path: &str) -> Result<(), String> {
+    let path = checked_mods_relative_path(&settings.mods_dir, relative_path)?;
+    if !is_category_ini(&path) {
+        return Err(format!("{relative_path} is not a category.ini file."));
+    }
+    let disabled_path = path.with_file_name("category.disabled.ini");
+    if disabled_path.exists() {
+        return Err(format!("Cannot disable {relative_path} because {} already exists.", mods_relative_path(&settings.mods_dir, &disabled_path)?));
+    }
+    fs::rename(&path, &disabled_path).map_err(|err| format!("Failed to disable {}: {err}", path.display()))
+}
+
+fn enable_official_category_path(settings: &ScanSettings, relative_path: &str) -> Result<(), String> {
+    let path = checked_mods_relative_path_allow_missing(&settings.mods_dir, relative_path)?;
+    if !is_category_ini(&path) {
+        return Err(format!("{relative_path} is not a category.ini file."));
+    }
+    if path.exists() {
+        return Err(format!("{relative_path} is already enabled."));
+    }
+    let disabled_path = path.with_file_name("category.disabled.ini");
+    if !disabled_path.is_file() {
+        return Err(format!("{relative_path} has no disabled category.ini file to enable."));
+    }
+    fs::rename(&disabled_path, &path).map_err(|err| format!("Failed to enable {}: {err}", disabled_path.display()))
+}
+
+fn scan_mods_folder_names_paths(settings: &ScanSettings) -> Result<FolderSanitizeScanResult, String> {
+    let mut paths = Vec::new();
+    let mut errors = Vec::new();
+    collect_mods_folder_paths(&settings.mods_dir, &settings.mods_dir, &mut paths, &mut errors);
+    paths.sort_by(|left, right| left.components().count().cmp(&right.components().count()).then_with(|| left.cmp(right)));
+    let occupied_names = folder_occupied_names(&paths);
+    let mut projected_paths: HashMap<PathBuf, String> = HashMap::new();
+    let mut allocated_names: HashMap<PathBuf, HashSet<String>> = HashMap::new();
+    let mut rows = Vec::new();
+
+    for path in paths {
+        let parent = path.parent().unwrap_or(&settings.mods_dir).to_path_buf();
+        let name = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
+        let is_illegal = has_illegal_mods_folder_name_character(name);
+        let base = sanitize_mods_folder_name(name);
+        let mut sanitized_name = base.clone();
+        let mut requires_collision_suffix = false;
+        let allocated = allocated_names.entry(parent.clone()).or_default();
+        if is_illegal {
+            let occupied = occupied_names.get(&parent).cloned().unwrap_or_default();
+            let original_key = name.to_ascii_lowercase();
+            let mut suffix = 1usize;
+            while (occupied.contains(&sanitized_name.to_ascii_lowercase()) && sanitized_name.to_ascii_lowercase() != original_key)
+                || allocated.contains(&sanitized_name.to_ascii_lowercase())
+            {
+                suffix += 1;
+                sanitized_name = format!("{base} ({suffix})");
+                requires_collision_suffix = true;
+            }
+        }
+        allocated.insert(sanitized_name.to_ascii_lowercase());
+        let projected_parent = projected_paths.get(&parent).cloned().unwrap_or_default();
+        let sanitized_relative_path = if projected_parent.is_empty() { sanitized_name.clone() } else { format!("{projected_parent}/{sanitized_name}") };
+        projected_paths.insert(path.clone(), sanitized_relative_path.clone());
+        if is_illegal {
+            rows.push(FolderSanitizeRow {
+                relative_path: mods_relative_path(&settings.mods_dir, &path)?,
+                absolute_path: path.display().to_string(),
+                sanitized_name,
+                sanitized_relative_path,
+                requires_collision_suffix,
+            });
+        }
+    }
+    rows.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+    Ok(FolderSanitizeScanResult { folders: rows, errors })
+}
+
+fn sanitize_mods_folder_names_paths(settings: &ScanSettings, relative_paths: &[String]) -> Result<FolderSanitizeScanResult, String> {
+    let scan = scan_mods_folder_names_paths(settings)?;
+    let selected = relative_paths.iter().collect::<HashSet<_>>();
+    let mut rows = scan.folders.into_iter().filter(|row| selected.contains(&row.relative_path)).collect::<Vec<_>>();
+    rows.sort_by(|left, right| right.relative_path.matches('/').count().cmp(&left.relative_path.matches('/').count()));
+    let mut errors = scan.errors;
+    for row in rows {
+        let source = match checked_mods_relative_dir(&settings.mods_dir, &row.relative_path) {
+            Ok(path) if path.is_dir() => path,
+            Ok(_) => { errors.push(format!("{} is not a folder.", row.relative_path)); continue; }
+            Err(err) => { errors.push(err); continue; }
+        };
+        let Some(parent) = source.parent() else { errors.push(format!("Cannot rename MODS root folder {}.", source.display())); continue; };
+        let target = parent.join(&row.sanitized_name);
+        if target.exists() { errors.push(format!("Cannot rename {} because {} already exists.", source.display(), target.display())); continue; }
+        if let Err(err) = fs::rename(&source, &target) { errors.push(format!("Failed to rename {} to {}: {err}", source.display(), target.display())); }
+    }
+    let mut refreshed = scan_mods_folder_names_paths(settings)?;
+    refreshed.errors.extend(errors);
+    Ok(refreshed)
+}
+
+fn collect_mods_folder_paths(mods_dir: &Path, dir: &Path, paths: &mut Vec<PathBuf>, errors: &mut Vec<String>) {
+    let entries = match fs::read_dir(dir) { Ok(entries) => entries, Err(err) => { errors.push(format!("Failed to read folder {}: {err}", dir.display())); return; } };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(file_type) = entry.file_type() else { continue; };
+        if !file_type.is_dir() { continue; }
+        if dir == mods_dir && is_ini_tool_categories_dir(&path) { continue; }
+        paths.push(path.clone());
+        collect_mods_folder_paths(mods_dir, &path, paths, errors);
+    }
+}
+
+fn folder_occupied_names(paths: &[PathBuf]) -> HashMap<PathBuf, HashSet<String>> {
+    let mut occupied = HashMap::new();
+    for path in paths {
+        if let (Some(parent), Some(name)) = (path.parent(), path.file_name().and_then(|name| name.to_str())) {
+            occupied.entry(parent.to_path_buf()).or_insert_with(HashSet::new).insert(name.to_ascii_lowercase());
+        }
+    }
+    occupied
+}
+
+fn has_illegal_mods_folder_name_character(value: &str) -> bool {
+    value.chars().any(|character| !character.is_ascii() || character.is_control() || matches!(character, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|'))
+}
+
+fn sanitize_mods_folder_name(value: &str) -> String {
+    let transliterated = deunicode(value);
+    let mut sanitized = String::new();
+    let mut previous_was_space = false;
+    for character in transliterated.chars() {
+        if character == ' ' || character == '\t' {
+            if !previous_was_space { sanitized.push(' '); previous_was_space = true; }
+        } else if character.is_ascii_graphic() && !matches!(character, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
+            sanitized.push(character);
+            previous_was_space = false;
+        }
+    }
+    let sanitized = sanitized.trim_matches(|character: char| character == ' ' || character == '.');
+    if sanitized.is_empty() { "unnamed".to_string() } else { sanitized.to_string() }
 }
 
 fn is_gamelogo_img_xen(path: &Path) -> bool {
@@ -3046,6 +3543,7 @@ fn scanned_song(mods_dir: &Path, song: &ParsedSongIni) -> ScannedSong {
 
     ScannedSong {
         relative_path: song.relative_path.clone(),
+        checksum: song_ini_checksum(song).unwrap_or_default(),
         folder_absolute_path,
         artist: song_info_value(song, "Artist"),
         title: song_info_value(song, "Title"),
@@ -3056,6 +3554,35 @@ fn scanned_song(mods_dir: &Path, song: &ParsedSongIni) -> ScannedSong {
         is_included: is_song_ini(&song_ini_path),
         instruments,
     }
+}
+
+fn csv_escape(value: &str) -> String {
+    if value.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else { value.to_string() }
+}
+
+fn parse_song_backup_csv(contents: &str) -> Result<Vec<SongBackupRow>, String> {
+    let records = parse_csv_records(contents)?;
+    let Some(header) = records.first() else { return Err("The backup CSV is empty.".to_string()); };
+    let expected = ["checksum", "included", "artist", "title", "year", "genre", "gameicon", "relative_folder"];
+    if header.iter().map(String::as_str).collect::<Vec<_>>() != expected { return Err("The backup CSV has unsupported headers.".to_string()); }
+    records.into_iter().skip(1).enumerate().map(|(index, row)| {
+        if row.len() != expected.len() { return Err(format!("CSV row {} has {} columns; expected {}.", index + 2, row.len(), expected.len())); }
+        let included = match row[1].trim().to_ascii_lowercase().as_str() { "true" => true, "false" => false, _ => return Err(format!("CSV row {} has an invalid included value.", index + 2)) };
+        Ok(SongBackupRow { checksum: row[0].clone(), included, artist: row[2].clone(), title: row[3].clone(), year: row[4].clone(), genre: row[5].clone(), gameicon: row[6].clone(), relative_folder: row[7].clone() })
+    }).collect()
+}
+
+fn parse_csv_records(contents: &str) -> Result<Vec<Vec<String>>, String> {
+    let mut records = Vec::new(); let mut row = Vec::new(); let mut field = String::new(); let mut quoted = false; let mut chars = contents.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if quoted { if ch == '"' { if chars.peek() == Some(&'"') { chars.next(); field.push('"'); } else { quoted = false; } } else { field.push(ch); } continue; }
+        match ch { '"' if field.is_empty() => quoted = true, ',' => { row.push(std::mem::take(&mut field)); }, '\n' => { if field.ends_with('\r') { field.pop(); } row.push(std::mem::take(&mut field)); records.push(std::mem::take(&mut row)); }, _ => field.push(ch) }
+    }
+    if quoted { return Err("The backup CSV has an unterminated quoted value.".to_string()); }
+    if !field.is_empty() || !row.is_empty() { row.push(field); records.push(row); }
+    Ok(records)
 }
 
 fn scanned_song_instruments(song_ini_path: &Path, song: &ParsedSongIni) -> ScannedSongInstruments {
@@ -3569,7 +4096,7 @@ fn instrument_analyze_mode_value(mode: InstrumentAnalyzeMode) -> &'static str {
 fn is_known_instrument_value(value: &str) -> bool {
     matches!(
         value,
-        "Unknown" | "No" | "Easy" | "Medium" | "Hard" | "Expert" | "Error"
+        "Unknown" | "No" | "Yes" | "Easy" | "Medium" | "Hard" | "Expert" | "Error"
     )
 }
 
@@ -3682,7 +4209,28 @@ fn difficulty_column(
 }
 
 fn vocals_column(supported: bool, errors: &[String]) -> InstrumentColumnSummary {
-    instrument_column("Vocals", false, false, false, supported, errors)
+    let value = if !supported && !errors.is_empty() {
+        "Error"
+    } else if supported {
+        "Yes"
+    } else {
+        "No"
+    };
+    let tooltip = if value == "Error" {
+        errors.join("\n")
+    } else {
+        format!("Vocals: {value}")
+    };
+
+    InstrumentColumnSummary {
+        value: value.to_string(),
+        tooltip,
+        easy: supported,
+        medium: supported,
+        hard: supported,
+        expert: supported,
+        errors: errors.to_vec(),
+    }
 }
 
 fn empty_column(label: &str, errors: &[String]) -> InstrumentColumnSummary {
@@ -4447,6 +4995,21 @@ fn checked_mods_relative_path(mods_dir: &Path, relative_path: &str) -> Result<Pa
     Ok(canonical_path)
 }
 
+fn checked_mods_relative_dir(mods_dir: &Path, relative_path: &str) -> Result<PathBuf, String> {
+    let full_path = checked_mods_relative_path_allow_missing(mods_dir, relative_path)?;
+    if !full_path.is_dir() {
+        return Err(format!("Skipped {} because it is not a folder.", full_path.display()));
+    }
+    let canonical_path = full_path
+        .canonicalize()
+        .map(normalize_settings_path)
+        .map_err(|err| format!("Failed to resolve {}: {err}", full_path.display()))?;
+    if !canonical_path.starts_with(mods_dir) {
+        return Err(format!("Rejected path outside MODS: {relative_path}."));
+    }
+    Ok(canonical_path)
+}
+
 fn checked_mods_relative_path_allow_missing(
     mods_dir: &Path,
     relative_path: &str,
@@ -4581,6 +5144,13 @@ fn find_excluded_song_ini_files(mods_dir: &Path) -> Result<Vec<PathBuf>, String>
     Ok(excluded_song_ini_paths)
 }
 
+fn find_disabled_song_ini_files(mods_dir: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut disabled_song_ini_paths = Vec::new();
+    collect_disabled_song_ini_files(mods_dir, &mut disabled_song_ini_paths)?;
+    disabled_song_ini_paths.sort();
+    Ok(disabled_song_ini_paths)
+}
+
 fn find_instrument_sidecar_files(mods_dir: &Path) -> Result<Vec<PathBuf>, String> {
     let mut instrument_sidecar_paths = Vec::new();
     collect_instrument_sidecar_files(mods_dir, &mut instrument_sidecar_paths)?;
@@ -4629,6 +5199,31 @@ fn collect_excluded_song_ini_files(
             collect_excluded_song_ini_files(&path, excluded_song_ini_paths)?;
         } else if file_type.is_file() && is_excluded_song_ini(&path) {
             excluded_song_ini_paths.push(path);
+        }
+    }
+
+    Ok(())
+}
+
+fn collect_disabled_song_ini_files(
+    dir: &Path,
+    disabled_song_ini_paths: &mut Vec<PathBuf>,
+) -> Result<(), String> {
+    let entries = fs::read_dir(dir)
+        .map_err(|err| format!("Failed to read folder {}: {err}", dir.display()))?;
+
+    for entry in entries {
+        let entry =
+            entry.map_err(|err| format!("Failed to read entry in {}: {err}", dir.display()))?;
+        let path = entry.path();
+        let file_type = entry
+            .file_type()
+            .map_err(|err| format!("Failed to inspect {}: {err}", path.display()))?;
+
+        if file_type.is_dir() {
+            collect_disabled_song_ini_files(&path, disabled_song_ini_paths)?;
+        } else if file_type.is_file() && is_disabled_song_ini(&path) {
+            disabled_song_ini_paths.push(path);
         }
     }
 
@@ -4942,6 +5537,30 @@ mod tests {
         assert!(licenses.contains("Copyright (c) 2011, Pablo Impallari"));
         assert!(licenses.contains("SIL OPEN FONT LICENSE Version 1.1"));
     }
+
+    #[test]
+    fn song_backup_csv_round_trips_quoted_metadata() {
+        let csv = "checksum,included,artist,title,year,genre,gameicon,relative_folder\nabc,true,\"Artist, The\",\"A \"\"Quoted\"\" Title\",2001,Rock,ghwt,Folder/Sub\n";
+        let rows = parse_song_backup_csv(csv).expect("CSV should parse");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].artist, "Artist, The");
+        assert_eq!(rows[0].title, "A \"Quoted\" Title");
+        assert_eq!(csv_escape(&rows[0].title), "\"A \"\"Quoted\"\" Title\"");
+    }
+
+    #[test]
+    fn song_backup_csv_rejects_invalid_headers_and_rows() {
+        assert!(parse_song_backup_csv("checksum,included\na,true\n").is_err());
+        assert!(parse_song_backup_csv("checksum,included,artist,title,year,genre,gameicon,relative_folder\na,maybe,x,y,,,,Folder\n").is_err());
+    }
+
+    #[test]
+    fn song_backup_timestamp_uses_dated_filename_format() {
+        let timestamp = backup_timestamp().expect("timestamp should be available");
+        assert_eq!(timestamp.len(), 17);
+        assert_eq!(&timestamp[4..5], "-");
+        assert_eq!(&timestamp[7..8], "-");
+    }
     use std::{
         fs,
         time::{SystemTime, UNIX_EPOCH},
@@ -4990,6 +5609,170 @@ mod tests {
             official_gamelogos_dir: None,
             keep_original_song_ini: false,
         }
+    }
+
+    #[test]
+    fn official_category_scan_lists_collisions_and_incomplete_category_info() {
+        let project = TestProject::new("official-category-scan");
+        let official_dir = project.root.join("DATA/IMAGES/GAMELOGOS");
+        write_test_file_contents(&official_dir.join("gamelogo_bh.img.xen"), "official");
+        write_test_file_contents(
+            &project.mods_dir.join("GameIcon/category.ini"),
+            "[CategoryInfo]\nChecksum=BH\nGameIcon=gamelogo_other\n",
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("Logo/category.ini"),
+            "[CategoryInfo]\nChecksum=bh\nLogo=gamelogo_bh\n",
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("Neither/category.ini"),
+            "[CategoryInfo]\nChecksum=bh\n",
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("Other/category.ini"),
+            "[CategoryInfo]\nName=Other\nChecksum=gh3\nLogo=gamelogo_gh3\n",
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("MissingChecksum/category.ini"),
+            "[CategoryInfo]\nName=Incomplete\nLogo=gamelogo_custom\n",
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("MissingSection/category.ini"),
+            "[ModInfo]\nName=Incomplete\n",
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("Malformed/category.ini"),
+            "[CategoryInfo]\nName=First\nName=Second\nChecksum=custom\nLogo=gamelogo_custom\n",
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("IniToolCategories/Generated/category.ini"),
+            "[CategoryInfo]\nChecksum=bh\n",
+        );
+        let settings = ScanSettings {
+            mods_dir: project.mods_dir.clone(),
+            official_gamelogos_dir: Some(official_dir),
+            keep_original_song_ini: true,
+        };
+
+        let result = scan_official_categories_paths(&settings).expect("scan should succeed");
+
+        assert_eq!(result.categories.len(), 6);
+        assert!(result.categories.iter().any(|category| {
+            category.relative_path == "GameIcon/category.ini"
+                && category.validation_reasons.iter().any(|reason| reason.contains("Name"))
+                && category.validation_reasons.iter().any(|reason| reason.contains("Logo"))
+                && category.validation_reasons.iter().any(|reason| reason.contains("Category with this checksum already exists: BH"))
+        }));
+        assert!(result.categories.iter().any(|category| {
+            category.relative_path == "MissingChecksum/category.ini"
+                && category.validation_reasons.iter().any(|reason| reason.contains("Checksum"))
+        }));
+        assert!(result.categories.iter().any(|category| {
+            category.relative_path == "MissingSection/category.ini"
+                && category.validation_reasons.len() == 3
+        }));
+        assert!(result.categories.iter().any(|category| {
+            category.relative_path == "Malformed/category.ini"
+                && category.validation_reasons.iter().any(|reason| reason.contains("duplicate"))
+        }));
+        assert!(!result.categories.iter().any(|category| category.relative_path == "Other/category.ini"));
+    }
+
+    #[test]
+    fn official_category_disable_enable_round_trips_and_detects_disabled_files() {
+        let project = TestProject::new("official-category-disable-enable");
+        let official_dir = project.root.join("DATA/IMAGES/GAMELOGOS");
+        write_test_file_contents(&official_dir.join("gamelogo_bh.img.xen"), "official");
+        write_test_file_contents(
+            &project.mods_dir.join("Band Hero/category.ini"),
+            "[CategoryInfo]\nChecksum=bh\n",
+        );
+        let settings = ScanSettings {
+            mods_dir: project.mods_dir.clone(),
+            official_gamelogos_dir: Some(official_dir),
+            keep_original_song_ini: true,
+        };
+        let relative_path = "Band Hero/category.ini";
+
+        disable_official_category_path(&settings, relative_path).expect("disable should succeed");
+        assert!(disable_official_category_path(&settings, relative_path).is_err());
+        let disabled = scan_official_categories_paths(&settings).expect("scan should succeed");
+        assert_eq!(disabled.categories.len(), 1);
+        assert!(disabled.categories[0].is_disabled);
+        enable_official_category_path(&settings, relative_path).expect("enable should succeed");
+        assert!(enable_official_category_path(&settings, relative_path).is_err());
+        let enabled = scan_official_categories_paths(&settings).expect("scan should succeed");
+        assert!(!enabled.categories[0].is_disabled);
+    }
+
+    #[test]
+    fn official_category_bulk_disable_can_continue_after_a_conflict() {
+        let project = TestProject::new("official-category-bulk-disable");
+        let official_dir = project.root.join("DATA/IMAGES/GAMELOGOS");
+        write_test_file_contents(&official_dir.join("gamelogo_bh.img.xen"), "official");
+        write_test_file_contents(
+            &project.mods_dir.join("First/category.ini"),
+            "[CategoryInfo]\nChecksum=bh\n",
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("Conflict/category.ini"),
+            "[CategoryInfo]\nChecksum=bh\n",
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("Conflict/category.disabled.ini"),
+            "[CategoryInfo]\nChecksum=bh\n",
+        );
+        let settings = ScanSettings {
+            mods_dir: project.mods_dir.clone(),
+            official_gamelogos_dir: Some(official_dir),
+            keep_original_song_ini: true,
+        };
+
+        let paths = scan_official_categories_paths(&settings)
+            .expect("scan should succeed")
+            .categories
+            .into_iter()
+            .filter(|category| !category.is_disabled)
+            .map(|category| category.relative_path)
+            .collect::<Vec<_>>();
+        let failures = paths
+            .iter()
+            .filter(|path| disable_official_category_path(&settings, path).is_err())
+            .count();
+
+        assert_eq!(failures, 1);
+        assert!(project.mods_dir.join("First/category.disabled.ini").is_file());
+        assert!(project.mods_dir.join("Conflict/category.ini").is_file());
+    }
+
+    #[test]
+    fn mods_folder_sanitization_transliterates_nested_names_and_avoids_collisions() {
+        let project = TestProject::new("mods-folder-sanitization");
+        write_test_file_contents(
+            &project.mods_dir.join("Motley Crue/keep.txt"),
+            "existing",
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("Mötley Crüe/Héroes/song.ini"),
+            "nested",
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("IniToolCategories/Mötley Crüe/keep.txt"),
+            "excluded",
+        );
+        let settings = test_scan_settings(&project);
+
+        let scan = scan_mods_folder_names_paths(&settings).expect("scan should succeed");
+        assert_eq!(scan.folders.len(), 2);
+        assert!(scan.folders.iter().any(|row| row.requires_collision_suffix));
+        assert!(scan.folders.iter().all(|row| row.sanitized_name.is_ascii()));
+
+        let paths = scan.folders.iter().map(|row| row.relative_path.clone()).collect::<Vec<_>>();
+        let refreshed = sanitize_mods_folder_names_paths(&settings, &paths)
+            .expect("sanitization should succeed");
+        assert!(refreshed.folders.is_empty(), "{refreshed:?}");
+        assert!(project.mods_dir.join("Motley Crue (2)/Heroes/song.ini").is_file());
+        assert!(project.mods_dir.join("IniToolCategories/Mötley Crüe/keep.txt").is_file());
     }
 
     #[test]
@@ -5467,14 +6250,21 @@ mod tests {
     }
 
     #[test]
-    fn vocals_column_maps_supported_vocals_to_expert() {
+    fn vocals_column_maps_supported_vocals_to_yes_at_all_levels() {
         let supported = vocals_column(true, &[]);
         let unsupported = vocals_column(false, &[]);
         let error = vocals_column(false, &["Missing vocals data.".to_string()]);
 
-        assert_eq!(supported.value, "Expert");
+        assert_eq!(supported.value, "Yes");
+        assert!(supported.easy);
+        assert!(supported.medium);
+        assert!(supported.hard);
         assert!(supported.expert);
         assert_eq!(unsupported.value, "No");
+        assert!(!unsupported.easy);
+        assert!(!unsupported.medium);
+        assert!(!unsupported.hard);
+        assert!(!unsupported.expert);
         assert_eq!(error.value, "Error");
         assert_eq!(error.tooltip, "Missing vocals data.");
     }
@@ -5538,7 +6328,7 @@ mod tests {
             .expect("scan should succeed");
 
         assert_eq!(result.songs[0].instruments.guitar.value, "Expert");
-        assert_eq!(result.songs[0].instruments.vocals.value, "Expert");
+        assert_eq!(result.songs[0].instruments.vocals.value, "Yes");
     }
 
     #[test]
@@ -5566,6 +6356,44 @@ mod tests {
             .expect("scan should succeed");
 
         assert_eq!(result.songs[0].instruments.guitar.value, "Unknown");
+    }
+
+    #[test]
+    fn song_scan_ignores_previous_instrument_analyzer_version() {
+        let project = TestProject::new("instrument-sidecar-previous-version");
+        let song_ini_path = project.mods_dir.join("song.ini");
+        write_test_file_contents(
+            &song_ini_path,
+            valid_song_ini("Previous", "previous_checksum").as_str(),
+        );
+        let identity = current_pak_identity(&song_ini_path, "previous_checksum");
+        let instruments = ScannedSongInstruments {
+            guitar: instrument_column("Guitar", false, false, false, true, &[]),
+            bass: empty_column("Bass", &[]),
+            drums: empty_column("Drums", &[]),
+            vocals: vocals_column(true, &[]),
+            coop_guitar: empty_column("CoopGuitar", &[]),
+            coop_bass: empty_column("CoopBass", &[]),
+        };
+        write_instrument_sidecar(
+            &song_ini_path,
+            "previous_checksum",
+            &identity,
+            &instruments,
+        )
+        .expect("sidecar should write");
+        let sidecar_path = instrument_sidecar_path(&song_ini_path);
+        let previous_contents = fs::read_to_string(&sidecar_path)
+            .expect("sidecar should be readable")
+            .replace("AnalyzerVersion=2", "AnalyzerVersion=1");
+        fs::write(&sidecar_path, previous_contents).expect("sidecar should be writable");
+        let store = SongIniStore::default();
+
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should succeed");
+
+        assert_eq!(result.songs[0].instruments.guitar.value, "Unknown");
+        assert_eq!(result.songs[0].instruments.vocals.value, "Unknown");
     }
 
     #[test]
@@ -5747,11 +6575,9 @@ mod tests {
             .iter()
             .filter(|event| event.phase == "readingSongs")
             .collect::<Vec<_>>();
-        assert_eq!(reading_events.len(), 2);
+        assert_eq!(reading_events.len(), 1);
         assert_eq!(reading_events[0].current, 1);
         assert_eq!(reading_events[0].total, 2);
-        assert_eq!(reading_events[1].current, 2);
-        assert_eq!(reading_events[1].total, 2);
     }
 
     #[test]
@@ -5779,11 +6605,40 @@ mod tests {
             .iter()
             .filter(|event| event.phase == "checkingContent")
             .collect::<Vec<_>>();
-        assert_eq!(content_events.len(), 2);
+        assert_eq!(content_events.len(), 1);
         assert_eq!(content_events[0].current, 1);
         assert_eq!(content_events[0].total, 2);
-        assert_eq!(content_events[1].current, 2);
-        assert_eq!(content_events[1].total, 2);
+    }
+
+    #[test]
+    fn song_scan_progress_emitter_throttles_items_but_emits_phase_changes_and_completion() {
+        let mut events = Vec::new();
+
+        {
+            let mut emitter = SongScanProgressEmitter::new(|event| events.push(event));
+            emitter.emit(song_scan_progress("findingSongs", 0, 0, ""), true);
+            emitter.emit(
+                song_scan_progress("readingSongs", 1, 3, "first/song.ini"),
+                false,
+            );
+            emitter.emit(
+                song_scan_progress("readingSongs", 2, 3, "second/song.ini"),
+                false,
+            );
+            emitter.emit(
+                song_scan_progress("checkingContent", 1, 3, "first/song.ini"),
+                false,
+            );
+            emitter.emit(song_scan_progress("finishing", 0, 0, ""), true);
+        }
+
+        assert_eq!(events.len(), 4);
+        assert_eq!(events[0].phase, "findingSongs");
+        assert_eq!(events[1].phase, "readingSongs");
+        assert_eq!(events[1].current, 1);
+        assert_eq!(events[2].phase, "checkingContent");
+        assert_eq!(events[2].current, 1);
+        assert_eq!(events[3].phase, "finishing");
     }
 
     #[test]
@@ -6450,6 +7305,29 @@ mod tests {
         assert_eq!(result.songs_found, 0);
         assert_eq!(result.songs_parsed, 0);
         assert!(result.duplicate_checksum_groups.is_empty());
+        assert!(store.0.lock().expect("store should lock").is_empty());
+    }
+
+    #[test]
+    fn song_scan_keeps_disabled_content_issues_as_non_active_context() {
+        let project = TestProject::new("song-scan-disabled-content-context");
+        write_test_file_contents(
+            &project.mods_dir.join("Disabled/song.disabled.ini"),
+            valid_song_ini("Disabled", "disabled_checksum").as_str(),
+        );
+        let store = SongIniStore::default();
+
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should complete");
+
+        assert_eq!(result.songs_found, 0);
+        assert_eq!(result.songs_parsed, 0);
+        assert_eq!(result.disabled_song_ini_paths, vec!["Disabled/song.ini"]);
+        assert!(result.disabled_content_file_issues.iter().any(|issue| {
+            issue.song_ini_relative_path == "Disabled/song.ini"
+                && issue.message == "Missing required Content folder."
+        }));
+        assert!(result.content_file_issues.is_empty());
         assert!(store.0.lock().expect("store should lock").is_empty());
     }
 
@@ -8020,6 +8898,37 @@ mod tests {
     }
 
     #[test]
+    fn enabling_disabled_song_refreshes_duplicate_checksum_group() {
+        let project = TestProject::new("song-enable-refreshes-duplicates");
+        write_test_file_contents(
+            &project.mods_dir.join("Active/song.ini"),
+            valid_song_ini("Active", "shared_checksum").as_str(),
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("Disabled/song.disabled.ini"),
+            valid_song_ini("Disabled", "shared_checksum").as_str(),
+        );
+        let settings = test_scan_settings(&project);
+        let store = SongIniStore::default();
+
+        scan_song_ini_files_paths(&settings, &store).expect("scan should populate active song");
+        enable_song_ini_file_path(&settings, "Disabled/song.ini", &store)
+            .expect("disabled song should enable");
+        let refreshed = verify_content_issue_songs_paths(
+            &settings,
+            &["Disabled/song.ini".to_string()],
+            &store,
+        )
+        .expect("enabled song should refresh");
+
+        assert_eq!(refreshed.duplicate_checksum_groups.len(), 1);
+        assert_eq!(
+            refreshed.duplicate_checksum_groups[0].relative_paths,
+            vec!["Active/song.ini", "Disabled/song.ini"]
+        );
+    }
+
+    #[test]
     fn song_enable_allows_invalid_disabled_file_without_updating_store() {
         let project = TestProject::new("song-enable-invalid");
         let disabled_song_ini = "[SongInfo]\nArtist=No title\n";
@@ -8803,6 +9712,8 @@ pub fn run() {
             delete_keep_only_files,
             preview_ini_tool_categories,
             categorize_songs,
+            export_song_backup,
+            import_song_backup,
             scan_song_ini_files,
             validate_song_ini_file,
             undo_song_ini_repair,
@@ -8818,6 +9729,11 @@ pub fn run() {
             fix_game_icon_categories,
             preview_game_icon_song_fixes,
             apply_game_icon_song_fixes,
+            scan_official_categories,
+            disable_official_category,
+            enable_official_category,
+            scan_mods_folder_names,
+            sanitize_mods_folder_names,
             analyze_scanned_song_instruments,
             analyze_song_pak
         ])
