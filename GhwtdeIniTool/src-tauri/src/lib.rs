@@ -1160,13 +1160,14 @@ fn draw_outlined_category_logo_text(
 fn scan_song_ini_files_paths_with_progress<F>(
     settings: &ScanSettings,
     store: &SongIniStore,
-    mut emit_progress: F,
+    emit_progress: F,
 ) -> Result<SongIniScanResult, String>
 where
     F: FnMut(SongScanProgress),
 {
     let mods_dir = &settings.mods_dir;
-    emit_progress(song_scan_progress("findingSongs", 0, 0, ""));
+    let mut progress_emitter = SongScanProgressEmitter::new(emit_progress);
+    progress_emitter.emit(song_scan_progress("findingSongs", 0, 0, ""), true);
     let song_ini_paths = find_scanned_song_ini_files(mods_dir)?;
     let mut result = SongIniScanResult {
         songs_found: song_ini_paths.len(),
@@ -1176,12 +1177,15 @@ where
 
     for (index, song_ini_path) in song_ini_paths.iter().enumerate() {
         let relative_path = mods_relative_path(mods_dir, &song_ini_path)?;
-        emit_progress(song_scan_progress(
-            "readingSongs",
-            index + 1,
-            song_ini_paths.len(),
-            &relative_path,
-        ));
+        progress_emitter.emit(
+            song_scan_progress(
+                "readingSongs",
+                index + 1,
+                song_ini_paths.len(),
+                &relative_path,
+            ),
+            false,
+        );
         let contents = match fs::read_to_string(&song_ini_path) {
             Ok(contents) => contents,
             Err(err) => {
@@ -1225,17 +1229,54 @@ where
         mods_dir,
         &parsed_songs,
         |current, total, relative_path| {
-            emit_progress(song_scan_progress(
-                "checkingContent",
-                current,
-                total,
-                relative_path,
-            ));
+            progress_emitter.emit(
+                song_scan_progress("checkingContent", current, total, relative_path),
+                false,
+            );
         },
     )?;
-    emit_progress(song_scan_progress("finishing", 0, 0, ""));
+    progress_emitter.emit(song_scan_progress("finishing", 0, 0, ""), true);
     replace_song_ini_store(store, parsed_songs)?;
     Ok(result)
+}
+
+struct SongScanProgressEmitter<F>
+where
+    F: FnMut(SongScanProgress),
+{
+    emit_progress: F,
+    last_emit: Option<Instant>,
+    last_phase: Option<String>,
+}
+
+impl<F> SongScanProgressEmitter<F>
+where
+    F: FnMut(SongScanProgress),
+{
+    fn new(emit_progress: F) -> Self {
+        Self {
+            emit_progress,
+            last_emit: None,
+            last_phase: None,
+        }
+    }
+
+    fn emit(&mut self, progress: SongScanProgress, force: bool) {
+        let phase_changed = self.last_phase.as_deref() != Some(progress.phase.as_str());
+        if !force
+            && !phase_changed
+            && self
+                .last_emit
+                .map(|last_emit| last_emit.elapsed() < Duration::from_secs(1))
+                .unwrap_or(false)
+        {
+            return;
+        }
+
+        self.last_phase = Some(progress.phase.clone());
+        (self.emit_progress)(progress);
+        self.last_emit = Some(Instant::now());
+    }
 }
 
 fn scan_game_icon_categories_paths(
@@ -5747,11 +5788,9 @@ mod tests {
             .iter()
             .filter(|event| event.phase == "readingSongs")
             .collect::<Vec<_>>();
-        assert_eq!(reading_events.len(), 2);
+        assert_eq!(reading_events.len(), 1);
         assert_eq!(reading_events[0].current, 1);
         assert_eq!(reading_events[0].total, 2);
-        assert_eq!(reading_events[1].current, 2);
-        assert_eq!(reading_events[1].total, 2);
     }
 
     #[test]
@@ -5779,11 +5818,40 @@ mod tests {
             .iter()
             .filter(|event| event.phase == "checkingContent")
             .collect::<Vec<_>>();
-        assert_eq!(content_events.len(), 2);
+        assert_eq!(content_events.len(), 1);
         assert_eq!(content_events[0].current, 1);
         assert_eq!(content_events[0].total, 2);
-        assert_eq!(content_events[1].current, 2);
-        assert_eq!(content_events[1].total, 2);
+    }
+
+    #[test]
+    fn song_scan_progress_emitter_throttles_items_but_emits_phase_changes_and_completion() {
+        let mut events = Vec::new();
+
+        {
+            let mut emitter = SongScanProgressEmitter::new(|event| events.push(event));
+            emitter.emit(song_scan_progress("findingSongs", 0, 0, ""), true);
+            emitter.emit(
+                song_scan_progress("readingSongs", 1, 3, "first/song.ini"),
+                false,
+            );
+            emitter.emit(
+                song_scan_progress("readingSongs", 2, 3, "second/song.ini"),
+                false,
+            );
+            emitter.emit(
+                song_scan_progress("checkingContent", 1, 3, "first/song.ini"),
+                false,
+            );
+            emitter.emit(song_scan_progress("finishing", 0, 0, ""), true);
+        }
+
+        assert_eq!(events.len(), 4);
+        assert_eq!(events[0].phase, "findingSongs");
+        assert_eq!(events[1].phase, "readingSongs");
+        assert_eq!(events[1].current, 1);
+        assert_eq!(events[2].phase, "checkingContent");
+        assert_eq!(events[2].current, 1);
+        assert_eq!(events[3].phase, "finishing");
     }
 
     #[test]

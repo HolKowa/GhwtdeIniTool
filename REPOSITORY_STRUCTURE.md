@@ -288,8 +288,9 @@ Current backend behavior:
   `restore_original_song_ini` for consuming a sibling `song.original.ini` back
   into the active `song.ini`, plus `restore_all_original_song_ini` for bulk
   restore from normal or pre-format-fix backups.
-- `scan_song_ini_files` emits `song_scan_progress` events while finding songs,
-  reading `song.ini` files, checking content, and finishing.
+- `scan_song_ini_files` emits throttled `song_scan_progress` events while
+  finding songs, reading `song.ini` files, checking content, and finishing;
+  phase transitions and completion emit immediately.
 - Exposes `analyze_scanned_song_instruments`, which analyzes instrument support
   for the current scanned song store in `missing`, `errors`, or `all` mode,
   runs the expensive PAK work on a blocking worker while emitting throttled
