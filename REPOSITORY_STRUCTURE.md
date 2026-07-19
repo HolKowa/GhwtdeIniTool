@@ -140,9 +140,9 @@ Current frontend behavior:
   stays open and lists the backend restore errors.
 - The Scan MODS folder button opens a three-step wizard that parses `song.ini`
   and `song.excluded.ini` files, stores valid parsed results in backend memory,
-  lets the user repair
-  faulty files, then resolves duplicate checksum groups and folders containing
-  multiple `song.ini`, `song.excluded.ini`, or `song.disabled.ini` variants.
+  lets the user repair faulty files, then checks Content files before resolving
+  duplicate checksum groups and folders containing multiple `song.ini`,
+  `song.excluded.ini`, or `song.disabled.ini` variants.
   Faulty step-one entries can be
   edited and repaired with their pre-repair contents preserved as
   `song.original.faulty.ini`, undone after the first edit or repair while the
@@ -152,8 +152,11 @@ Current frontend behavior:
   `song.excluded.ini` when re-enabled. Duplicate checksums are resolved by
   toggling selected songs between `song.ini` and `song.excluded.ini`; same-folder INI conflicts
   list every present variant and can delete files until one remains.
-  The final step validates each active song folder's `Content` and
-  `Content/MUSIC` layout against the parsed checksum, accepts those folder and
+  Disabled `song.disabled.ini` files are also checked for Content issues and
+  appear as resolved, non-blocking cards with an enable action; enabling one
+  restores it as `song.ini` before the final conflict-resolution step. The
+  Content step validates each active song folder's `Content` and `Content/MUSIC`
+  layout against the parsed checksum, accepts those folder and
   checksum-derived file names case-insensitively without renaming them, reports
   missing/misnamed/extra files, requires missing files to be resolved before
   the scan can finish, lists extra files without blocking completion, lets the

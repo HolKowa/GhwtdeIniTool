@@ -132,10 +132,12 @@ export type SongIniScanResult = {
   songs_found: number;
   songs_parsed: number;
   songs: ScannedSong[];
+  disabled_song_ini_paths: string[];
   faulty_files: FaultySongIniFile[];
   duplicate_checksum_groups: DuplicateChecksumGroup[];
   song_ini_folder_conflicts: SongIniFolderConflict[];
   content_file_issues: SongContentIssue[];
+  disabled_content_file_issues: SongContentIssue[];
   errors: string[];
 };
 

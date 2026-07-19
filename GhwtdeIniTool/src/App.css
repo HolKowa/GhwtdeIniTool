@@ -1513,6 +1513,11 @@ td.scanned-songs-action-column {
   margin-top: 0.75rem;
 }
 
+.song-content-issue-group-disabled {
+  border-color: #90a4ae;
+  opacity: 0.8;
+}
+
 .song-conflict-group-header,
 .song-conflict-list li {
   display: grid;
@@ -1552,6 +1557,19 @@ td.scanned-songs-action-column {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.4rem;
+}
+
+.song-content-issue-status {
+  align-self: center;
+  color: #546e7a;
+  font-family: inherit;
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.song-content-issue-status.resolved {
+  color: #2e7d32;
 }
 
 .song-conflict-list {
@@ -2110,6 +2128,10 @@ td.scanned-songs-action-column {
     border-color: #555;
   }
 
+  .song-content-issue-group-disabled {
+    border-color: #78909c;
+  }
+
   .song-conflict-group-header {
     background: #333;
   }
@@ -2124,6 +2146,14 @@ td.scanned-songs-action-column {
 
   .song-conflict-actions {
     color: #f6f6f6;
+  }
+
+  .song-content-issue-status {
+    color: #b0bec5;
+  }
+
+  .song-content-issue-status.resolved {
+    color: #c8e6c9;
   }
 
   .song-conflict-list li + li {

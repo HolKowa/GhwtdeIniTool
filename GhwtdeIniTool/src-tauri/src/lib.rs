@@ -162,10 +162,12 @@ struct SongIniScanResult {
     songs_found: usize,
     songs_parsed: usize,
     songs: Vec<ScannedSong>,
+    disabled_song_ini_paths: Vec<String>,
     faulty_files: Vec<FaultySongIniFile>,
     duplicate_checksum_groups: Vec<DuplicateChecksumGroup>,
     song_ini_folder_conflicts: Vec<SongIniFolderConflict>,
     content_file_issues: Vec<SongContentIssue>,
+    disabled_content_file_issues: Vec<SongContentIssue>,
     errors: Vec<String>,
 }
 
@@ -1231,6 +1233,7 @@ where
     let mut progress_emitter = SongScanProgressEmitter::new(emit_progress);
     progress_emitter.emit(song_scan_progress("findingSongs", 0, 0, ""), true);
     let song_ini_paths = find_scanned_song_ini_files(mods_dir)?;
+    let disabled_song_ini_paths = find_disabled_song_ini_files(mods_dir)?;
     let mut result = SongIniScanResult {
         songs_found: song_ini_paths.len(),
         ..SongIniScanResult::default()
@@ -1285,6 +1288,33 @@ where
 
     result.songs_parsed = parsed_songs.len();
     result.songs = scanned_songs(mods_dir, &parsed_songs);
+    for disabled_path in disabled_song_ini_paths {
+        let disabled_relative_path = mods_relative_path(mods_dir, &disabled_path)?;
+        let enabled_relative_path = mods_relative_path(
+            mods_dir,
+            &disabled_path.with_file_name("song.ini"),
+        )?;
+
+        result.disabled_song_ini_paths.push(enabled_relative_path.clone());
+
+        let Ok(contents) = fs::read_to_string(&disabled_path) else {
+            continue;
+        };
+
+        if let Ok(parsed_song) = parse_song_ini(
+            &enabled_relative_path,
+            &normalize_song_ini_key_case(&contents),
+        ) {
+            result.disabled_content_file_issues.extend(song_content_issues(
+                mods_dir,
+                &[parsed_song],
+            )?);
+        } else {
+            result.errors.push(format!(
+                "Disabled {disabled_relative_path} could not be parsed for Content checks."
+            ));
+        }
+    }
     result.duplicate_checksum_groups = duplicate_checksum_groups(&parsed_songs);
     result.song_ini_folder_conflicts = song_ini_folder_conflicts(mods_dir)?;
     result.content_file_issues = song_content_issues_with_progress(
@@ -4735,6 +4765,13 @@ fn find_excluded_song_ini_files(mods_dir: &Path) -> Result<Vec<PathBuf>, String>
     Ok(excluded_song_ini_paths)
 }
 
+fn find_disabled_song_ini_files(mods_dir: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut disabled_song_ini_paths = Vec::new();
+    collect_disabled_song_ini_files(mods_dir, &mut disabled_song_ini_paths)?;
+    disabled_song_ini_paths.sort();
+    Ok(disabled_song_ini_paths)
+}
+
 fn find_instrument_sidecar_files(mods_dir: &Path) -> Result<Vec<PathBuf>, String> {
     let mut instrument_sidecar_paths = Vec::new();
     collect_instrument_sidecar_files(mods_dir, &mut instrument_sidecar_paths)?;
@@ -4783,6 +4820,31 @@ fn collect_excluded_song_ini_files(
             collect_excluded_song_ini_files(&path, excluded_song_ini_paths)?;
         } else if file_type.is_file() && is_excluded_song_ini(&path) {
             excluded_song_ini_paths.push(path);
+        }
+    }
+
+    Ok(())
+}
+
+fn collect_disabled_song_ini_files(
+    dir: &Path,
+    disabled_song_ini_paths: &mut Vec<PathBuf>,
+) -> Result<(), String> {
+    let entries = fs::read_dir(dir)
+        .map_err(|err| format!("Failed to read folder {}: {err}", dir.display()))?;
+
+    for entry in entries {
+        let entry =
+            entry.map_err(|err| format!("Failed to read entry in {}: {err}", dir.display()))?;
+        let path = entry.path();
+        let file_type = entry
+            .file_type()
+            .map_err(|err| format!("Failed to inspect {}: {err}", path.display()))?;
+
+        if file_type.is_dir() {
+            collect_disabled_song_ini_files(&path, disabled_song_ini_paths)?;
+        } else if file_type.is_file() && is_disabled_song_ini(&path) {
+            disabled_song_ini_paths.push(path);
         }
     }
 
@@ -6704,6 +6766,29 @@ mod tests {
     }
 
     #[test]
+    fn song_scan_keeps_disabled_content_issues_as_non_active_context() {
+        let project = TestProject::new("song-scan-disabled-content-context");
+        write_test_file_contents(
+            &project.mods_dir.join("Disabled/song.disabled.ini"),
+            valid_song_ini("Disabled", "disabled_checksum").as_str(),
+        );
+        let store = SongIniStore::default();
+
+        let result = scan_song_ini_files_paths(&test_scan_settings(&project), &store)
+            .expect("scan should complete");
+
+        assert_eq!(result.songs_found, 0);
+        assert_eq!(result.songs_parsed, 0);
+        assert_eq!(result.disabled_song_ini_paths, vec!["Disabled/song.ini"]);
+        assert!(result.disabled_content_file_issues.iter().any(|issue| {
+            issue.song_ini_relative_path == "Disabled/song.ini"
+                && issue.message == "Missing required Content folder."
+        }));
+        assert!(result.content_file_issues.is_empty());
+        assert!(store.0.lock().expect("store should lock").is_empty());
+    }
+
+    #[test]
     fn song_scan_reports_active_and_disabled_sibling_conflict() {
         let project = TestProject::new("song-scan-disabled-conflict");
         write_test_file_contents(
@@ -8267,6 +8352,37 @@ mod tests {
             disabled_song_ini
         );
         assert_eq!(store.0.lock().expect("store should lock").len(), 1);
+    }
+
+    #[test]
+    fn enabling_disabled_song_refreshes_duplicate_checksum_group() {
+        let project = TestProject::new("song-enable-refreshes-duplicates");
+        write_test_file_contents(
+            &project.mods_dir.join("Active/song.ini"),
+            valid_song_ini("Active", "shared_checksum").as_str(),
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("Disabled/song.disabled.ini"),
+            valid_song_ini("Disabled", "shared_checksum").as_str(),
+        );
+        let settings = test_scan_settings(&project);
+        let store = SongIniStore::default();
+
+        scan_song_ini_files_paths(&settings, &store).expect("scan should populate active song");
+        enable_song_ini_file_path(&settings, "Disabled/song.ini", &store)
+            .expect("disabled song should enable");
+        let refreshed = verify_content_issue_songs_paths(
+            &settings,
+            &["Disabled/song.ini".to_string()],
+            &store,
+        )
+        .expect("enabled song should refresh");
+
+        assert_eq!(refreshed.duplicate_checksum_groups.len(), 1);
+        assert_eq!(
+            refreshed.duplicate_checksum_groups[0].relative_paths,
+            vec!["Active/song.ini", "Disabled/song.ini"]
+        );
     }
 
     #[test]

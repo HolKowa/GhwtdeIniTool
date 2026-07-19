@@ -193,6 +193,7 @@ export function useModsScanner() {
           .filter((song) => song.is_included)
           .map((song) => song.relative_path),
       );
+      setDisabledSongIniPaths(nextSongIniScanResult.disabled_song_ini_paths);
       setOriginalFaultySongIniFiles(
         Object.fromEntries(
           nextSongIniScanResult.faulty_files.map((file) => [
@@ -701,19 +702,32 @@ export function useModsScanner() {
 
       try {
         const result = await enableSongIniFile(relativePath);
+        const refreshedResult = await verifyContentIssueSongsApi([relativePath]);
         setDisabledSongIniPaths((currentPaths) =>
           removePath(currentPaths, relativePath),
         );
-        setIncludedSongPaths((currentPaths) =>
-          result.is_included
-            ? addPath(currentPaths, result.enabled_path)
-            : removePath(currentPaths, relativePath),
+        setIncludedSongPaths(
+          refreshedResult.songs
+            .filter((song) => song.is_included)
+            .map((song) => song.relative_path),
         );
         setSongIniScanResult((currentResult) =>
           currentResult
             ? {
-                ...currentResult,
-                songs_parsed: result.songs_parsed,
+              ...currentResult,
+              songs_parsed: refreshedResult.songs_parsed,
+              songs: refreshedResult.songs,
+              duplicate_checksum_groups: refreshedResult.duplicate_checksum_groups,
+              song_ini_folder_conflicts: refreshedResult.song_ini_folder_conflicts,
+              content_file_issues: refreshedResult.content_file_issues,
+              disabled_song_ini_paths: removePath(
+                currentResult.disabled_song_ini_paths,
+                relativePath,
+              ),
+              disabled_content_file_issues:
+                currentResult.disabled_content_file_issues.filter(
+                  (issue) => issue.song_ini_relative_path !== relativePath,
+                ),
               }
             : currentResult,
         );
