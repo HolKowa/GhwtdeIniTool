@@ -6,12 +6,15 @@ import {
   applyGameIconSongFixes,
   categorizeSongs,
   deleteSongIniConflictFile,
+  disableOfficialCategory,
   disableSongIniFile,
+  enableOfficialCategory,
   enableSongIniFile,
   fixGameIconCategories,
   previewGameIconSongFixes,
   restoreOriginalSongIni,
   scanGameIconCategories,
+  scanOfficialCategories,
   scanSongIniFiles,
   setScannedSongIncluded,
   undoSongIniRepair,
@@ -30,6 +33,7 @@ import type {
   InstrumentAnalyzeMode,
   InstrumentAnalyzeProgress,
   InstrumentAnalyzeResult,
+  OfficialCategoryScanResult,
   ScannedSongMetadata,
   SongScanProgress,
   SongIniScanResult,
@@ -69,6 +73,8 @@ export type GameIconCategoryStatus =
   | "previewing"
   | "applying"
   | "error";
+
+export type OfficialCategoryStatus = "idle" | "scanning" | "disabling" | "enabling" | "error";
 
 export type CategorizeSongsStatus = "idle" | "categorizing" | "error";
 
@@ -151,6 +157,10 @@ export function useModsScanner() {
   const [gameIconSongFixPreview, setGameIconSongFixPreview] =
     useState<GameIconSongFixPreview | null>(null);
   const [gameIconCategoryError, setGameIconCategoryError] = useState("");
+  const [isOfficialCategoryWizardOpen, setIsOfficialCategoryWizardOpen] = useState(false);
+  const [officialCategoryStatus, setOfficialCategoryStatus] = useState<OfficialCategoryStatus>("idle");
+  const [officialCategoryResult, setOfficialCategoryResult] = useState<OfficialCategoryScanResult | null>(null);
+  const [officialCategoryError, setOfficialCategoryError] = useState("");
   const [categorizeSongsStatus, setCategorizeSongsStatus] =
     useState<CategorizeSongsStatus>("idle");
   const [categorizeSongsError, setCategorizeSongsError] = useState("");
@@ -874,6 +884,88 @@ export function useModsScanner() {
     setGameIconCategoryError("");
   }, []);
 
+  const refreshOfficialCategories = useCallback(async () => {
+    setOfficialCategoryStatus("scanning");
+    setOfficialCategoryError("");
+
+    try {
+      await waitForNextFrame();
+      const result = await scanOfficialCategories();
+      setOfficialCategoryResult(result);
+      setOfficialCategoryStatus("idle");
+    } catch (err) {
+      setOfficialCategoryError(String(err));
+      setOfficialCategoryStatus("error");
+    }
+  }, []);
+
+  const openOfficialCategories = useCallback(async () => {
+    setIsOfficialCategoryWizardOpen(true);
+    setIsInstrumentWizardOpen(false);
+    setIsGameIconWizardOpen(false);
+    setOfficialCategoryResult(null);
+    await refreshOfficialCategories();
+  }, [refreshOfficialCategories]);
+
+  const closeOfficialCategories = useCallback(() => {
+    setIsOfficialCategoryWizardOpen(false);
+    setOfficialCategoryStatus("idle");
+    setOfficialCategoryResult(null);
+    setOfficialCategoryError("");
+  }, []);
+
+  const disableOfficialCategoryRow = useCallback(async (relativePath: string) => {
+    setOfficialCategoryStatus("disabling");
+    setOfficialCategoryError("");
+    try {
+      await disableOfficialCategory(relativePath);
+      await refreshOfficialCategories();
+    } catch (err) {
+      setOfficialCategoryError(String(err));
+      setOfficialCategoryStatus("error");
+    }
+  }, [refreshOfficialCategories]);
+
+  const disableAllOfficialCategories = useCallback(async () => {
+    const activeCategories = (officialCategoryResult?.categories ?? []).filter(
+      (category) => !category.is_disabled,
+    );
+
+    if (activeCategories.length === 0) {
+      return;
+    }
+
+    setOfficialCategoryStatus("disabling");
+    setOfficialCategoryError("");
+    const errors: string[] = [];
+
+    for (const category of activeCategories) {
+      try {
+        await disableOfficialCategory(category.relative_path);
+      } catch (err) {
+        errors.push(`${category.relative_path}: ${String(err)}`);
+      }
+    }
+
+    await refreshOfficialCategories();
+
+    if (errors.length > 0) {
+      setOfficialCategoryError(errors.join("\n"));
+    }
+  }, [officialCategoryResult, refreshOfficialCategories]);
+
+  const enableOfficialCategoryRow = useCallback(async (relativePath: string) => {
+    setOfficialCategoryStatus("enabling");
+    setOfficialCategoryError("");
+    try {
+      await enableOfficialCategory(relativePath);
+      await refreshOfficialCategories();
+    } catch (err) {
+      setOfficialCategoryError(String(err));
+      setOfficialCategoryStatus("error");
+    }
+  }, [refreshOfficialCategories]);
+
   const fixGameIconCategoryFolders = useCallback(async () => {
     setGameIconCategoryStatus("fixing");
     setGameIconCategoryError("");
@@ -1120,12 +1212,16 @@ export function useModsScanner() {
     clearCompletedSongScan,
     clearSongIniValidationError,
     closeInstrumentAnalyzer,
+    closeOfficialCategories,
     confirmScan,
     copyContentIssuePath,
     deleteSongIniConflict,
     deletedSongIniConflictPaths,
+    disableOfficialCategoryRow,
+    disableAllOfficialCategories,
     disableSongIni,
     disabledSongIniPaths,
+    enableOfficialCategoryRow,
     enableSongIni,
     fixGameIconCategoryFolders,
     dismissScanToast,
@@ -1141,12 +1237,18 @@ export function useModsScanner() {
     instrumentAnalyzeStatus,
     isGameIconWizardOpen,
     isInstrumentWizardOpen,
+    isOfficialCategoryWizardOpen,
     isScanWizardConflictsOnly,
     isScanWizardOpen,
     closeGameIconCategories,
     openInstrumentAnalyzer,
     openGameIconCategories,
+    openOfficialCategories,
+    officialCategoryError,
+    officialCategoryResult,
+    officialCategoryStatus,
     previewGameIconSongFixRows,
+    refreshOfficialCategories,
     originalFaultySongIniFiles,
     repairedSongIniPaths,
     restoringScannedSongPaths,

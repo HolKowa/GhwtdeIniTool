@@ -403,6 +403,20 @@ struct GameIconSongFixApplyResult {
     content_file_issues: Vec<SongContentIssue>,
 }
 
+#[derive(Clone, Debug, Serialize)]
+struct OfficialCategoryScanResult {
+    categories: Vec<OfficialCategoryFile>,
+    errors: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct OfficialCategoryFile {
+    relative_path: String,
+    folder_absolute_path: String,
+    checksum: String,
+    is_disabled: bool,
+}
+
 #[derive(Clone, Debug)]
 struct CustomGameIconLocation {
     stem: String,
@@ -705,6 +719,32 @@ fn apply_game_icon_song_fixes(
 ) -> Result<GameIconSongFixApplyResult, String> {
     let settings = scan_settings(&settings_store.path)?;
     apply_game_icon_song_fixes_paths(&settings, fixes, &store)
+}
+
+#[tauri::command]
+fn scan_official_categories(
+    settings_store: tauri::State<'_, SettingsStore>,
+) -> Result<OfficialCategoryScanResult, String> {
+    let settings = scan_settings(&settings_store.path)?;
+    scan_official_categories_paths(&settings)
+}
+
+#[tauri::command]
+fn disable_official_category(
+    relative_path: String,
+    settings_store: tauri::State<'_, SettingsStore>,
+) -> Result<(), String> {
+    let settings = scan_settings(&settings_store.path)?;
+    disable_official_category_path(&settings, &relative_path)
+}
+
+#[tauri::command]
+fn enable_official_category(
+    relative_path: String,
+    settings_store: tauri::State<'_, SettingsStore>,
+) -> Result<(), String> {
+    let settings = scan_settings(&settings_store.path)?;
+    enable_official_category_path(&settings, &relative_path)
 }
 
 #[tauri::command]
@@ -2062,6 +2102,143 @@ fn official_game_icon_stems(settings: &ScanSettings) -> Vec<String> {
     stems.sort_by_key(|value| value.to_ascii_lowercase());
     stems.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
     stems
+}
+
+fn scan_official_categories_paths(
+    settings: &ScanSettings,
+) -> Result<OfficialCategoryScanResult, String> {
+    let official_checksums = official_game_icon_stems(settings)
+        .into_iter()
+        .filter_map(|stem| {
+            stem.to_ascii_lowercase()
+                .strip_prefix("gamelogo_")
+                .map(str::to_string)
+        })
+        .collect::<HashSet<_>>();
+    let mut paths = Vec::new();
+    let mut errors = Vec::new();
+    collect_category_files(&settings.mods_dir, &settings.mods_dir, &mut paths, &mut errors);
+
+    let mut categories = Vec::new();
+    for path in paths {
+        let relative_path = match mods_relative_path(&settings.mods_dir, &path) {
+            Ok(path) => path,
+            Err(err) => {
+                errors.push(err);
+                continue;
+            }
+        };
+        let contents = match fs::read_to_string(&path) {
+            Ok(contents) => contents,
+            Err(err) => {
+                errors.push(format!("Failed to read {relative_path}: {err}"));
+                continue;
+            }
+        };
+        let parse_contents = contents.trim_start_matches('\u{feff}');
+        if let Err(err) = validate_unique_ini_keys(&relative_path, parse_contents) {
+            errors.push(err);
+            continue;
+        }
+        let ini = match Ini::load_from_str(parse_contents) {
+            Ok(ini) => ini,
+            Err(err) => {
+                errors.push(format!("Failed to parse {relative_path}: {err}"));
+                continue;
+            }
+        };
+        let Some(checksum) = ini_string(&ini, "CategoryInfo", "Checksum") else {
+            continue;
+        };
+        let checksum = checksum.trim().to_string();
+        if checksum.is_empty() || !official_checksums.contains(&checksum.to_ascii_lowercase()) {
+            continue;
+        }
+        let is_disabled = is_disabled_category_ini(&path);
+        categories.push(OfficialCategoryFile {
+            relative_path,
+            folder_absolute_path: path.parent().unwrap_or(&settings.mods_dir).display().to_string(),
+            checksum,
+            is_disabled,
+        });
+    }
+    categories.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+    Ok(OfficialCategoryScanResult { categories, errors })
+}
+
+fn collect_category_files(
+    mods_dir: &Path,
+    dir: &Path,
+    paths: &mut Vec<PathBuf>,
+    errors: &mut Vec<String>,
+) {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(err) => {
+            errors.push(format!("Failed to read folder {}: {err}", dir.display()));
+            return;
+        }
+    };
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(err) => {
+                errors.push(format!("Failed to read entry in {}: {err}", dir.display()));
+                continue;
+            }
+        };
+        let path = entry.path();
+        let file_type = match entry.file_type() {
+            Ok(file_type) => file_type,
+            Err(err) => {
+                errors.push(format!("Failed to inspect {}: {err}", path.display()));
+                continue;
+            }
+        };
+        if file_type.is_dir() {
+            if dir == mods_dir && is_ini_tool_categories_dir(&path) {
+                continue;
+            }
+            collect_category_files(mods_dir, &path, paths, errors);
+        } else if file_type.is_file() && (is_category_ini(&path) || is_disabled_category_ini(&path)) {
+            paths.push(path);
+        }
+    }
+}
+
+fn is_category_ini(path: &Path) -> bool {
+    path.file_name().is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case("category.ini"))
+}
+
+fn is_disabled_category_ini(path: &Path) -> bool {
+    path.file_name().is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case("category.disabled.ini"))
+}
+
+fn disable_official_category_path(settings: &ScanSettings, relative_path: &str) -> Result<(), String> {
+    let path = checked_mods_relative_path(&settings.mods_dir, relative_path)?;
+    if !is_category_ini(&path) {
+        return Err(format!("{relative_path} is not a category.ini file."));
+    }
+    let disabled_path = path.with_file_name("category.disabled.ini");
+    if disabled_path.exists() {
+        return Err(format!("Cannot disable {relative_path} because {} already exists.", mods_relative_path(&settings.mods_dir, &disabled_path)?));
+    }
+    fs::rename(&path, &disabled_path).map_err(|err| format!("Failed to disable {}: {err}", path.display()))
+}
+
+fn enable_official_category_path(settings: &ScanSettings, relative_path: &str) -> Result<(), String> {
+    let path = checked_mods_relative_path_allow_missing(&settings.mods_dir, relative_path)?;
+    if !is_category_ini(&path) {
+        return Err(format!("{relative_path} is not a category.ini file."));
+    }
+    if path.exists() {
+        return Err(format!("{relative_path} is already enabled."));
+    }
+    let disabled_path = path.with_file_name("category.disabled.ini");
+    if !disabled_path.is_file() {
+        return Err(format!("{relative_path} has no disabled category.ini file to enable."));
+    }
+    fs::rename(&disabled_path, &path).map_err(|err| format!("Failed to enable {}: {err}", disabled_path.display()))
 }
 
 fn is_gamelogo_img_xen(path: &Path) -> bool {
@@ -5230,6 +5407,110 @@ mod tests {
             official_gamelogos_dir: None,
             keep_original_song_ini: false,
         }
+    }
+
+    #[test]
+    fn official_category_scan_uses_checksum_without_requiring_icon_key() {
+        let project = TestProject::new("official-category-scan");
+        let official_dir = project.root.join("DATA/IMAGES/GAMELOGOS");
+        write_test_file_contents(&official_dir.join("gamelogo_bh.img.xen"), "official");
+        write_test_file_contents(
+            &project.mods_dir.join("GameIcon/category.ini"),
+            "[CategoryInfo]\nChecksum=BH\nGameIcon=gamelogo_other\n",
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("Logo/category.ini"),
+            "[CategoryInfo]\nChecksum=bh\nLogo=gamelogo_bh\n",
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("Neither/category.ini"),
+            "[CategoryInfo]\nChecksum=bh\n",
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("Other/category.ini"),
+            "[CategoryInfo]\nChecksum=gh3\n",
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("IniToolCategories/Generated/category.ini"),
+            "[CategoryInfo]\nChecksum=bh\n",
+        );
+        let settings = ScanSettings {
+            mods_dir: project.mods_dir.clone(),
+            official_gamelogos_dir: Some(official_dir),
+            keep_original_song_ini: true,
+        };
+
+        let result = scan_official_categories_paths(&settings).expect("scan should succeed");
+
+        assert_eq!(result.categories.len(), 3);
+        assert!(result.categories.iter().all(|category| category.checksum.eq_ignore_ascii_case("bh")));
+    }
+
+    #[test]
+    fn official_category_disable_enable_round_trips_and_detects_disabled_files() {
+        let project = TestProject::new("official-category-disable-enable");
+        let official_dir = project.root.join("DATA/IMAGES/GAMELOGOS");
+        write_test_file_contents(&official_dir.join("gamelogo_bh.img.xen"), "official");
+        write_test_file_contents(
+            &project.mods_dir.join("Band Hero/category.ini"),
+            "[CategoryInfo]\nChecksum=bh\n",
+        );
+        let settings = ScanSettings {
+            mods_dir: project.mods_dir.clone(),
+            official_gamelogos_dir: Some(official_dir),
+            keep_original_song_ini: true,
+        };
+        let relative_path = "Band Hero/category.ini";
+
+        disable_official_category_path(&settings, relative_path).expect("disable should succeed");
+        assert!(disable_official_category_path(&settings, relative_path).is_err());
+        let disabled = scan_official_categories_paths(&settings).expect("scan should succeed");
+        assert_eq!(disabled.categories.len(), 1);
+        assert!(disabled.categories[0].is_disabled);
+        enable_official_category_path(&settings, relative_path).expect("enable should succeed");
+        assert!(enable_official_category_path(&settings, relative_path).is_err());
+        let enabled = scan_official_categories_paths(&settings).expect("scan should succeed");
+        assert!(!enabled.categories[0].is_disabled);
+    }
+
+    #[test]
+    fn official_category_bulk_disable_can_continue_after_a_conflict() {
+        let project = TestProject::new("official-category-bulk-disable");
+        let official_dir = project.root.join("DATA/IMAGES/GAMELOGOS");
+        write_test_file_contents(&official_dir.join("gamelogo_bh.img.xen"), "official");
+        write_test_file_contents(
+            &project.mods_dir.join("First/category.ini"),
+            "[CategoryInfo]\nChecksum=bh\n",
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("Conflict/category.ini"),
+            "[CategoryInfo]\nChecksum=bh\n",
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("Conflict/category.disabled.ini"),
+            "[CategoryInfo]\nChecksum=bh\n",
+        );
+        let settings = ScanSettings {
+            mods_dir: project.mods_dir.clone(),
+            official_gamelogos_dir: Some(official_dir),
+            keep_original_song_ini: true,
+        };
+
+        let paths = scan_official_categories_paths(&settings)
+            .expect("scan should succeed")
+            .categories
+            .into_iter()
+            .filter(|category| !category.is_disabled)
+            .map(|category| category.relative_path)
+            .collect::<Vec<_>>();
+        let failures = paths
+            .iter()
+            .filter(|path| disable_official_category_path(&settings, path).is_err())
+            .count();
+
+        assert_eq!(failures, 1);
+        assert!(project.mods_dir.join("First/category.disabled.ini").is_file());
+        assert!(project.mods_dir.join("Conflict/category.ini").is_file());
     }
 
     #[test]
@@ -9186,6 +9467,9 @@ pub fn run() {
             fix_game_icon_categories,
             preview_game_icon_song_fixes,
             apply_game_icon_song_fixes,
+            scan_official_categories,
+            disable_official_category,
+            enable_official_category,
             analyze_scanned_song_instruments,
             analyze_song_pak
         ])

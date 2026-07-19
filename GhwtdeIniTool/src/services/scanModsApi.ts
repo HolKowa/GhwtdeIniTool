@@ -11,6 +11,7 @@ import type {
   GameIconSongFixPreview,
   InstrumentAnalyzeMode,
   InstrumentAnalyzeResult,
+  OfficialCategoryScanResult,
   IniToolCategoriesPreview,
   RestoreIniAction,
   RestoreIniResult,
@@ -149,4 +150,16 @@ export function applyGameIconSongFixes(fixes: GameIconSongFixInput[]) {
   return invoke<GameIconSongFixApplyResult>("apply_game_icon_song_fixes", {
     fixes,
   });
+}
+
+export function scanOfficialCategories() {
+  return invoke<OfficialCategoryScanResult>("scan_official_categories");
+}
+
+export function disableOfficialCategory(relativePath: string) {
+  return invoke<void>("disable_official_category", { relativePath });
+}
+
+export function enableOfficialCategory(relativePath: string) {
+  return invoke<void>("enable_official_category", { relativePath });
 }

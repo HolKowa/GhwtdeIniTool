@@ -6,6 +6,7 @@ import { CategorizeWizard } from "./components/CategorizeWizard";
 import { BackupWizard } from "./components/BackupWizard";
 import { ExperimentalWarningDialog } from "./components/ExperimentalWarningDialog";
 import { FixGameIconsWizard } from "./components/FixGameIconsWizard";
+import { FixModsFolderWizard } from "./components/FixModsFolderWizard";
 import { InstrumentAnalyzeWizard } from "./components/InstrumentAnalyzeWizard";
 import { RestoreIniWizard } from "./components/RestoreIniWizard";
 import { ScanToast } from "./components/ScanToast";
@@ -103,12 +104,16 @@ function App() {
     clearCompletedSongScan,
     clearSongIniValidationError,
     closeInstrumentAnalyzer,
+    closeOfficialCategories,
     confirmScan,
     copyContentIssuePath,
     deleteSongIniConflict,
     deletedSongIniConflictPaths,
+    disableAllOfficialCategories,
+    disableOfficialCategoryRow,
     disableSongIni,
     disabledSongIniPaths,
+    enableOfficialCategoryRow,
     enableSongIni,
     fixGameIconCategoryFolders,
     dismissScanToast,
@@ -124,12 +129,18 @@ function App() {
     instrumentAnalyzeStatus,
     isGameIconWizardOpen,
     isInstrumentWizardOpen,
+    isOfficialCategoryWizardOpen,
     isScanWizardConflictsOnly,
     isScanWizardOpen,
     closeGameIconCategories,
     openInstrumentAnalyzer,
     openGameIconCategories,
+    openOfficialCategories,
+    officialCategoryError,
+    officialCategoryResult,
+    officialCategoryStatus,
     previewGameIconSongFixRows,
+    refreshOfficialCategories,
     originalFaultySongIniFiles,
     repairedSongIniPaths,
     restoringScannedSongPaths,
@@ -191,12 +202,14 @@ function App() {
   const isInstrumentAnalyzeBusy = instrumentAnalyzeStatus === "analyzing";
   const isGameIconBusy =
     gameIconCategoryStatus === "scanning" || gameIconCategoryStatus === "fixing";
+  const isOfficialCategoryBusy = officialCategoryStatus === "scanning" || officialCategoryStatus === "disabling" || officialCategoryStatus === "enabling";
   const isWorkflowOpen =
     isRestoreWizardOpen ||
     isCleanWizardOpen ||
     isScanWizardOpen ||
     isInstrumentWizardOpen ||
     isGameIconWizardOpen ||
+    isOfficialCategoryWizardOpen ||
     isCategorizeWizardOpen ||
     isBackupWizardOpen;
   const hasScannedSongs = hasCompletedSongScan && Boolean(songIniScanResult);
@@ -265,6 +278,22 @@ function App() {
           }
         >
           {isCleanBusy ? "Cleaning..." : "Clean MODS folder"}
+        </button>
+        <button
+          className="game-icon-button"
+          type="button"
+          onClick={openOfficialCategories}
+          disabled={
+            isWorkflowOpen ||
+            isScanBusy ||
+            isCleanBusy ||
+            isRestoreBusy ||
+            isInstrumentAnalyzeBusy ||
+            isGameIconBusy ||
+            isOfficialCategoryBusy
+          }
+        >
+          {isOfficialCategoryBusy ? "Verifying..." : "Fix MODS folder"}
         </button>
         <button
           className="scan-button"
@@ -502,6 +531,20 @@ function App() {
           onPreviewFixes={previewGameIconSongFixRows}
           result={gameIconCategoryResult}
           status={gameIconCategoryStatus}
+        />
+      )}
+
+      {isOfficialCategoryWizardOpen && (
+        <FixModsFolderWizard
+          error={officialCategoryError}
+          onClose={closeOfficialCategories}
+          onCopyPath={copyContentIssuePath}
+          onDisableAll={disableAllOfficialCategories}
+          onDisable={disableOfficialCategoryRow}
+          onEnable={enableOfficialCategoryRow}
+          onVerifyAll={refreshOfficialCategories}
+          result={officialCategoryResult}
+          status={officialCategoryStatus}
         />
       )}
 

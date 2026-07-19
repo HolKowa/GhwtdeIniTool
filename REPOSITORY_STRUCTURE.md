@@ -53,6 +53,8 @@ Important files:
   read-only experimental-use disclaimer dialog.
 - `GhwtdeIniTool/src/components/FixGameIconsWizard.tsx` renders the custom
   GameIcon category scan/fix wizard.
+- `GhwtdeIniTool/src/components/FixModsFolderWizard.tsx` renders the official
+  category-checksum collision workflow, including category disable/enable.
 - `GhwtdeIniTool/src/components/InstrumentAnalyzeWizard.tsx` renders the
   separate instrument sidecar analysis wizard and progress state.
 - `GhwtdeIniTool/src/components/RestoreIniWizard.tsx` renders the bulk
@@ -74,14 +76,15 @@ Important files:
 - `GhwtdeIniTool/src/hooks/useIniRestorer.ts` owns bulk `song.ini` restore
   dialog state.
 - `GhwtdeIniTool/src/hooks/useModsScanner.ts` owns `song.ini` scan, step-one
-  undo snapshots, instrument analysis, song categorization, and GameIcon
-  category fixing state.
+  undo snapshots, instrument analysis, song categorization, GameIcon category
+  fixing, and official category collision state.
 - `GhwtdeIniTool/src/hooks/useAppUpdater.ts` owns updater state and actions.
 - `GhwtdeIniTool/src/services/projectSettingsApi.ts` wraps the Tauri settings
   commands.
 - `GhwtdeIniTool/src/services/scanModsApi.ts` wraps the Tauri keep-pattern
   delete, `song.ini` scan/validation/step-one undo/disable/enable/conflict
-  delete, instrument analysis, and GameIcon category commands.
+  delete, instrument analysis, GameIcon category commands, and official
+  category collision commands.
 - `GhwtdeIniTool/src/services/modsFolderDialog.ts` wraps Tauri folder pickers.
 - `GhwtdeIniTool/src/services/scanModsApi.ts` also wraps CSV backup import and
   export commands.

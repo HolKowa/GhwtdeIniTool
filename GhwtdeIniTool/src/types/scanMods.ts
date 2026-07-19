@@ -256,3 +256,15 @@ export type GameIconSongFixApplyResult = {
   song_ini_folder_conflicts: SongIniFolderConflict[];
   content_file_issues: SongContentIssue[];
 };
+
+export type OfficialCategoryFile = {
+  relative_path: string;
+  folder_absolute_path: string;
+  checksum: string;
+  is_disabled: boolean;
+};
+
+export type OfficialCategoryScanResult = {
+  categories: OfficialCategoryFile[];
+  errors: string[];
+};
