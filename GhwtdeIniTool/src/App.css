@@ -59,8 +59,10 @@ button {
   left: 1rem;
   z-index: 5;
   display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
   gap: 0.5rem;
-  width: min(58rem, calc(100vw - 10rem));
+  width: min(70rem, calc(100vw - 10rem));
   text-align: left;
 }
 
@@ -69,7 +71,8 @@ button {
 .scan-button,
 .instrument-button,
 .game-icon-button,
-.categorize-button {
+.categorize-button,
+.backup-button {
   padding: 0.5rem 1rem;
   border: none;
   border-radius: 6px;
@@ -77,6 +80,8 @@ button {
   color: #ffffff;
   font-size: 0.9rem;
   cursor: pointer;
+  flex: 0 0 auto;
+  white-space: nowrap;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
   transition: background 0.2s;
 }
@@ -120,6 +125,23 @@ button {
 .categorize-button {
   background: #616161;
 }
+
+.backup-button {
+  background: #5d4037;
+}
+
+.backup-button:disabled { cursor: not-allowed; opacity: 0.75; }
+.backup-fields { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 1rem; }
+.backup-fields label { min-width: 7rem; }
+.backup-review-groups { margin-top: 0.75rem; }
+.backup-review-card { overflow: hidden; border: 1px solid #d9d9d9; border-radius: 6px; }
+.backup-review-card + .backup-review-card { margin-top: 0.75rem; }
+.backup-review-card-header { padding: 0.55rem 0.65rem; background: #f4f4f4; color: #1f1f1f; font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; font-size: 0.8rem; line-height: 1.35; overflow-wrap: anywhere; }
+.backup-review-change { display: grid; grid-template-columns: 7rem minmax(12rem, 1fr) 1.5rem minmax(12rem, 1fr); align-items: start; gap: 0.75rem; padding: 0.55rem 0.65rem; color: #1f1f1f; font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; font-size: 0.8rem; line-height: 1.35; }
+.backup-review-change + .backup-review-change { border-top: 1px solid #eeeeee; }
+.backup-review-change > span { min-width: 0; overflow-wrap: anywhere; }
+.backup-change-label { font-weight: 600; }
+.backup-change-arrow { text-align: center; }
 
 .restore-button:disabled,
 .clean-button:disabled,
@@ -316,6 +338,44 @@ td.scanned-songs-action-column {
   cursor: pointer;
 }
 
+.scanned-songs-instrument-levels {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.16rem;
+}
+
+.scanned-songs-instrument-level {
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.scanned-songs-instrument-level.available {
+  color: #1d4fae;
+}
+
+.scanned-songs-instrument-level.missing {
+  color: #9a9a9a;
+}
+
+.scanned-songs-vocals-availability {
+  font-weight: 700;
+}
+
+.scanned-songs-vocals-availability.available {
+  color: #1d4fae;
+}
+
+.scanned-songs-vocals-availability.missing,
+.scanned-songs-instrument-state.unknown {
+  color: #777;
+}
+
+.scanned-songs-instrument-state.error {
+  color: #b71c1c;
+  font-weight: 700;
+}
+
 .scanned-songs-metadata-input {
   height: 1.45rem;
 }
@@ -360,11 +420,6 @@ td.scanned-songs-action-column {
 
 .scanned-songs-table tbody tr.selected.duplicate-checksum:hover td {
   background: #ede3bd;
-}
-
-.scanned-songs-empty-value {
-  color: #777;
-  font-style: italic;
 }
 
 .scanned-songs-actions {
@@ -1458,6 +1513,11 @@ td.scanned-songs-action-column {
   margin-top: 0.75rem;
 }
 
+.song-content-issue-group-disabled {
+  border-color: #90a4ae;
+  opacity: 0.8;
+}
+
 .song-conflict-group-header,
 .song-conflict-list li {
   display: grid;
@@ -1497,6 +1557,19 @@ td.scanned-songs-action-column {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.4rem;
+}
+
+.song-content-issue-status {
+  align-self: center;
+  color: #546e7a;
+  font-family: inherit;
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.song-content-issue-status.resolved {
+  color: #2e7d32;
 }
 
 .song-conflict-list {
@@ -1901,10 +1974,6 @@ td.scanned-songs-action-column {
     background: #30446d;
   }
 
-  .scanned-songs-empty-value {
-    color: #aaa;
-  }
-
   .scanned-songs-context-menu {
     border-color: #555;
     background: #242424;
@@ -2059,6 +2128,10 @@ td.scanned-songs-action-column {
     border-color: #555;
   }
 
+  .song-content-issue-group-disabled {
+    border-color: #78909c;
+  }
+
   .song-conflict-group-header {
     background: #333;
   }
@@ -2073,6 +2146,14 @@ td.scanned-songs-action-column {
 
   .song-conflict-actions {
     color: #f6f6f6;
+  }
+
+  .song-content-issue-status {
+    color: #b0bec5;
+  }
+
+  .song-content-issue-status.resolved {
+    color: #c8e6c9;
   }
 
   .song-conflict-list li + li {
