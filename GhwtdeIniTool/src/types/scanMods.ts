@@ -262,9 +262,23 @@ export type OfficialCategoryFile = {
   folder_absolute_path: string;
   checksum: string;
   is_disabled: boolean;
+  validation_reasons: string[];
 };
 
 export type OfficialCategoryScanResult = {
   categories: OfficialCategoryFile[];
+  errors: string[];
+};
+
+export type FolderSanitizeRow = {
+  relative_path: string;
+  absolute_path: string;
+  sanitized_name: string;
+  sanitized_relative_path: string;
+  requires_collision_suffix: boolean;
+};
+
+export type FolderSanitizeScanResult = {
+  folders: FolderSanitizeRow[];
   errors: string[];
 };

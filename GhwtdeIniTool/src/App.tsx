@@ -116,6 +116,9 @@ function App() {
     enableOfficialCategoryRow,
     enableSongIni,
     fixGameIconCategoryFolders,
+    folderSanitizeError,
+    folderSanitizeResult,
+    folderSanitizeStatus,
     dismissScanToast,
     gameIconCategoryError,
     gameIconCategoryResult,
@@ -141,6 +144,7 @@ function App() {
     officialCategoryStatus,
     previewGameIconSongFixRows,
     refreshOfficialCategories,
+    refreshModsFolderNames,
     originalFaultySongIniFiles,
     repairedSongIniPaths,
     restoringScannedSongPaths,
@@ -150,6 +154,7 @@ function App() {
     scanStatus,
     scanToast,
     saveScannedSongMetadata,
+    sanitizeModsFolders,
     savingScannedSongPaths,
     songIniConflictError,
     songIniScanResult,
@@ -537,11 +542,16 @@ function App() {
       {isOfficialCategoryWizardOpen && (
         <FixModsFolderWizard
           error={officialCategoryError}
+          folderError={folderSanitizeError}
+          folderResult={folderSanitizeResult}
+          folderStatus={folderSanitizeStatus}
           onClose={closeOfficialCategories}
           onCopyPath={copyContentIssuePath}
           onDisableAll={disableAllOfficialCategories}
           onDisable={disableOfficialCategoryRow}
           onEnable={enableOfficialCategoryRow}
+          onScanFolders={refreshModsFolderNames}
+          onSanitizeFolders={sanitizeModsFolders}
           onVerifyAll={refreshOfficialCategories}
           result={officialCategoryResult}
           status={officialCategoryStatus}

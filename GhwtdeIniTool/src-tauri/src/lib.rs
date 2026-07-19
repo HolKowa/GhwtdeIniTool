@@ -1,4 +1,5 @@
 use ab_glyph::{FontArc, PxScale};
+use deunicode::deunicode;
 use image::{ImageFormat, Rgba, RgbaImage};
 use imageproc::drawing::{draw_text_mut, text_size};
 use ini::Ini;
@@ -415,6 +416,22 @@ struct OfficialCategoryFile {
     folder_absolute_path: String,
     checksum: String,
     is_disabled: bool,
+    validation_reasons: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct FolderSanitizeScanResult {
+    folders: Vec<FolderSanitizeRow>,
+    errors: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct FolderSanitizeRow {
+    relative_path: String,
+    absolute_path: String,
+    sanitized_name: String,
+    sanitized_relative_path: String,
+    requires_collision_suffix: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -745,6 +762,23 @@ fn enable_official_category(
 ) -> Result<(), String> {
     let settings = scan_settings(&settings_store.path)?;
     enable_official_category_path(&settings, &relative_path)
+}
+
+#[tauri::command]
+fn scan_mods_folder_names(
+    settings_store: tauri::State<'_, SettingsStore>,
+) -> Result<FolderSanitizeScanResult, String> {
+    let settings = scan_settings(&settings_store.path)?;
+    scan_mods_folder_names_paths(&settings)
+}
+
+#[tauri::command]
+fn sanitize_mods_folder_names(
+    relative_paths: Vec<String>,
+    settings_store: tauri::State<'_, SettingsStore>,
+) -> Result<FolderSanitizeScanResult, String> {
+    let settings = scan_settings(&settings_store.path)?;
+    sanitize_mods_folder_names_paths(&settings, &relative_paths)
 }
 
 #[tauri::command]
@@ -2131,27 +2165,67 @@ fn scan_official_categories_paths(
         let contents = match fs::read_to_string(&path) {
             Ok(contents) => contents,
             Err(err) => {
-                errors.push(format!("Failed to read {relative_path}: {err}"));
+                categories.push(OfficialCategoryFile {
+                    relative_path,
+                    folder_absolute_path: path.parent().unwrap_or(&settings.mods_dir).display().to_string(),
+                    checksum: String::new(),
+                    is_disabled: is_disabled_category_ini(&path),
+                    validation_reasons: vec![format!("Failed to read file: {err}")],
+                });
                 continue;
             }
         };
         let parse_contents = contents.trim_start_matches('\u{feff}');
         if let Err(err) = validate_unique_ini_keys(&relative_path, parse_contents) {
-            errors.push(err);
+            categories.push(OfficialCategoryFile {
+                relative_path,
+                folder_absolute_path: path.parent().unwrap_or(&settings.mods_dir).display().to_string(),
+                checksum: String::new(),
+                is_disabled: is_disabled_category_ini(&path),
+                validation_reasons: vec![err],
+            });
             continue;
         }
         let ini = match Ini::load_from_str(parse_contents) {
             Ok(ini) => ini,
             Err(err) => {
-                errors.push(format!("Failed to parse {relative_path}: {err}"));
+                categories.push(OfficialCategoryFile {
+                    relative_path,
+                    folder_absolute_path: path.parent().unwrap_or(&settings.mods_dir).display().to_string(),
+                    checksum: String::new(),
+                    is_disabled: is_disabled_category_ini(&path),
+                    validation_reasons: vec![format!("Failed to parse CategoryInfo: {err}")],
+                });
                 continue;
             }
         };
-        let Some(checksum) = ini_string(&ini, "CategoryInfo", "Checksum") else {
-            continue;
-        };
-        let checksum = checksum.trim().to_string();
-        if checksum.is_empty() || !official_checksums.contains(&checksum.to_ascii_lowercase()) {
+        let name = ini_string(&ini, "CategoryInfo", "Name")
+            .map(|value| value.trim().to_string())
+            .unwrap_or_default();
+        let checksum = ini_string(&ini, "CategoryInfo", "Checksum")
+            .map(|value| value.trim().to_string())
+            .unwrap_or_default();
+        let logo = ini_string(&ini, "CategoryInfo", "Logo")
+            .map(|value| value.trim().to_string())
+            .unwrap_or_default();
+        let mut validation_reasons = Vec::new();
+        if name.is_empty() {
+            validation_reasons.push("Missing required [CategoryInfo] Name.".to_string());
+        }
+        if checksum.is_empty() {
+            validation_reasons.push("Missing required [CategoryInfo] Checksum.".to_string());
+        }
+        if logo.is_empty() {
+            validation_reasons.push("Missing required [CategoryInfo] Logo.".to_string());
+        }
+        let matches_official_checksum = !checksum.is_empty()
+            && official_checksums.contains(&checksum.to_ascii_lowercase());
+        if matches_official_checksum {
+            validation_reasons.push(format!(
+                "Category with this checksum already exists: {checksum}."
+            ));
+        }
+        if !matches_official_checksum && validation_reasons.is_empty() {
             continue;
         }
         let is_disabled = is_disabled_category_ini(&path);
@@ -2160,6 +2234,7 @@ fn scan_official_categories_paths(
             folder_absolute_path: path.parent().unwrap_or(&settings.mods_dir).display().to_string(),
             checksum,
             is_disabled,
+            validation_reasons,
         });
     }
     categories.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
@@ -2239,6 +2314,118 @@ fn enable_official_category_path(settings: &ScanSettings, relative_path: &str) -
         return Err(format!("{relative_path} has no disabled category.ini file to enable."));
     }
     fs::rename(&disabled_path, &path).map_err(|err| format!("Failed to enable {}: {err}", disabled_path.display()))
+}
+
+fn scan_mods_folder_names_paths(settings: &ScanSettings) -> Result<FolderSanitizeScanResult, String> {
+    let mut paths = Vec::new();
+    let mut errors = Vec::new();
+    collect_mods_folder_paths(&settings.mods_dir, &settings.mods_dir, &mut paths, &mut errors);
+    paths.sort_by(|left, right| left.components().count().cmp(&right.components().count()).then_with(|| left.cmp(right)));
+    let occupied_names = folder_occupied_names(&paths);
+    let mut projected_paths: HashMap<PathBuf, String> = HashMap::new();
+    let mut allocated_names: HashMap<PathBuf, HashSet<String>> = HashMap::new();
+    let mut rows = Vec::new();
+
+    for path in paths {
+        let parent = path.parent().unwrap_or(&settings.mods_dir).to_path_buf();
+        let name = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
+        let is_illegal = has_illegal_mods_folder_name_character(name);
+        let base = sanitize_mods_folder_name(name);
+        let mut sanitized_name = base.clone();
+        let mut requires_collision_suffix = false;
+        let allocated = allocated_names.entry(parent.clone()).or_default();
+        if is_illegal {
+            let occupied = occupied_names.get(&parent).cloned().unwrap_or_default();
+            let original_key = name.to_ascii_lowercase();
+            let mut suffix = 1usize;
+            while (occupied.contains(&sanitized_name.to_ascii_lowercase()) && sanitized_name.to_ascii_lowercase() != original_key)
+                || allocated.contains(&sanitized_name.to_ascii_lowercase())
+            {
+                suffix += 1;
+                sanitized_name = format!("{base} ({suffix})");
+                requires_collision_suffix = true;
+            }
+        }
+        allocated.insert(sanitized_name.to_ascii_lowercase());
+        let projected_parent = projected_paths.get(&parent).cloned().unwrap_or_default();
+        let sanitized_relative_path = if projected_parent.is_empty() { sanitized_name.clone() } else { format!("{projected_parent}/{sanitized_name}") };
+        projected_paths.insert(path.clone(), sanitized_relative_path.clone());
+        if is_illegal {
+            rows.push(FolderSanitizeRow {
+                relative_path: mods_relative_path(&settings.mods_dir, &path)?,
+                absolute_path: path.display().to_string(),
+                sanitized_name,
+                sanitized_relative_path,
+                requires_collision_suffix,
+            });
+        }
+    }
+    rows.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+    Ok(FolderSanitizeScanResult { folders: rows, errors })
+}
+
+fn sanitize_mods_folder_names_paths(settings: &ScanSettings, relative_paths: &[String]) -> Result<FolderSanitizeScanResult, String> {
+    let scan = scan_mods_folder_names_paths(settings)?;
+    let selected = relative_paths.iter().collect::<HashSet<_>>();
+    let mut rows = scan.folders.into_iter().filter(|row| selected.contains(&row.relative_path)).collect::<Vec<_>>();
+    rows.sort_by(|left, right| right.relative_path.matches('/').count().cmp(&left.relative_path.matches('/').count()));
+    let mut errors = scan.errors;
+    for row in rows {
+        let source = match checked_mods_relative_dir(&settings.mods_dir, &row.relative_path) {
+            Ok(path) if path.is_dir() => path,
+            Ok(_) => { errors.push(format!("{} is not a folder.", row.relative_path)); continue; }
+            Err(err) => { errors.push(err); continue; }
+        };
+        let Some(parent) = source.parent() else { errors.push(format!("Cannot rename MODS root folder {}.", source.display())); continue; };
+        let target = parent.join(&row.sanitized_name);
+        if target.exists() { errors.push(format!("Cannot rename {} because {} already exists.", source.display(), target.display())); continue; }
+        if let Err(err) = fs::rename(&source, &target) { errors.push(format!("Failed to rename {} to {}: {err}", source.display(), target.display())); }
+    }
+    let mut refreshed = scan_mods_folder_names_paths(settings)?;
+    refreshed.errors.extend(errors);
+    Ok(refreshed)
+}
+
+fn collect_mods_folder_paths(mods_dir: &Path, dir: &Path, paths: &mut Vec<PathBuf>, errors: &mut Vec<String>) {
+    let entries = match fs::read_dir(dir) { Ok(entries) => entries, Err(err) => { errors.push(format!("Failed to read folder {}: {err}", dir.display())); return; } };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(file_type) = entry.file_type() else { continue; };
+        if !file_type.is_dir() { continue; }
+        if dir == mods_dir && is_ini_tool_categories_dir(&path) { continue; }
+        paths.push(path.clone());
+        collect_mods_folder_paths(mods_dir, &path, paths, errors);
+    }
+}
+
+fn folder_occupied_names(paths: &[PathBuf]) -> HashMap<PathBuf, HashSet<String>> {
+    let mut occupied = HashMap::new();
+    for path in paths {
+        if let (Some(parent), Some(name)) = (path.parent(), path.file_name().and_then(|name| name.to_str())) {
+            occupied.entry(parent.to_path_buf()).or_insert_with(HashSet::new).insert(name.to_ascii_lowercase());
+        }
+    }
+    occupied
+}
+
+fn has_illegal_mods_folder_name_character(value: &str) -> bool {
+    value.chars().any(|character| !character.is_ascii() || character.is_control() || matches!(character, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|'))
+}
+
+fn sanitize_mods_folder_name(value: &str) -> String {
+    let transliterated = deunicode(value);
+    let mut sanitized = String::new();
+    let mut previous_was_space = false;
+    for character in transliterated.chars() {
+        if character == ' ' || character == '\t' {
+            if !previous_was_space { sanitized.push(' '); previous_was_space = true; }
+        } else if character.is_ascii_graphic() && !matches!(character, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
+            sanitized.push(character);
+            previous_was_space = false;
+        }
+    }
+    let sanitized = sanitized.trim_matches(|character: char| character == ' ' || character == '.');
+    if sanitized.is_empty() { "unnamed".to_string() } else { sanitized.to_string() }
 }
 
 fn is_gamelogo_img_xen(path: &Path) -> bool {
@@ -4808,6 +4995,21 @@ fn checked_mods_relative_path(mods_dir: &Path, relative_path: &str) -> Result<Pa
     Ok(canonical_path)
 }
 
+fn checked_mods_relative_dir(mods_dir: &Path, relative_path: &str) -> Result<PathBuf, String> {
+    let full_path = checked_mods_relative_path_allow_missing(mods_dir, relative_path)?;
+    if !full_path.is_dir() {
+        return Err(format!("Skipped {} because it is not a folder.", full_path.display()));
+    }
+    let canonical_path = full_path
+        .canonicalize()
+        .map(normalize_settings_path)
+        .map_err(|err| format!("Failed to resolve {}: {err}", full_path.display()))?;
+    if !canonical_path.starts_with(mods_dir) {
+        return Err(format!("Rejected path outside MODS: {relative_path}."));
+    }
+    Ok(canonical_path)
+}
+
 fn checked_mods_relative_path_allow_missing(
     mods_dir: &Path,
     relative_path: &str,
@@ -5410,7 +5612,7 @@ mod tests {
     }
 
     #[test]
-    fn official_category_scan_uses_checksum_without_requiring_icon_key() {
+    fn official_category_scan_lists_collisions_and_incomplete_category_info() {
         let project = TestProject::new("official-category-scan");
         let official_dir = project.root.join("DATA/IMAGES/GAMELOGOS");
         write_test_file_contents(&official_dir.join("gamelogo_bh.img.xen"), "official");
@@ -5428,7 +5630,19 @@ mod tests {
         );
         write_test_file_contents(
             &project.mods_dir.join("Other/category.ini"),
-            "[CategoryInfo]\nChecksum=gh3\n",
+            "[CategoryInfo]\nName=Other\nChecksum=gh3\nLogo=gamelogo_gh3\n",
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("MissingChecksum/category.ini"),
+            "[CategoryInfo]\nName=Incomplete\nLogo=gamelogo_custom\n",
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("MissingSection/category.ini"),
+            "[ModInfo]\nName=Incomplete\n",
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("Malformed/category.ini"),
+            "[CategoryInfo]\nName=First\nName=Second\nChecksum=custom\nLogo=gamelogo_custom\n",
         );
         write_test_file_contents(
             &project.mods_dir.join("IniToolCategories/Generated/category.ini"),
@@ -5442,8 +5656,26 @@ mod tests {
 
         let result = scan_official_categories_paths(&settings).expect("scan should succeed");
 
-        assert_eq!(result.categories.len(), 3);
-        assert!(result.categories.iter().all(|category| category.checksum.eq_ignore_ascii_case("bh")));
+        assert_eq!(result.categories.len(), 6);
+        assert!(result.categories.iter().any(|category| {
+            category.relative_path == "GameIcon/category.ini"
+                && category.validation_reasons.iter().any(|reason| reason.contains("Name"))
+                && category.validation_reasons.iter().any(|reason| reason.contains("Logo"))
+                && category.validation_reasons.iter().any(|reason| reason.contains("Category with this checksum already exists: BH"))
+        }));
+        assert!(result.categories.iter().any(|category| {
+            category.relative_path == "MissingChecksum/category.ini"
+                && category.validation_reasons.iter().any(|reason| reason.contains("Checksum"))
+        }));
+        assert!(result.categories.iter().any(|category| {
+            category.relative_path == "MissingSection/category.ini"
+                && category.validation_reasons.len() == 3
+        }));
+        assert!(result.categories.iter().any(|category| {
+            category.relative_path == "Malformed/category.ini"
+                && category.validation_reasons.iter().any(|reason| reason.contains("duplicate"))
+        }));
+        assert!(!result.categories.iter().any(|category| category.relative_path == "Other/category.ini"));
     }
 
     #[test]
@@ -5511,6 +5743,36 @@ mod tests {
         assert_eq!(failures, 1);
         assert!(project.mods_dir.join("First/category.disabled.ini").is_file());
         assert!(project.mods_dir.join("Conflict/category.ini").is_file());
+    }
+
+    #[test]
+    fn mods_folder_sanitization_transliterates_nested_names_and_avoids_collisions() {
+        let project = TestProject::new("mods-folder-sanitization");
+        write_test_file_contents(
+            &project.mods_dir.join("Motley Crue/keep.txt"),
+            "existing",
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("Mötley Crüe/Héroes/song.ini"),
+            "nested",
+        );
+        write_test_file_contents(
+            &project.mods_dir.join("IniToolCategories/Mötley Crüe/keep.txt"),
+            "excluded",
+        );
+        let settings = test_scan_settings(&project);
+
+        let scan = scan_mods_folder_names_paths(&settings).expect("scan should succeed");
+        assert_eq!(scan.folders.len(), 2);
+        assert!(scan.folders.iter().any(|row| row.requires_collision_suffix));
+        assert!(scan.folders.iter().all(|row| row.sanitized_name.is_ascii()));
+
+        let paths = scan.folders.iter().map(|row| row.relative_path.clone()).collect::<Vec<_>>();
+        let refreshed = sanitize_mods_folder_names_paths(&settings, &paths)
+            .expect("sanitization should succeed");
+        assert!(refreshed.folders.is_empty(), "{refreshed:?}");
+        assert!(project.mods_dir.join("Motley Crue (2)/Heroes/song.ini").is_file());
+        assert!(project.mods_dir.join("IniToolCategories/Mötley Crüe/keep.txt").is_file());
     }
 
     #[test]
@@ -9470,6 +9732,8 @@ pub fn run() {
             scan_official_categories,
             disable_official_category,
             enable_official_category,
+            scan_mods_folder_names,
+            sanitize_mods_folder_names,
             analyze_scanned_song_instruments,
             analyze_song_pak
         ])
