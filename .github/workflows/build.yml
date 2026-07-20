@@ -19,7 +19,41 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  release-version-preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ensure release version has not been published
+        shell: bash
+        run: |
+          version="$(jq -r '.version // empty' GhwtdeIniTool/src-tauri/tauri.conf.json)"
+          if [ -z "$version" ]; then
+            echo "::error::GhwtdeIniTool/src-tauri/tauri.conf.json must contain a release version."
+            exit 1
+          fi
+
+          if [ "$GITHUB_REF" != "refs/heads/main" ] || [ "$GITHUB_EVENT_NAME" != "push" ]; then
+            echo "Not a main push; skipping published-version check."
+            exit 0
+          fi
+
+          tag="v$version"
+          if ! existing_ref="$(git ls-remote --refs origin "refs/tags/$tag")"; then
+            echo "::error::Unable to check whether $tag already exists. Refusing to publish a release."
+            exit 1
+          fi
+
+          if [ -n "$existing_ref" ]; then
+            echo "::error::Release tag $tag already exists. Update GhwtdeIniTool/src-tauri/tauri.conf.json to a new version before merging to main."
+            exit 1
+          fi
+
+          echo "Release tag $tag is available."
+
   build-windows:
+    needs: release-version-preflight
     runs-on: windows-latest
     permissions:
       contents: write
@@ -138,6 +172,7 @@ jobs:
           updaterJsonPreferNsis: true
 
   build-linux:
+    needs: release-version-preflight
     if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && github.event.inputs.build-linux == 'true')
     runs-on: ubuntu-22.04
     permissions:

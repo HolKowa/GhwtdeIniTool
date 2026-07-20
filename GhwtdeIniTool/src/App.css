@@ -28,7 +28,7 @@ body {
   position: relative;
   margin: 0;
   height: 100vh;
-  padding: 5rem 1.5rem 2rem;
+  padding: 1rem 1.5rem 2rem;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -53,16 +53,21 @@ button {
   margin-right: 5px;
 }
 
-.scan-panel {
-  position: fixed;
-  top: 1rem;
-  left: 1rem;
-  z-index: 5;
+.top-bar {
+  width: 100%;
   display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.scan-panel {
+  display: flex;
+  flex: 1 1 0;
   flex-wrap: wrap;
+  min-width: 0;
   align-items: flex-start;
   gap: 0.5rem;
-  width: min(70rem, calc(100vw - 10rem));
   text-align: left;
 }
 
@@ -159,6 +164,10 @@ button {
 
 .scanned-songs {
   width: 100%;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
   text-align: left;
 }
 
@@ -190,7 +199,8 @@ button {
 
 .scanned-songs-table-wrap {
   box-sizing: border-box;
-  max-height: calc(100vh - 8rem);
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
   border: 1px solid #d9d9d9;
   border-radius: 6px;
@@ -488,11 +498,8 @@ td.scanned-songs-action-column {
 }
 
 .app-controls {
-  position: fixed;
-  top: 1rem;
-  right: 1rem;
-  z-index: 5;
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: flex-end;
   gap: 1rem;
@@ -2245,8 +2252,13 @@ td.scanned-songs-action-column {
 }
 
 @media (max-width: 560px) {
+  .top-bar {
+    flex-direction: column-reverse;
+    gap: 1rem;
+  }
+
   .app-controls {
-    left: 1rem;
+    width: 100%;
     gap: 0.75rem;
   }
 
@@ -2256,20 +2268,21 @@ td.scanned-songs-action-column {
   }
 
   .container {
-    padding-top: 8.5rem;
+    padding-top: 1rem;
   }
 
   .scan-panel {
-    top: 4rem;
     flex-direction: column;
-    width: calc(100vw - 2rem);
+    width: 100%;
   }
 
   .restore-button,
   .clean-button,
   .scan-button,
   .instrument-button,
-  .categorize-button {
+  .game-icon-button,
+  .categorize-button,
+  .backup-button {
     width: 100%;
   }
 
