@@ -423,6 +423,9 @@ Current workflow behavior:
   builds. A portable executable is replaced manually; its updater action starts
   the NSIS installer instead of replacing the portable file.
 - Creates a GitHub release when pushing to `main`.
+- Before any build starts, checks that the `v<version>` derived from
+  `tauri.conf.json` has not already been published; integration and manual
+  artifact-only builds skip that release-tag check.
 
 ## Tests
 

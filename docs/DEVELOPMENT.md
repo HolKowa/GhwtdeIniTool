@@ -223,6 +223,8 @@ On pushes to `main`:
 - A GitHub Release is created automatically by `tauri-apps/tauri-action`.
 - The release tag/name uses the app version from Tauri.
 - `latest.json` includes updater metadata for Windows and the Linux AppImage.
+- Release versions are immutable. Before either release build starts, the
+  workflow fails if the matching `v<version>` tag already exists.
 
 On `integration`, use **Actions** → **Build & Release** → **Run workflow** and
 enable **Also build for Linux** to upload a signed AppImage as a workflow
@@ -232,6 +234,8 @@ metadata.
 Before creating a release:
 
 1. Update the app version in `src-tauri/tauri.conf.json`.
+   Every corrected release must use a new version; do not reuse a published
+   version or tag.
 2. Make sure no local updater endpoint override is being used for the release:
 
 ```sh
