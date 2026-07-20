@@ -217,8 +217,11 @@ Current frontend behavior:
   table header shows included, visible, and total row counts, duplicate checksum
   rows are faintly highlighted, and re-including multiple songs from the same
   duplicate group reopens the duplicate resolver directly on the conflict step.
-  The top action row includes Categorize alongside Analyze instruments and Fix
-  GameIcons. Categorize uses a two-step wizard: it reports the table sort order,
+  The responsive top action bar includes Categorize alongside Analyze instruments,
+  Fix GameIcons, and Backup; it shares desktop space with the experimental-warning,
+  About, and Settings controls, and wraps in normal document flow so the scanned-song
+  table moves down when more action rows are needed. Categorize uses a two-step wizard:
+  it reports the table sort order,
   active filters, unsaved metadata edits, selected-song cap, projected 200-song
   categories, and whether the existing `IniToolCategories` folder contains
   files other than `category.ini`; its review step shows each generated category

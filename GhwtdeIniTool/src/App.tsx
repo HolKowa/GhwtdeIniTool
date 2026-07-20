@@ -255,21 +255,22 @@ function App() {
 
   return (
     <main className="container">
-      <div className="scan-panel">
-        <button
-          className="restore-button"
-          type="button"
-          onClick={openRestoreWizard}
-          disabled={
-            isWorkflowOpen ||
-            isScanBusy ||
-            isCleanBusy ||
-            isRestoreBusy ||
-            isGameIconBusy
-          }
-        >
-          {isRestoreBusy ? "Restoring..." : "Restore INI files"}
-        </button>
+      <div className="top-bar">
+        <div className="scan-panel">
+          <button
+            className="restore-button"
+            type="button"
+            onClick={openRestoreWizard}
+            disabled={
+              isWorkflowOpen ||
+              isScanBusy ||
+              isCleanBusy ||
+              isRestoreBusy ||
+              isGameIconBusy
+            }
+          >
+            {isRestoreBusy ? "Restoring..." : "Restore INI files"}
+          </button>
         <button
           className="clean-button"
           type="button"
@@ -368,6 +369,32 @@ function App() {
         {hasScannedSongs && (
           <button className="backup-button" type="button" onClick={() => setIsBackupWizardOpen(true)} disabled={!canCategorize || isScanBusy || isCleanBusy || isRestoreBusy || isInstrumentAnalyzeBusy || isGameIconBusy}>Backup</button>
         )}
+        </div>
+
+        <div className="app-controls">
+          <button
+            className="experimental-warning-button"
+            type="button"
+            onClick={() => setIsExperimentalWarningOpen(true)}
+          >
+            Experimental software, use at your own risk!!!
+          </button>
+          <button
+            className="about-button"
+            type="button"
+            onClick={() => setIsAboutOpen(true)}
+          >
+            About
+          </button>
+          <button
+            className="settings-button"
+            type="button"
+            onClick={() => setIsSettingsOpen(true)}
+            aria-label="Open settings"
+          >
+            Settings
+          </button>
+        </div>
       </div>
 
       {hasScannedSongs && songIniScanResult && (
@@ -388,31 +415,6 @@ function App() {
           songs={songIniScanResult?.songs ?? []}
         />
       )}
-
-      <div className="app-controls">
-        <button
-          className="experimental-warning-button"
-          type="button"
-          onClick={() => setIsExperimentalWarningOpen(true)}
-        >
-          Experimental software, use at your own risk!!!
-        </button>
-        <button
-          className="about-button"
-          type="button"
-          onClick={() => setIsAboutOpen(true)}
-        >
-          About
-        </button>
-        <button
-          className="settings-button"
-          type="button"
-          onClick={() => setIsSettingsOpen(true)}
-          aria-label="Open settings"
-        >
-          Settings
-        </button>
-      </div>
 
       {isSettingsOpen && (
         <SettingsDialog
